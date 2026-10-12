@@ -35,6 +35,19 @@ jobs:
         with:
           fetch-depth: 1
 
+      # The skills in .claude/skills load from the checkout; graphify needs its CLI.
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: false
+
+      - name: Install graphify and build the code graph
+        env:
+          GRAPHIFY_VERSION: "0.9.88"
+        run: |
+          uv tool install "graphifyy==${GRAPHIFY_VERSION}"
+          uv tool dir --bin >> "$GITHUB_PATH"
+          "$(uv tool dir --bin)/graphify" update .
+
       - name: Run Claude Code
         uses: anthropics/claude-code-action@v1
         with:
@@ -43,5 +56,9 @@ jobs:
           # Or, with an Anthropic API key instead, replace the line above with:
           # anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
-          # Optional:
-          # claude_args: "--max-turns 10"
+          # graphify queries and refreshes the graph; the issue-tracker skills
+          # (/to-spec, /to-tickets, /triage) use `gh issue` and `gh label list`.
+          claude_args: >-
+            --allowedTools "Bash(graphify query:*),Bash(graphify path:*),Bash(graphify explain:*),Bash(graphify update:*),Bash(gh issue:*),Bash(gh label list:*)"
+          # Optional, appended to the line above:
+          #   --max-turns 10

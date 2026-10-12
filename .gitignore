@@ -1,0 +1,6 @@
+# graphify: the graph is built locally and in CI (see .github/workflows/graphify.yml)
+graphify-out/
+*.graphify-bak
+
+# Claude Code: personal settings
+.claude/settings.local.json
