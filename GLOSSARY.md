@@ -2,7 +2,11 @@
 
 Shello is an iOS and iPadOS app for working on remote servers over SSH, Mosh and VNC. This glossary fixes the words the spec, the code and the agents use for its concepts.
 
-## Hosts and servers
+## Devices, hosts and servers
+
+**Device**:
+The iPhone or iPad running Shello.
+_Avoid_: Phone (except for something only an iPhone has), handset
 
 **Host**:
 A saved entry in Shello that holds everything needed to reach one server as one user. Two hosts can point at the same server.
@@ -112,6 +116,10 @@ _Avoid_: Device key, local key
 **Imported key**:
 An SSH key the user brought into Shello from elsewhere.
 _Avoid_: External key
+
+**SSH agent**:
+Shello holding the user's SSH keys and signing for servers on request, for agent forwarding and key-based sudo.
+_Avoid_: Agent (on its own), key agent
 
 **Unlock window**:
 The time after the user passes app lock during which Shello and its SSH keys work without another prompt. It ends when app lock re-engages.
