@@ -13,6 +13,19 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 
+## Claude Code cloud sessions
+
+Cloud sessions block GitHub's GraphQL API, so every `gh issue` command fails there with `HTTP 403`. Use these REST calls through `gh api` instead; `gh` fills in `{owner}/{repo}` from `git remote`. Write multi-line bodies to a file first and pass it with `-F body=@file`.
+
+- **Create an issue**: `gh api 'repos/{owner}/{repo}/issues' -f title="..." -F body=@body.md -f 'labels[]=needs-triage'`
+- **Read an issue**: `gh api 'repos/{owner}/{repo}/issues/<n>' --jq '{number, title, body, state, labels: [.labels[].name]}'`, and its comments with `gh api 'repos/{owner}/{repo}/issues/<n>/comments' --jq '[.[].body]'`
+- **List issues**: `gh api 'repos/{owner}/{repo}/issues?state=open&labels=<label>' --paginate --jq '[.[] | select(.pull_request | not) | {number, title, labels: [.labels[].name]}]'`. This endpoint also returns pull requests; the `select` drops them.
+- **Comment on an issue**: `gh api 'repos/{owner}/{repo}/issues/<n>/comments' -F body=@comment.md`
+- **Apply / remove labels**: `gh api 'repos/{owner}/{repo}/issues/<n>/labels' -f 'labels[]=...'` / `gh api -X DELETE 'repos/{owner}/{repo}/issues/<n>/labels/<label>'`
+- **Close**: comment first, then `gh api -X PATCH 'repos/{owner}/{repo}/issues/<n>' -f state=closed -f state_reason=completed` (`not_planned` for won't-fix)
+- **Claim**: `gh api 'repos/{owner}/{repo}/issues/<n>/assignees' -f "assignees[]=$(gh api user --jq .login)"`
+- **Sub-issues and blocking**: use the `gh api` forms given above; they already work in cloud sessions.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_

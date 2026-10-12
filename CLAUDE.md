@@ -8,7 +8,7 @@ Skills in `.claude/skills/` are vendored copies: Matt Pocock's skills (v1.3.1) a
 
 ### Issue tracker
 
-Issues are tracked in this repo's GitHub Issues, using the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues are tracked in this repo's GitHub Issues, using the `gh` CLI (REST calls through `gh api` in Claude Code cloud sessions). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
