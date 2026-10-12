@@ -16,6 +16,18 @@ _Avoid_: Machine, box, remote
 The key a server proves its identity with. Trust in a host key belongs to the server, so it covers every host that points at that server.
 _Avoid_: Server key, fingerprint (the fingerprint is how a host key is shown)
 
+**Group**:
+The one group a host belongs to, if any. New hosts in a group inherit its defaults. Groups do not nest.
+_Avoid_: Folder, category
+
+**Tag**:
+A label on a host. A host can have any number of tags.
+_Avoid_: Label, category
+
+**Production host**:
+A host with at least one tag marked production. Shello asks for extra confirmation before risky actions on it.
+_Avoid_: Prod server, critical host
+
 ## Tabs and connections
 
 **Tab**:
@@ -38,11 +50,43 @@ _Avoid_: Side channel, exec channel, background channel
 A separate SSH connection a Mosh tab opens when it needs hidden channels, file transfer or port forwards.
 _Avoid_: Helper connection, SSH session
 
+**Reconnect**:
+Giving a tab a new connection after its old one dropped.
+_Avoid_: Re-establish, recover
+
+**Reattach**:
+Rejoining the same tmux session after a reconnect.
+_Avoid_: Rejoin
+
+**Resume**:
+A Mosh tab carrying on over its existing connection after sleep or a network change, with no reconnect.
+_Avoid_: Recover, reconnect (for Mosh)
+
+**Restore**:
+Recreating the last open tabs after the app was terminated.
+_Avoid_: Relaunch restore, recover
+
+**Foreground command**:
+The program in the foreground of a tab's terminal, or of the active tmux pane in it.
+_Avoid_: Current process, running app
+
 ## Keyboard
 
 **Key**:
 A key the user presses: on the Shello keyboard, the extra keys row, a pad or a hardware keyboard. Never an SSH key or a host key.
 _Avoid_: Button
+
+**Extra keys row**:
+The scrollable row of terminal keys above whichever keyboard is active.
+_Avoid_: Toolbar, accessory bar
+
+**Custom key**:
+A key whose output the user defines. It can point at a snippet.
+_Avoid_: Macro key, shortcut
+
+**Preset**:
+A named set of keys for the extra keys row.
+_Avoid_: Layout, key profile
 
 **Swipe key**:
 The key in the extra keys row that sends arrow keys while the user drags across it.
@@ -80,6 +124,20 @@ _Avoid_: Sudo fill, sudo autofill
 **Key-based sudo**:
 Sudo approved by a signature from the user's SSH key instead of a password. A host uses either auto sudo or key-based sudo, never both.
 _Avoid_: Passwordless sudo, auto sudo mode
+
+## Snippets
+
+**Snippet**:
+A saved command with variables, inserted or run in a tab or run on several hosts.
+_Avoid_: Macro, script, alias
+
+**Multi-host run**:
+Running one snippet on several hosts at once, with results per host.
+_Avoid_: Multi-host snippets, fan-out
+
+**Broadcast typing**:
+Sending the user's keystrokes to several open tabs at once.
+_Avoid_: Sync typing, synchronized panes
 
 ## Buying Shello
 
