@@ -4,3 +4,6 @@ graphify-out/
 
 # Claude Code: personal settings
 .claude/settings.local.json
+
+# Claude Code: personal instructions (shared ones live in CLAUDE.md)
+CLAUDE.local.md
