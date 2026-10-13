@@ -1,6 +1,8 @@
 # Shello
 
-Shello is an iOS and iPadOS app for SSH, Mosh, tmux, SFTP and VNC. `README.md` is the functional specification; read it before proposing changes.
+Shello is an iOS and iPadOS app for SSH, Mosh, tmux, SFTP and VNC. `README.md` is the functional specification and `docs/spec/STACK.md` the technical stack; read the relevant one before proposing changes.
+
+Two developers work on this repository, each with their own Claude Code. Follow the working rules in @CONTRIBUTING.md: claim an issue before starting it, one branch and one pull request per issue, never push to `main`.
 
 Skills in `.claude/skills/` are vendored copies: Matt Pocock's skills (v1.3.1) and graphify (0.9.88). See `.claude/skills/THIRD_PARTY_NOTICES.md` before editing or updating them.
 
