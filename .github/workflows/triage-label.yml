@@ -1,6 +1,8 @@
 name: Triage label
 
 # Every new issue gets `needs-triage`, so nothing skips the queue.
+# Issues opened with a triage label already set (for example by /to-tickets,
+# which publishes tickets as ready-for-agent or ready-for-human) are left alone.
 # Adapted from mattpocock/skills (MIT); labels are defined in docs/agents/triage-labels.md.
 
 on:
@@ -11,6 +13,12 @@ permissions: {}
 
 jobs:
   label:
+    if: >-
+      !contains(github.event.issue.labels.*.name, 'needs-triage') &&
+      !contains(github.event.issue.labels.*.name, 'needs-info') &&
+      !contains(github.event.issue.labels.*.name, 'ready-for-agent') &&
+      !contains(github.event.issue.labels.*.name, 'ready-for-human') &&
+      !contains(github.event.issue.labels.*.name, 'wontfix')
     runs-on: ubuntu-latest
     permissions:
       issues: write
