@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shello — Vim mode</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap">
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #0A0B0D; color: #EDEFF2; font-family: 'Geist', -apple-system, 'SF Pro Text', system-ui, sans-serif; display: flex; flex-direction: column">
+
+  <header style="padding-top: 54px; flex: none">
+    <div style="height: 48px; display: flex; align-items: center; gap: 2px; padding: 0 6px">
+      <a href="Terminal.dc.html" aria-label="Back to terminal" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: {{accent}}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </a>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px">
+        <div style="display: flex; align-items: center; gap: 7px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 14px; font-weight: 600"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 4px; background: #46D39A"></span>prod-api-01</div>
+        <div style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #868C94">vim detected · pad on</div>
+      </div>
+      <span style="height: 26px; padding: 0 9px; border-radius: 7px; background: {{modeBg}}; color: #16130B; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; display: flex; align-items: center; margin-right: 8px">{{modeShort}}</span>
+    </div>
+    <nav aria-label="Sessions" style="display: flex; gap: 6px; padding: 2px 12px 8px; overflow: hidden">
+      <a href="Terminal.dc.html" style="height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid #1F2226; display: flex; align-items: center; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #A3A9B1; flex: none; box-sizing: border-box">prod-api-01</a>
+      <a href="Vim.dc.html" aria-current="page" style="height: 30px; padding: 0 10px; border-radius: 8px; background: #1B1E22; border: 1px solid #2E3238; display: flex; align-items: center; gap: 7px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; flex: none; box-sizing: border-box"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 3px; background: {{accent}}"></span>vim compose.yml</a>
+      <a href="Tmux.dc.html" style="height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid #1F2226; display: flex; align-items: center; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #A3A9B1; flex: none; box-sizing: border-box">forge:main</a>
+    </nav>
+  </header>
+
+  <div role="region" aria-label="Vim buffer" style="flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; line-height: 18px; color: #D8DCE1">
+    <div style="flex: 1; min-height: 0; overflow: hidden; padding-top: 4px">
+      <sc-for list="{{lines}}" as="l" hint-placeholder-count="17">
+        <div style="display: flex; background: {{l.bg}}; padding-right: 10px">
+          <span style="flex: none; width: 34px; padding-right: 10px; box-sizing: border-box; text-align: right; color: {{l.numColor}}">{{l.num}}</span>
+          <span style="white-space: pre">{{l.ind}}</span><span style="white-space: pre; background: {{l.curBg}}; color: {{l.firstColor}}; box-shadow: {{l.curShadow}}">{{l.first}}</span><span style="white-space: pre; color: #6CB6FF">{{l.restK}}</span><span style="white-space: pre; color: #7D8590">{{l.colon}}</span><span style="white-space: pre; color: {{l.vc}}">{{l.v}}</span>
+        </div>
+      </sc-for>
+      <div style="display: flex"><span style="width: 34px; padding-right: 10px; box-sizing: border-box; text-align: right; color: #4A5058">~</span></div>
+    </div>
+    <div style="flex: none; height: 20px; display: flex; align-items: center; background: #15171A; font-size: 11.5px">
+      <span style="height: 20px; padding: 0 8px; display: flex; align-items: center; background: {{modeBg}}; color: #16130B; font-weight: 800">{{modeLabel}}</span>
+      <span style="padding: 0 8px; color: #EDEFF2">docker-compose.yml <span style="color: #E8C46B">[+]</span></span>
+      <span style="flex: 1"></span>
+      <span style="padding: 0 10px; color: #A3A9B1">yaml  {{line}}:5  {{pct}}%</span>
+    </div>
+    <div style="flex: none; height: 22px; display: flex; align-items: center; padding: 0 10px; font-size: 11.5px; color: {{cmdColor}}; font-weight: {{cmdWeight}}">{{cmdline}}</div>
+  </div>
+
+  <div style="flex: none; background: #141619; border-top: 1px solid #23262B; padding: 8px 10px 28px; display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; gap: 6px; overflow: hidden; -webkit-mask-image: linear-gradient(to right, #000 86%, transparent); mask-image: linear-gradient(to right, #000 86%, transparent)">
+      <button type="button" onClick="{{onEsc}}" style="flex: none; width: 52px; height: 40px; border-radius: 9px; border: 1px solid {{accent}}; background: #1F2226; color: {{accent}}; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; font-weight: 700; padding: 0">esc</button>
+      <sc-for list="{{acc}}" as="a" hint-placeholder-count="8">
+        <button type="button" style="flex: none; min-width: 40px; height: 40px; padding: 0 9px; border-radius: 9px; border: 0; background: #1F2226; color: #EDEFF2; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; font-weight: 600">{{a}}</button>
+      </sc-for>
+    </div>
+
+    <div style="display: flex; gap: 14px">
+      <div aria-label="Motions" role="group" style="flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+        <sc-for list="{{motion}}" as="k" hint-placeholder-count="12">
+          <button type="button" aria-label="{{k.aria}}" onClick="{{k.press}}" style="height: 46px; border-radius: 8px; border: 0; background: {{k.bg}}; color: {{k.fg}}; box-shadow: 0 1px 0 rgba(0,0,0,0.65); padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-family: 'JetBrains Mono', ui-monospace, monospace">
+            <span style="font-size: 16px; font-weight: 600; line-height: 18px">{{k.label}}</span>
+            <span style="font-size: 8.5px; line-height: 10px; color: #8A9098">{{k.cap}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div aria-label="Operators and modes" role="group" style="flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+        <sc-for list="{{ops}}" as="k" hint-placeholder-count="12">
+          <button type="button" aria-label="{{k.aria}}" onClick="{{k.press}}" style="height: 46px; border-radius: 8px; border: 0; background: {{k.bg}}; color: {{k.fg}}; box-shadow: 0 1px 0 rgba(0,0,0,0.65); padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-family: 'JetBrains Mono', ui-monospace, monospace">
+            <span style="font-size: 16px; font-weight: 600; line-height: 18px">{{k.label}}</span>
+            <span style="font-size: 8.5px; line-height: 10px; color: #8A9098">{{k.cap}}</span>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 6px">
+      <a href="Terminal.dc.html" aria-label="Switch to full keyboard" style="flex: 1.3 1 0; height: 44px; border-radius: 8px; background: #1F2226; color: #C7CCD2; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; box-shadow: 0 1px 0 rgba(0,0,0,0.65)">abc</a>
+      <button type="button" style="flex: 3 1 0; height: 44px; border-radius: 8px; border: 0; background: #2B2E33; color: #EDEFF2; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; box-shadow: 0 1px 0 rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; gap: 6px"><span style="font-size: 16px; font-weight: 700">:</span>command</button>
+      <button type="button" style="flex: 2 1 0; height: 44px; border-radius: 8px; border: 0; background: #2B2E33; color: #EDEFF2; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; box-shadow: 0 1px 0 rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; gap: 6px"><span style="font-size: 16px; font-weight: 700">/</span>find</button>
+      <button type="button" aria-label="Return" style="flex: 1.6 1 0; height: 44px; border-radius: 8px; border: 0; background: {{accent}}; color: #16130B; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; font-weight: 600; box-shadow: 0 1px 0 rgba(0,0,0,0.65)">return</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#0ABAB5","options":["#0ABAB5","#9EF07A","#7CCBFF","#B9A4FF"]},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { mode: 'NORMAL', line: 10 };
+  }
+
+  buffer() {
+    const G = '#8BD17C', T = '#D8DCE1', Y = '#E8C46B';
+    return [
+      ['', 'services', '', T],
+      ['  ', 'api', '', T],
+      ['    ', 'image', 'app/api:2.14', T],
+      ['    ', 'restart', 'unless-stopped', T],
+      ['    ', 'env_file', '.env', T],
+      ['    ', 'ports', '', T],
+      ['      ', '', '- "8080:8080"', G],
+      ['    ', 'depends_on', '[redis]', T],
+      ['  ', 'worker', '', T],
+      ['    ', 'image', 'app/worker:2.14', T],
+      ['    ', 'command', 'node worker.js', T],
+      ['    ', 'deploy', '', T],
+      ['      ', 'replicas', '2', Y],
+      ['  ', 'redis', '', T],
+      ['    ', 'image', 'redis:7-alpine', T],
+      ['    ', 'volumes', '', T],
+      ['      ', '', '- redis:/data', G]
+    ];
+  }
+
+  setMode(m) { this.setState({ mode: m }); }
+  move(d) {
+    const n = Math.max(1, Math.min(17, this.state.line + d));
+    this.setState({ line: n });
+  }
+
+  renderVals() {
+    const accent = this.props.accent ?? '#0ABAB5';
+    const s = this.state;
+    const modeBgMap = { NORMAL: accent, INSERT: '#46D39A', VISUAL: '#B9A4FF', 'V-LINE': '#B9A4FF' };
+    const lines = this.buffer().map((r, i) => {
+      const n = i + 1;
+      const cur = n === s.line;
+      const ind = r[0], k = r[1], v = r[2], vc = r[3];
+      let first, firstColor, restK, colon, rest;
+      if (k) { first = k[0]; firstColor = '#6CB6FF'; restK = k.slice(1); colon = ':'; rest = v ? ' ' + v : ''; }
+      else { first = v[0]; firstColor = vc; restK = ''; colon = ''; rest = v.slice(1); }
+      let curBg = 'transparent', curShadow = 'none';
+      if (cur && s.mode === 'INSERT') curShadow = 'inset 2px 0 0 ' + accent;
+      else if (cur) { curBg = accent; firstColor = '#16130B'; }
+      let bg = cur ? '#15171A' : 'transparent';
+      if (cur && (s.mode === 'VISUAL' || s.mode === 'V-LINE')) bg = '#2B2950';
+      return {
+        num: cur ? String(n) : String(Math.abs(n - s.line)),
+        numColor: cur ? '#EDEFF2' : '#5C626B',
+        bg: bg, ind: ind, first: first, firstColor: firstColor, restK: restK, colon: colon, v: rest, vc: vc,
+        curBg: curBg, curShadow: curShadow
+      };
+    });
+
+    const K = (label, cap, aria, press, fg) => ({ label: label, cap: cap, aria: aria, press: press || (() => {}), bg: '#2B2E33', fg: fg || '#EDEFF2' });
+    const motion = [
+      K('0', 'start', 'Line start'), K('k', 'up', 'Up', () => this.move(-1)), K('$', 'end', 'Line end'),
+      K('h', 'left', 'Left'), K('j', 'down', 'Down', () => this.move(1)), K('l', 'right', 'Right'),
+      K('w', 'word', 'Next word'), K('b', 'back', 'Previous word'), K('e', 'w-end', 'End of word'),
+      K('gg', 'top', 'Go to top', () => this.setState({ line: 1 })), K('G', 'bottom', 'Go to bottom', () => this.setState({ line: 17 })), K('%', 'match', 'Matching bracket')
+    ];
+    const ops = [
+      K('i', 'insert', 'Insert', () => this.setMode('INSERT'), accent), K('a', 'append', 'Append', () => this.setMode('INSERT'), accent), K('o', 'open', 'Open line below', () => this.setMode('INSERT'), accent),
+      K('d', 'delete', 'Delete operator'), K('c', 'change', 'Change operator'), K('y', 'yank', 'Yank operator'),
+      K('p', 'paste', 'Paste'), K('x', 'cut', 'Cut character'), K('u', 'undo', 'Undo'),
+      K('v', 'visual', 'Visual mode', () => this.setMode('VISUAL'), '#B9A4FF'), K('V', 'v-line', 'Visual line mode', () => this.setMode('V-LINE'), '#B9A4FF'), K('.', 'repeat', 'Repeat last change')
+    ];
+
+    const cmd = {
+      NORMAL: ['"docker-compose.yml" 17L, 342B', '#7D8590', '400'],
+      INSERT: ['-- INSERT --', '#EDEFF2', '700'],
+      VISUAL: ['-- VISUAL --', '#EDEFF2', '700'],
+      'V-LINE': ['-- VISUAL LINE --', '#EDEFF2', '700']
+    }[s.mode];
+
+    return {
+      accent: accent,
+      lines: lines,
+      line: s.line,
+      pct: Math.round(s.line / 17 * 100),
+      modeLabel: s.mode === 'V-LINE' ? 'V-LINE' : s.mode,
+      modeShort: s.mode === 'V-LINE' ? 'V-LINE' : s.mode,
+      modeBg: modeBgMap[s.mode],
+      cmdline: cmd[0], cmdColor: cmd[1], cmdWeight: cmd[2],
+      acc: [':w', ':q', ':wq', '⌃d', '⌃u', '*', 'n', 'N', ':%s'],
+      motion: motion,
+      ops: ops,
+      onEsc: () => this.setMode('NORMAL')
+    };
+  }
+}
+</script>
+</body>
+</html>

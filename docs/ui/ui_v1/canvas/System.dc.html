@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shello — System</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap">
+<style>
+body{margin:0}
+button{font:inherit;color:inherit}
+@keyframes shBlink{0%,55%{opacity:1}56%,100%{opacity:0}}
+.sh-cursor{animation:shBlink 1.1s steps(1,end) infinite}
+@media (prefers-reduced-motion: reduce){.sh-cursor{animation:none}}
+</style>
+</helmet>
+<div style="width: 1280px; height: 920px; box-sizing: border-box; padding: 56px; background: #0A0B0D; color: #EDEFF2; font-family: 'Geist', -apple-system, system-ui, sans-serif; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: 268px 216px 196px; column-gap: 40px; row-gap: 48px">
+
+  <section aria-label="Identity" style="display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; align-items: center; gap: 20px">
+      <div style="width: 104px; height: 104px; border-radius: 26px; background: #15171A; border: 1px solid #2A2E33; display: flex; align-items: center; justify-content: center; flex: none">
+        <svg width="68" height="68" viewBox="0 0 32 32" role="img" aria-label="Shello app icon"><path d="M10 2H22A8 8 0 0 1 30 10V18A8 8 0 0 1 22 26H13L8 30.5V25.75A8 8 0 0 1 2 18V10A8 8 0 0 1 10 2Z" fill="#EDEFF2"/><path d="M9.5 10.5L14 14L9.5 17.5" fill="none" stroke="#0A0B0D" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="15.5" y="16" width="7" height="2.8" rx="1" fill="{{accent}}"/></svg>
+      </div>
+      <div style="width: 64px; height: 64px; border-radius: 16px; background: #F2F3F5; display: flex; align-items: center; justify-content: center; flex: none">
+        <svg width="42" height="42" viewBox="0 0 32 32" role="img" aria-label="Shello app icon, light"><path d="M10 2H22A8 8 0 0 1 30 10V18A8 8 0 0 1 22 26H13L8 30.5V25.75A8 8 0 0 1 2 18V10A8 8 0 0 1 10 2Z" fill="#111316"/><path d="M9.5 10.5L14 14L9.5 17.5" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="15.5" y="16" width="7" height="2.8" rx="1" fill="{{accent}}"/></svg>
+      </div>
+    </div>
+    <div style="display: flex; align-items: flex-end; gap: 6px">
+      <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 56px; font-weight: 800; letter-spacing: -0.04em; line-height: 60px">shello</span>
+      <span class="sh-cursor" aria-hidden="true" style="display: block; width: 28px; height: 46px; margin-bottom: 7px; background: {{accent}}; border-radius: 3px"></span>
+    </div>
+    <p style="margin: 0; font-size: 16px; line-height: 24px; color: #A3A9B1; max-width: 330px; text-wrap: pretty">A speech bubble that opens a prompt. The block cursor is the one brand color, and it blinks after every large title.</p>
+  </section>
+
+  <section aria-label="Typography" style="display: flex; flex-direction: column; gap: 14px">
+    <h2 style="margin: 0 0 4px; padding-bottom: 10px; border-bottom: 1px solid #23262B; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94">Type</h2>
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 34px; font-weight: 800; letter-spacing: -0.03em">Hosts</span>
+      <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #868C94">JetBrains Mono 34/800</span>
+    </div>
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px">deploy@10.0.4.21</span>
+      <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #868C94">Mono 12–17 · data, keys</span>
+    </div>
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <span style="font-size: 17px; font-weight: 600">New Host</span>
+      <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #868C94">Geist 17/600 · titles</span>
+    </div>
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <span style="font-size: 16px">Unlock with biometrics</span>
+      <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #868C94">Geist 16/400 · body</span>
+    </div>
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #A3A9B1">Favorites</span>
+      <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #868C94">Mono 12/600 · sections</span>
+    </div>
+  </section>
+
+  <section aria-label="Accent and status" style="display: flex; flex-direction: column; gap: 14px">
+    <h2 style="margin: 0 0 4px; padding-bottom: 10px; border-bottom: 1px solid #23262B; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94">Accent presets</h2>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+      <div style="height: 56px; border-radius: 12px; background: #0ABAB5; color: #16130B; padding: 0 14px; display: flex; flex-direction: column; justify-content: center"><span style="font-weight: 700; font-size: 14px">Tiffany · default</span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px">#0ABAB5</span></div>
+      <div style="height: 56px; border-radius: 12px; background: #9EF07A; color: #16130B; padding: 0 14px; display: flex; flex-direction: column; justify-content: center"><span style="font-weight: 700; font-size: 14px">Phosphor</span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px">#9EF07A</span></div>
+      <div style="height: 56px; border-radius: 12px; background: #7CCBFF; color: #16130B; padding: 0 14px; display: flex; flex-direction: column; justify-content: center"><span style="font-weight: 700; font-size: 14px">Ice</span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px">#7CCBFF</span></div>
+      <div style="height: 56px; border-radius: 12px; background: #B9A4FF; color: #16130B; padding: 0 14px; display: flex; flex-direction: column; justify-content: center"><span style="font-weight: 700; font-size: 14px">Iris</span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px">#B9A4FF</span></div>
+    </div>
+    <div style="display: flex; gap: 18px; margin-top: 4px; font-size: 13px; color: #C7CCD2">
+      <span style="display: flex; align-items: center; gap: 7px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 5px; background: #46D39A"></span>Online</span>
+      <span style="display: flex; align-items: center; gap: 7px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 5px; border: 1.5px solid #6E747C; box-sizing: border-box"></span>Offline</span>
+      <span style="display: flex; align-items: center; gap: 7px"><span aria-hidden="true" style="width: 9px; height: 9px; border-radius: 2px; background: #FF6B5E"></span>Error</span>
+    </div>
+    <p style="margin: 0; font-size: 12.5px; line-height: 18px; color: #868C94">Text on an accent fill is always #16130B. In light mode, accent text is darkened to 52% for contrast.</p>
+  </section>
+
+  <section aria-label="Surface tokens" style="grid-column: span 2; display: flex; flex-direction: column; gap: 14px">
+    <h2 style="margin: 0 0 4px; padding-bottom: 10px; border-bottom: 1px solid #23262B; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94">Surfaces · dark / light</h2>
+    <div style="display: grid; grid-template-columns: 56px repeat(7, minmax(0, 1fr)); gap: 10px; align-items: center">
+      <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #868C94">Dark</span>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 40px; border-radius: 8px; background: #0A0B0D; border: 1px solid #2A2E33"></span><span style="font-size: 11px; color: #A3A9B1">Ground #0A0B0D</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 40px; border-radius: 8px; background: #15171A; border: 1px solid #2A2E33"></span><span style="font-size: 11px; color: #A3A9B1">Cell #15171A</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 40px; border-radius: 8px; background: #2B2E33"></span><span style="font-size: 11px; color: #A3A9B1">Key #2B2E33</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 40px; border-radius: 8px; background: #23262B"></span><span style="font-size: 11px; color: #A3A9B1">Hairline #23262B</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 40px; border-radius: 8px; background: #EDEFF2"></span><span style="font-size: 11px; color: #A3A9B1">Text #EDEFF2</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 40px; border-radius: 8px; background: #A3A9B1"></span><span style="font-size: 11px; color: #A3A9B1">Text 2 #A3A9B1</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 40px; border-radius: 8px; background: #868C94"></span><span style="font-size: 11px; color: #A3A9B1">Text 3 #868C94</span></div>
+
+      <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #868C94">Light</span>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 40px; border-radius: 8px; background: #F2F3F5"></span><span style="font-size: 11px; color: #A3A9B1">Ground #F2F3F5</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 40px; border-radius: 8px; background: #FFFFFF"></span><span style="font-size: 11px; color: #A3A9B1">Cell #FFFFFF</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 40px; border-radius: 8px; background: #EEF0F2"></span><span style="font-size: 11px; color: #A3A9B1">Tile #EEF0F2</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 40px; border-radius: 8px; background: #E0E2E6"></span><span style="font-size: 11px; color: #A3A9B1">Hairline #E0E2E6</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 40px; border-radius: 8px; background: #111316; border: 1px solid #2A2E33"></span><span style="font-size: 11px; color: #A3A9B1">Text #111316</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 40px; border-radius: 8px; background: #4A5058"></span><span style="font-size: 11px; color: #A3A9B1">Text 2 #4A5058</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 40px; border-radius: 8px; background: #60666E"></span><span style="font-size: 11px; color: #A3A9B1">Text 3 #60666E</span></div>
+    </div>
+  </section>
+
+  <section aria-label="Terminal palette Night" style="display: flex; flex-direction: column; gap: 14px">
+    <h2 style="margin: 0 0 4px; padding-bottom: 10px; border-bottom: 1px solid #23262B; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94">Terminal · Night</h2>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px">
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 36px; border-radius: 8px; background: #D8DCE1"></span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; color: #A3A9B1">fg</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 36px; border-radius: 8px; background: #8BD17C"></span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; color: #A3A9B1">green</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 36px; border-radius: 8px; background: #6CB6FF"></span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; color: #A3A9B1">blue</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 36px; border-radius: 8px; background: #E8C46B"></span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; color: #A3A9B1">yellow</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 36px; border-radius: 8px; background: #63D3D8"></span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; color: #A3A9B1">cyan</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 36px; border-radius: 8px; background: #D59BF6"></span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; color: #A3A9B1">magenta</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 36px; border-radius: 8px; background: #FF7B72"></span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; color: #A3A9B1">red</span></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><span style="height: 36px; border-radius: 8px; background: #7D8590"></span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; color: #A3A9B1">dim</span></div>
+    </div>
+  </section>
+
+  <section aria-label="Keys" style="grid-column: span 2; display: flex; flex-direction: column; gap: 14px">
+    <h2 style="margin: 0 0 4px; padding-bottom: 10px; border-bottom: 1px solid #23262B; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94">Keys</h2>
+    <div style="display: flex; gap: 22px; align-items: flex-start; padding: 16px 18px; border-radius: 16px; background: #141619">
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 76px">
+        <span style="position: relative; width: 36px; height: 46px; border-radius: 7px; background: #2B2E33; box-shadow: 0 1px 0 rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 17px">q<span style="position: absolute; top: 3px; right: 4px; font-size: 9px; color: #8A9098">1</span></span>
+        <span style="font-size: 11px; line-height: 15px; color: #A3A9B1; text-align: center">Letter, flick for symbol</span>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 76px">
+        <span style="width: 50px; height: 46px; border-radius: 7px; background: #1F2226; box-shadow: 0 1px 0 rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 16px; color: #C7CCD2">⇧</span>
+        <span style="font-size: 11px; line-height: 15px; color: #A3A9B1; text-align: center">Modifier</span>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 76px">
+        <span style="width: 50px; height: 46px; border-radius: 9px; background: {{accent}}; color: #16130B; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; font-weight: 700">ctrl</span>
+        <span style="font-size: 11px; line-height: 15px; color: #A3A9B1; text-align: center">Armed, sticky for 1 key</span>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 76px">
+        <span style="width: 46px; height: 46px; border-radius: 23px; border: 1px solid #353940; background: #1F2226; display: flex; align-items: center; justify-content: center; box-sizing: border-box">
+          <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M13 2.5l3 3.5h-6zM13 23.5l3-3.5h-6zM2.5 13l3.5-3v6zM23.5 13l-3.5-3v6z" fill="#A3A9B1"/><circle cx="13" cy="13" r="2.6" fill="{{accent}}"/></svg>
+        </span>
+        <span style="font-size: 11px; line-height: 15px; color: #A3A9B1; text-align: center">Swipe pad, arrows</span>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 76px">
+        <span style="width: 56px; height: 46px; border-radius: 8px; background: #2B2E33; box-shadow: 0 1px 0 rgba(0,0,0,0.65); display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'JetBrains Mono', ui-monospace, monospace"><span style="font-size: 16px; font-weight: 600; line-height: 18px">w</span><span style="font-size: 8.5px; color: #8A9098">word</span></span>
+        <span style="font-size: 11px; line-height: 15px; color: #A3A9B1; text-align: center">Vim pad, captioned</span>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 76px">
+        <span style="width: 70px; height: 46px; border-radius: 7px; background: {{accent}}; color: #16130B; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; font-weight: 600">return</span>
+        <span style="font-size: 11px; line-height: 15px; color: #A3A9B1; text-align: center">Return, the one lit key</span>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 76px">
+        <span style="height: 36px; padding: 0 10px; margin: 5px 0; border-radius: 9px; border: 1px dashed #3A3E45; color: #C7CCD2; display: flex; align-items: center; gap: 5px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; font-weight: 600"><span style="color: {{accent}}">+</span>^D</span>
+        <span style="font-size: 11px; line-height: 15px; color: #A3A9B1; text-align: center">Library key</span>
+      </div>
+    </div>
+  </section>
+
+  <section aria-label="Controls" style="display: flex; flex-direction: column; gap: 14px">
+    <h2 style="margin: 0 0 4px; padding-bottom: 10px; border-bottom: 1px solid #23262B; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94">Controls</h2>
+    <div style="height: 36px; padding: 3px; box-sizing: border-box; border-radius: 10px; background: #1A1C20; display: flex; gap: 2px">
+      <span style="flex: 1; border-radius: 8px; background: #3A3E45; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; font-weight: 700">SSH</span>
+      <span style="flex: 1; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; font-weight: 700; color: #A3A9B1">Mosh</span>
+      <span style="flex: 1; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; font-weight: 700; color: #A3A9B1">VNC</span>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: center">
+      <span style="flex: 1; height: 44px; border-radius: 12px; background: {{accent}}; color: #16130B; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600">Attach to main</span>
+      <span aria-hidden="true" style="width: 51px; height: 31px; border-radius: 16px; background: {{accent}}; padding: 2px; display: flex; justify-content: flex-end; box-sizing: border-box"><span style="width: 27px; height: 27px; border-radius: 14px; background: #FFFFFF"></span></span>
+      <span aria-hidden="true" style="width: 51px; height: 31px; border-radius: 16px; background: #3A3E45; padding: 2px; display: flex; box-sizing: border-box"><span style="width: 27px; height: 27px; border-radius: 14px; background: #FFFFFF"></span></span>
+    </div>
+    <div style="display: flex; gap: 8px">
+      <span style="height: 32px; padding: 0 14px; border-radius: 999px; background: #EDEFF2; color: #0A0B0D; font-size: 14px; font-weight: 600; display: flex; align-items: center">All</span>
+      <span style="height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid #25282D; background: #131518; color: #C7CCD2; font-size: 14px; display: flex; align-items: center; gap: 7px"><span style="width: 7px; height: 7px; border-radius: 4px; background: #FF6B5E"></span>Production</span>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#0ABAB5","options":["#0ABAB5","#9EF07A","#7CCBFF","#B9A4FF"]},"$preview":{"width":1280,"height":920}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#0ABAB5' };
+  }
+}
+</script>
+</body>
+</html>

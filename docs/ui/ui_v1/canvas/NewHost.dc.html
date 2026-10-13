@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shello — New host</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap">
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+input::placeholder{color:#6E747C}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #000000; color: #EDEFF2; font-family: 'Geist', -apple-system, 'SF Pro Text', system-ui, sans-serif">
+
+  <div aria-hidden="true" style="position: absolute; top: 50px; left: 12px; right: 12px; height: 40px; border-radius: 12px 12px 0 0; background: #17191C"></div>
+
+  <div role="dialog" aria-label="New host" style="position: absolute; top: 62px; left: 0; right: 0; bottom: 0; border-radius: 14px 14px 0 0; background: #0F1113; display: flex; flex-direction: column; overflow: hidden">
+    <span aria-hidden="true" style="position: absolute; top: 6px; left: 50%; width: 36px; height: 5px; margin-left: -18px; border-radius: 3px; background: #3A3E45"></span>
+
+    <div style="flex: none; height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 0">
+      <a href="Main.dc.html" style="height: 44px; padding: 0 8px; display: flex; align-items: center; color: {{accent}}; font-size: 17px">Cancel</a>
+      <h1 style="margin: 0; font-size: 17px; font-weight: 600">New Host</h1>
+      <a href="Main.dc.html" style="height: 44px; padding: 0 8px; display: flex; align-items: center; color: {{accent}}; font-size: 17px; font-weight: 600">Save</a>
+    </div>
+
+    <div style="flex: 1; min-height: 0; overflow: hidden; padding: 6px 16px 0; display: flex; flex-direction: column">
+      <div role="radiogroup" aria-label="Protocol" style="height: 36px; padding: 3px; box-sizing: border-box; border-radius: 10px; background: #1C1E22; display: flex; gap: 2px; flex: none">
+        <sc-for list="{{protos}}" as="p" hint-placeholder-count="3">
+          <button type="button" role="radio" aria-checked="{{p.checked}}" onClick="{{p.pick}}" style="flex: 1; border: 0; border-radius: 8px; background: {{p.bg}}; color: {{p.fg}}; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; font-weight: 700; padding: 0">{{p.label}}</button>
+        </sc-for>
+      </div>
+      <p style="margin: 8px 4px 0; font-size: 13px; line-height: 18px; color: #868C94; min-height: 36px; text-wrap: pretty">{{protoHelp}}</p>
+
+      <h2 style="margin: 14px 4px 8px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94">Connection</h2>
+      <div style="background: #17191C; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; flex: none">
+        <label style="height: 46px; display: flex; align-items: center; padding: 0 14px; gap: 12px">
+          <span style="width: 64px; flex: none; font-size: 16px">Name</span>
+          <input type="text" value="prod-api-02" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; color: #EDEFF2; padding: 0">
+        </label>
+        <div style="height: 1px; background: #25282D; margin-left: 14px"></div>
+        <label style="height: 46px; display: flex; align-items: center; padding: 0 14px; gap: 12px">
+          <span style="width: 64px; flex: none; font-size: 16px">Host</span>
+          <input type="text" value="10.0.4.22" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; color: #EDEFF2; padding: 0">
+        </label>
+        <div style="height: 1px; background: #25282D; margin-left: 14px"></div>
+        <label style="height: 46px; display: flex; align-items: center; padding: 0 14px; gap: 12px">
+          <span style="width: 64px; flex: none; font-size: 16px">Port</span>
+          <input type="text" inputmode="numeric" value="{{port}}" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; color: #EDEFF2; padding: 0">
+        </label>
+        <div style="height: 1px; background: #25282D; margin-left: 14px"></div>
+        <label style="height: 46px; display: flex; align-items: center; padding: 0 14px; gap: 12px">
+          <span style="width: 64px; flex: none; font-size: 16px">User</span>
+          <input type="text" value="deploy" placeholder="optional" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; color: #EDEFF2; padding: 0">
+        </label>
+        <div style="height: 1px; background: #25282D; margin-left: 14px"></div>
+        <div role="radiogroup" aria-label="Tag" style="height: 50px; display: flex; align-items: center; padding: 0 10px 0 14px; gap: 12px">
+          <span style="width: 64px; flex: none; font-size: 16px">Tag</span>
+          <div style="flex: 1; display: flex; gap: 4px">
+            <sc-for list="{{tags}}" as="t" hint-placeholder-count="4">
+              <button type="button" role="radio" aria-checked="{{t.checked}}" aria-label="{{t.name}}" onClick="{{t.pick}}" style="width: 40px; height: 40px; border: 0; background: transparent; padding: 0; display: flex; align-items: center; justify-content: center">
+                <span style="width: 22px; height: 22px; border-radius: 11px; background: {{t.color}}; box-shadow: {{t.ring}}"></span>
+              </button>
+            </sc-for>
+          </div>
+          <span style="font-size: 14px; color: #A3A9B1">{{tagName}}</span>
+        </div>
+      </div>
+
+      <h2 style="margin: 20px 4px 8px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94">Authentication</h2>
+      <div style="background: #17191C; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; flex: none">
+        <sc-if value="{{isShell}}" hint-placeholder-val="{{true}}">
+          <button type="button" style="height: 54px; border: 0; background: transparent; display: flex; align-items: center; padding: 0 12px 0 14px; gap: 12px; text-align: left">
+            <span style="width: 64px; flex: none; font-size: 16px">Key</span>
+            <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+              <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px">id_ed25519</span>
+              <span style="font-size: 12px; color: #868C94">Stored in Secure Enclave</span>
+            </span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5C626B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </sc-if>
+        <sc-if value="{{isVnc}}" hint-placeholder-val="{{false}}">
+          <label style="height: 46px; display: flex; align-items: center; padding: 0 14px; gap: 12px">
+            <span style="width: 64px; flex: none; font-size: 16px">Password</span>
+            <input type="password" value="placeholder" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; color: #EDEFF2; padding: 0">
+          </label>
+        </sc-if>
+        <div style="height: 1px; background: #25282D; margin-left: 14px"></div>
+        <div style="height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px">
+          <span id="bio-label" style="font-size: 16px">Unlock with biometrics</span>
+          <button type="button" role="switch" aria-labelledby="bio-label" aria-checked="{{bioChecked}}" onClick="{{toggleBio}}" style="width: 51px; height: 31px; border-radius: 16px; border: 0; background: {{bioBg}}; padding: 2px; display: flex; justify-content: {{bioJustify}}; box-sizing: border-box">
+            <span style="width: 27px; height: 27px; border-radius: 14px; background: #FFFFFF; box-shadow: 0 2px 4px rgba(0,0,0,0.3)"></span>
+          </button>
+        </div>
+      </div>
+
+      <h2 style="margin: 20px 4px 8px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94">On connect</h2>
+      <div style="background: #17191C; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; flex: none">
+        <sc-if value="{{isShell}}" hint-placeholder-val="{{true}}">
+          <label style="min-height: 62px; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 8px 14px">
+            <span style="font-size: 13px; color: #A3A9B1">Startup command</span>
+            <input type="text" value="tmux new -A -s main" style="border: 0; outline: 0; background: transparent; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; color: {{accent}}; padding: 0">
+          </label>
+          <div style="height: 1px; background: #25282D; margin-left: 14px"></div>
+          <div style="height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px">
+            <span id="tmux-label" style="font-size: 16px">Show tmux sessions first</span>
+            <button type="button" role="switch" aria-labelledby="tmux-label" aria-checked="{{tmuxChecked}}" onClick="{{toggleTmux}}" style="width: 51px; height: 31px; border-radius: 16px; border: 0; background: {{tmuxBg}}; padding: 2px; display: flex; justify-content: {{tmuxJustify}}; box-sizing: border-box">
+              <span style="width: 27px; height: 27px; border-radius: 14px; background: #FFFFFF; box-shadow: 0 2px 4px rgba(0,0,0,0.3)"></span>
+            </button>
+          </div>
+          <div style="height: 1px; background: #25282D; margin-left: 14px"></div>
+          <button type="button" style="height: 48px; border: 0; background: transparent; display: flex; align-items: center; padding: 0 12px 0 14px; gap: 12px; text-align: left">
+            <span style="flex: 1; font-size: 16px">Jump host</span>
+            <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 14px; color: #A3A9B1">bastion</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5C626B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </sc-if>
+        <sc-if value="{{isVnc}}" hint-placeholder-val="{{false}}">
+          <button type="button" style="height: 48px; border: 0; background: transparent; display: flex; align-items: center; padding: 0 12px 0 14px; gap: 12px; text-align: left">
+            <span style="flex: 1; font-size: 16px">Stream quality</span>
+            <span style="font-size: 14px; color: #A3A9B1">Auto</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5C626B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+          </button>
+          <div style="height: 1px; background: #25282D; margin-left: 14px"></div>
+          <button type="button" style="height: 48px; border: 0; background: transparent; display: flex; align-items: center; padding: 0 12px 0 14px; gap: 12px; text-align: left">
+            <span style="flex: 1; font-size: 16px">Start in</span>
+            <span style="font-size: 14px; color: #A3A9B1">Trackpad mode</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5C626B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </sc-if>
+      </div>
+
+      <button type="button" style="margin-top: 18px; height: 46px; border-radius: 12px; border: 1px solid #2E3238; background: transparent; color: #EDEFF2; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; flex: none">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#46D39A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        Test connection
+      </button>
+      <p style="margin: 8px 4px 0; text-align: center; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; color: #868C94">reachable · 22 ms · ED25519 SHA256:Qx4f…k9aB</p>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#0ABAB5","options":["#0ABAB5","#9EF07A","#7CCBFF","#B9A4FF"]},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { proto: 'ssh', bio: true, tmux: true, tag: 'prod' };
+  }
+  renderVals() {
+    const accent = this.props.accent ?? '#0ABAB5';
+    const s = this.state;
+    const protos = [['ssh', 'SSH'], ['mosh', 'Mosh'], ['vnc', 'VNC']].map((p) => {
+      const on = p[0] === s.proto;
+      return { label: p[1], checked: on ? 'true' : 'false', bg: on ? '#3A3E45' : 'transparent', fg: on ? '#EDEFF2' : '#A3A9B1', pick: () => this.setState({ proto: p[0] }) };
+    });
+    const help = {
+      ssh: 'Plain SSH-2. Works with any server, no setup on the host.',
+      mosh: 'Stays connected through Wi-Fi to cellular switches and sleep. Needs mosh-server on the host.',
+      vnc: 'Remote desktop with trackpad and direct-touch input. Uses the host’s VNC server.'
+    }[s.proto];
+    const tagDefs = [['prod', 'Production', '#FF6B5E'], ['lab', 'Homelab', '#7CCBFF'], ['stage', 'Staging', '#B9A4FF'], ['none', 'No tag', '#3A3E45']];
+    const tags = tagDefs.map((t) => {
+      const on = t[0] === s.tag;
+      return { name: t[1], color: t[2], checked: on ? 'true' : 'false', ring: on ? '0 0 0 2px #17191C, 0 0 0 4px #EDEFF2' : 'none', pick: () => this.setState({ tag: t[0] }) };
+    });
+    const sw = (on) => ({ bg: on ? accent : '#3A3E45', justify: on ? 'flex-end' : 'flex-start', checked: on ? 'true' : 'false' });
+    const bio = sw(s.bio), tm = sw(s.tmux);
+    return {
+      accent: accent,
+      protos: protos,
+      protoHelp: help,
+      port: s.proto === 'vnc' ? '5900' : '22',
+      isShell: s.proto !== 'vnc',
+      isVnc: s.proto === 'vnc',
+      tags: tags,
+      tagName: tagDefs.find((t) => t[0] === s.tag)[1],
+      bioBg: bio.bg, bioJustify: bio.justify, bioChecked: bio.checked,
+      tmuxBg: tm.bg, tmuxJustify: tm.justify, tmuxChecked: tm.checked,
+      toggleBio: () => this.setState({ bio: !this.state.bio }),
+      toggleTmux: () => this.setState({ tmux: !this.state.tmux })
+    };
+  }
+}
+</script>
+</body>
+</html>

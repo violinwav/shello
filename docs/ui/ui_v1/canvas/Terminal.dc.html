@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shello — Terminal</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap">
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+@keyframes shBlink{0%,55%{opacity:1}56%,100%{opacity:0}}
+.sh-cursor{animation:shBlink 1.1s steps(1,end) infinite}
+@media (prefers-reduced-motion: reduce){.sh-cursor{animation:none}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #0A0B0D; color: #EDEFF2; font-family: 'Geist', -apple-system, 'SF Pro Text', system-ui, sans-serif; display: flex; flex-direction: column">
+
+  <header style="padding-top: 54px; flex: none">
+    <div style="height: 48px; display: flex; align-items: center; gap: 2px; padding: 0 6px">
+      <a href="Main.dc.html" aria-label="Back to hosts" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: {{accent}}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </a>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px">
+        <div style="display: flex; align-items: center; gap: 7px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 14px; font-weight: 600"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 4px; background: #46D39A"></span>prod-api-01</div>
+        <div style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #868C94">ssh · deploy · 24 ms</div>
+      </div>
+      <a href="Snippets.dc.html" aria-label="Open command palette" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #C7CCD2">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H8a2 2 0 0 0-2 2v3.5A2.5 2.5 0 0 1 3.5 12 2.5 2.5 0 0 1 6 14.5V18a2 2 0 0 0 2 2h1M15 4h1a2 2 0 0 1 2 2v3.5a2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0-2.5 2.5V18a2 2 0 0 1-2 2h-1"/></svg>
+      </a>
+      <a href="Keyboard.dc.html" aria-label="Keyboard settings" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #C7CCD2">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M8 14h8"/></svg>
+      </a>
+    </div>
+    <nav aria-label="Sessions" style="display: flex; gap: 6px; padding: 2px 12px 8px; overflow: hidden">
+      <a href="Terminal.dc.html" aria-current="page" style="height: 30px; padding: 0 10px; border-radius: 8px; background: #1B1E22; border: 1px solid #2E3238; display: flex; align-items: center; gap: 7px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; flex: none; box-sizing: border-box"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 3px; background: {{accent}}"></span>prod-api-01</a>
+      <a href="Vim.dc.html" style="height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid #1F2226; display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #A3A9B1; flex: none; box-sizing: border-box">vim compose.yml</a>
+      <a href="Tmux.dc.html" style="height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid #1F2226; display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #A3A9B1; flex: none; box-sizing: border-box">forge:main</a>
+      <button type="button" aria-label="New session" style="width: 30px; height: 30px; border-radius: 8px; border: 1px solid #1F2226; background: transparent; display: flex; align-items: center; justify-content: center; color: #A3A9B1; padding: 0; flex: none">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </nav>
+  </header>
+
+  <div role="log" aria-label="Terminal output" style="flex: 1; min-height: 0; overflow: hidden; position: relative; display: flex; flex-direction: column; justify-content: flex-end; padding: 6px 14px 10px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; line-height: 18px; color: #D8DCE1">
+    <div style="white-space: pre; color: #7D8590">Last login: Mon Oct 12 13:02:11 from 10.0.4.12</div>
+    <div style="white-space: pre"><span style="color: #8BD17C">deploy@prod-api-01</span><span style="color: #7D8590">:</span><span style="color: #6CB6FF">~</span><span style="color: #7D8590">$</span> docker compose ps</div>
+    <div style="white-space: pre; color: #7D8590">NAME      IMAGE            STATUS</div>
+    <div style="white-space: pre">api       app/api:2.14     <span style="color: #8BD17C">Up 3 days</span></div>
+    <div style="white-space: pre">worker    app/worker:2.14  <span style="color: #8BD17C">Up 3 days</span></div>
+    <div style="white-space: pre">redis     redis:7-alpine   <span style="color: #8BD17C">Up 3 days</span></div>
+    <div style="white-space: pre"><span style="color: #8BD17C">deploy@prod-api-01</span><span style="color: #7D8590">:</span><span style="color: #6CB6FF">~</span><span style="color: #7D8590">$</span> df -h /srv</div>
+    <div style="white-space: pre; color: #7D8590">Filesystem  Size  Used Avail Use% Mounted</div>
+    <div style="white-space: pre">/dev/sdb1   200G  141G   59G  <span style="color: #E8C46B">71%</span> /srv</div>
+    <div style="white-space: pre"><span style="color: #8BD17C">deploy@prod-api-01</span><span style="color: #7D8590">:</span><span style="color: #6CB6FF">~</span><span style="color: #7D8590">$</span> journalctl -u api -n 4</div>
+    <div style="white-space: pre"><span style="color: #7D8590">13:20:41</span> GET  /health      <span style="color: #63D3D8">200</span>  2ms</div>
+    <div style="white-space: pre"><span style="color: #7D8590">13:20:59</span> POST /v1/jobs     <span style="color: #63D3D8">201</span> 41ms</div>
+    <div style="white-space: pre"><span style="color: #7D8590">13:21:03</span> GET  /v1/jobs/88  <span style="color: #63D3D8">200</span>  6ms</div>
+    <div style="white-space: pre"><span style="color: #7D8590">13:21:17</span> <span style="color: #E8C46B">WARN</span> queue depth=3</div>
+    <div style="white-space: pre"><span style="color: #8BD17C">deploy@prod-api-01</span><span style="color: #7D8590">:</span><span style="color: #6CB6FF">~</span><span style="color: #7D8590">$</span> git log --oneline -3</div>
+    <div style="white-space: pre"><span style="color: #E8C46B">a41c9e2</span> fix: retry on 503 upstream</div>
+    <div style="white-space: pre"><span style="color: #E8C46B">77d0b1f</span> feat: job priorities</div>
+    <div style="white-space: pre"><span style="color: #E8C46B">c03e5aa</span> chore: bump redis client</div>
+    <sc-for list="{{history}}" as="h" hint-placeholder-count="0">
+      <div style="white-space: pre"><span style="color: #8BD17C">deploy@prod-api-01</span><span style="color: #7D8590">:</span><span style="color: #6CB6FF">~</span><span style="color: #7D8590">$</span> {{h.cmd}}</div>
+    </sc-for>
+    <div style="white-space: pre"><span style="color: #8BD17C">deploy@prod-api-01</span><span style="color: #7D8590">:</span><span style="color: #6CB6FF">~</span><span style="color: #7D8590">$</span> {{typed}}<span class="sh-cursor" aria-hidden="true" style="display: inline-block; width: 7px; height: 15px; vertical-align: -3px; background: {{accent}}"></span></div>
+
+    <sc-if value="{{ctrl}}" hint-placeholder-val="{{false}}">
+      <div style="position: absolute; right: 12px; bottom: 10px; height: 28px; padding: 0 10px; border-radius: 8px; background: #16130B; border: 1px solid {{accent}}; color: {{accent}}; display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600">CTRL armed · next key sends ⌃</div>
+    </sc-if>
+  </div>
+
+  <div style="flex: none; background: #141619; border-top: 1px solid #23262B; padding: 8px 4px 28px; display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; gap: 6px; align-items: center; padding: 0 2px; overflow: hidden; -webkit-mask-image: linear-gradient(to right, #000 86%, transparent); mask-image: linear-gradient(to right, #000 86%, transparent)">
+      <button type="button" onClick="{{onEsc}}" style="flex: none; width: 42px; height: 42px; border-radius: 9px; border: 0; background: #1F2226; color: #EDEFF2; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 600; padding: 0">esc</button>
+      <button type="button" onClick="{{onTab}}" style="flex: none; width: 42px; height: 42px; border-radius: 9px; border: 0; background: #1F2226; color: #EDEFF2; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 600; padding: 0">tab</button>
+      <button type="button" aria-pressed="{{ctrlPressed}}" onClick="{{onCtrl}}" style="flex: none; width: 48px; height: 42px; border-radius: 9px; border: 0; background: {{ctrlBg}}; color: {{ctrlFg}}; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 700; padding: 0">ctrl</button>
+      <button type="button" style="flex: none; width: 42px; height: 42px; border-radius: 9px; border: 0; background: #1F2226; color: #EDEFF2; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12.5px; font-weight: 600; padding: 0">alt</button>
+      <button type="button" aria-label="Arrow keys: swipe in any direction" style="flex: none; width: 42px; height: 42px; border-radius: 21px; border: 1px solid #353940; background: #1F2226; padding: 0; display: flex; align-items: center; justify-content: center">
+        <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M13 2.5l3 3.5h-6zM13 23.5l3-3.5h-6zM2.5 13l3.5-3v6zM23.5 13l-3.5-3v6z" fill="#A3A9B1"/><circle cx="13" cy="13" r="2.6" fill="{{accent}}"/></svg>
+      </button>
+      <sc-for list="{{accKeys}}" as="a" hint-placeholder-count="7">
+        <button type="button" onClick="{{a.press}}" style="flex: none; width: 34px; height: 42px; border-radius: 9px; border: 0; background: #1F2226; color: #EDEFF2; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 16px; font-weight: 500; padding: 0">{{a.label}}</button>
+      </sc-for>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 2px">
+      <sc-for list="{{rows}}" as="row" hint-placeholder-count="4">
+        <div style="display: flex; gap: 5px; padding: {{row.pad}}">
+          <sc-for list="{{row.keys}}" as="k" hint-placeholder-count="10">
+            <button type="button" aria-label="{{k.aria}}" onClick="{{k.press}}" style="flex: {{k.flex}} 1 0; min-width: 0; height: 44px; border: 0; border-radius: 7px; background: {{k.bg}}; color: {{k.fg}}; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: {{k.fs}}; font-weight: 500; box-shadow: 0 1px 0 rgba(0,0,0,0.65); position: relative; display: flex; align-items: center; justify-content: center; padding: 0">
+              <span>{{k.label}}</span>
+              <sc-if value="{{k.hasAlt}}" hint-placeholder-val="{{false}}">
+                <span aria-hidden="true" style="position: absolute; top: 3px; right: 4px; font-size: 9px; line-height: 1; color: #8A9098">{{k.alt}}</span>
+              </sc-if>
+            </button>
+          </sc-for>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#0ABAB5","options":["#0ABAB5","#9EF07A","#7CCBFF","#B9A4FF"]},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { layer: 'abc', shift: false, ctrl: false, typed: '', history: [] };
+  }
+
+  layers() {
+    const chars = (s, alts) => s.split('').map((c, i) => ({ c: c, alt: alts ? alts[i] : '' }));
+    const back = { mod: 'back', label: '⌫', aria: 'Delete', flex: 1.45 };
+    const ret = { mod: 'ret', label: 'return', aria: 'Return', flex: 2.2 };
+    const space = { mod: 'space', label: 'space', aria: 'Space', flex: 5 };
+    return {
+      abc: [
+        { pad: '0', keys: chars('qwertyuiop', ['1','2','3','4','5','6','7','8','9','0']) },
+        { pad: '0 18px', keys: chars('asdfghjkl', ['@','#','$','_','&','-','+','(',')']) },
+        { pad: '0', keys: [{ mod: 'shift', label: '⇧', aria: 'Shift', flex: 1.45 }].concat(chars('zxcvbnm', ['*','"',"'",':',';','!','?']), [back]) },
+        { pad: '0', keys: [{ mod: 'layer', to: 'sym', label: '123', flex: 1.25 }, { mod: 'layer', to: 'fn', label: 'fn', flex: 1.25 }, space, { c: '.', alt: ',' }, ret] }
+      ],
+      sym: [
+        { pad: '0', keys: chars('1234567890') },
+        { pad: '0', keys: chars('!@#$%^&*()') },
+        { pad: '0', keys: chars('~`|\\{}[]').concat([back]) },
+        { pad: '0', keys: [{ mod: 'layer', to: 'abc', label: 'abc', flex: 1.25 }, { mod: 'layer', to: 'fn', label: 'fn', flex: 1.25 }, space, { c: '-', alt: '_' }, ret] }
+      ],
+      fn: [
+        { pad: '0', keys: ['F1','F2','F3','F4','F5','F6','F7','F8','F9','F10'].map((l) => ({ label: l, small: true, noop: true })) },
+        { pad: '0', keys: ['F11','F12','home','end','pgup','pgdn','ins','del'].map((l) => ({ label: l, small: true, noop: true, flex: 1.25 })) },
+        { pad: '0', keys: ['^C','^D','^Z','^L','^R','^A','^E','^W'].map((l) => ({ label: l, combo: l, small: true, accentFg: true, aria: 'Control ' + l.slice(1) })).concat([back]) },
+        { pad: '0', keys: [{ mod: 'layer', to: 'abc', label: 'abc', flex: 1.25 }, { mod: 'layer', to: 'sym', label: '123', flex: 1.25 }, space, { c: '/', alt: '?' }, ret] }
+      ]
+    };
+  }
+
+  type(ch) {
+    const s = this.state;
+    if (s.ctrl) {
+      this.setState({ ctrl: false, typed: '', history: s.history.concat([{ cmd: s.typed + '^' + ch.toUpperCase() }]).slice(-3) });
+      return;
+    }
+    const out = s.shift && ch.length === 1 ? ch.toUpperCase() : ch;
+    this.setState({ typed: (s.typed + out).slice(-26), shift: false });
+  }
+
+  submit(cmd) {
+    const s = this.state;
+    this.setState({ typed: '', ctrl: false, shift: false, history: s.history.concat([{ cmd: cmd }]).slice(-3) });
+  }
+
+  press(k) {
+    const s = this.state;
+    if (k.noop) return;
+    if (k.mod === 'layer') return this.setState({ layer: k.to, shift: false });
+    if (k.mod === 'shift') return this.setState({ shift: !s.shift });
+    if (k.mod === 'back') return this.setState({ typed: s.typed.slice(0, -1) });
+    if (k.mod === 'ret') return this.submit(s.typed);
+    if (k.mod === 'space') return this.type(' ');
+    if (k.combo) return this.submit(s.typed + k.combo);
+    this.type(k.c);
+  }
+
+  key(k, accent) {
+    const s = this.state;
+    let label = k.label !== undefined ? k.label : k.c;
+    if (k.c && s.shift) label = k.c.toUpperCase();
+    let bg = '#2B2E33', fg = '#EDEFF2', fs = '17px';
+    if (k.mod === 'shift' || k.mod === 'back') { bg = '#1F2226'; fg = '#C7CCD2'; fs = '16px'; }
+    if (k.mod === 'shift' && s.shift) { bg = '#EDEFF2'; fg = '#0A0B0D'; }
+    if (k.mod === 'layer') { bg = '#1F2226'; fg = '#C7CCD2'; fs = '13px'; }
+    if (k.mod === 'space') { fg = '#8A9098'; fs = '12px'; }
+    if (k.mod === 'ret') { bg = accent; fg = '#16130B'; fs = '13px'; }
+    if (k.small) fs = '11.5px';
+    if (k.accentFg) fg = accent;
+    return {
+      label: label, flex: k.flex || 1, bg: bg, fg: fg, fs: fs,
+      alt: k.alt || '', hasAlt: !!k.alt, aria: k.aria || label,
+      press: () => this.press(k)
+    };
+  }
+
+  renderVals() {
+    const accent = this.props.accent ?? '#0ABAB5';
+    const s = this.state;
+    const rows = this.layers()[s.layer].map((r) => ({ pad: r.pad, keys: r.keys.map((k) => this.key(k, accent)) }));
+    const accKeys = ['|', '~', '/', '-', '$', '>', '*'].map((c) => ({ label: c, press: () => this.type(c) }));
+    return {
+      accent: accent,
+      rows: rows,
+      accKeys: accKeys,
+      typed: s.typed,
+      history: s.history,
+      ctrl: s.ctrl,
+      ctrlPressed: s.ctrl ? 'true' : 'false',
+      ctrlBg: s.ctrl ? accent : '#1F2226',
+      ctrlFg: s.ctrl ? '#16130B' : '#EDEFF2',
+      onCtrl: () => this.setState({ ctrl: !this.state.ctrl }),
+      onEsc: () => this.setState({ ctrl: false, shift: false }),
+      onTab: () => this.type('  ')
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shello — Appearance</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;600&family=Fira+Code:wght@400;600&family=Geist+Mono:wght@400;600&display=swap">
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+@keyframes shBlink{0%,55%{opacity:1}56%,100%{opacity:0}}
+.sh-cursor{animation:shBlink 1.1s steps(1,end) infinite}
+@media (prefers-reduced-motion: reduce){.sh-cursor{animation:none}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #0A0B0D; color: #EDEFF2; font-family: 'Geist', -apple-system, 'SF Pro Text', system-ui, sans-serif; display: flex; flex-direction: column; padding: 54px 16px 0; box-sizing: border-box">
+
+  <div style="height: 44px; display: flex; align-items: center; justify-content: space-between; margin: 0 -8px; flex: none">
+    <a href="Main.dc.html" style="height: 44px; padding: 0 8px; display: flex; align-items: center; gap: 2px; color: {{accent}}; font-size: 17px">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      Hosts
+    </a>
+    <a href="Keyboard.dc.html" style="height: 44px; padding: 0 8px; display: flex; align-items: center; color: {{accent}}; font-size: 17px">Keyboard</a>
+  </div>
+
+  <div style="margin-top: 6px; display: flex; align-items: flex-end; gap: 3px; flex: none">
+    <h1 style="margin: 0; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 34px; font-weight: 800; letter-spacing: -0.03em; line-height: 40px">Appearance</h1>
+    <span class="sh-cursor" aria-hidden="true" style="display: block; width: 17px; height: 30px; margin-bottom: 4px; background: {{accent}}; border-radius: 2px"></span>
+  </div>
+
+  <div role="img" aria-label="Live preview of the terminal with the chosen theme, font and cursor" style="margin-top: 14px; height: 148px; border-radius: 14px; border: 1px solid #23262B; background: {{t.bg}}; padding: 10px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 0; overflow: hidden; flex: none; font-family: {{fontStack}}; font-size: {{sizePx}}; line-height: 1.5; color: {{t.fg}}">
+    <div style="display: flex; justify-content: space-between; font-family: 'Geist', system-ui, sans-serif; font-size: 11px; color: {{t.dim}}; margin-bottom: 6px">
+      <span>forge</span><span>{{fontName}} · {{size}} pt</span>
+    </div>
+    <div style="white-space: pre"><span style="color: {{t.green}}">dev@forge</span>:<span style="color: {{t.blue}}">~/api</span>$ git status -sb</div>
+    <div style="white-space: pre"><span style="color: {{t.green}}">## main</span>...origin/main <span style="color: {{t.yellow}}">[ahead 1]</span></div>
+    <div style="white-space: pre"> <span style="color: {{t.yellow}}">M</span> handlers.go</div>
+    <div style="white-space: pre; display: flex; align-items: center"><span style="color: {{t.green}}">dev@forge</span>:<span style="color: {{t.blue}}">~/api</span>$ <span class="sh-cursor" aria-hidden="true" style="display: inline-block; width: {{curW}}; height: {{curH}}; align-self: {{curAlign}}; margin-left: 1px; background: {{accent}}"></span></div>
+  </div>
+
+  <h2 style="margin: 18px 4px 8px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94; flex: none">Theme</h2>
+  <div role="radiogroup" aria-label="Terminal theme" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; flex: none">
+    <sc-for list="{{themes}}" as="th" hint-placeholder-count="4">
+      <button type="button" role="radio" aria-checked="{{th.checked}}" onClick="{{th.pick}}" style="border: 0; background: transparent; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 6px">
+        <span style="width: 100%; height: 56px; border-radius: 10px; background: {{th.bg}}; box-shadow: {{th.ring}}; padding: 9px 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 5px">
+          <span style="width: 70%; height: 4px; border-radius: 2px; background: {{th.green}}"></span>
+          <span style="width: 90%; height: 4px; border-radius: 2px; background: {{th.fg}}; opacity: 0.8"></span>
+          <span style="width: 50%; height: 4px; border-radius: 2px; background: {{th.yellow}}"></span>
+          <span style="width: 60%; height: 4px; border-radius: 2px; background: {{th.blue}}"></span>
+        </span>
+        <span style="font-size: 12px; font-weight: {{th.weight}}; color: {{th.label}}">{{th.name}}</span>
+      </button>
+    </sc-for>
+  </div>
+
+  <h2 style="margin: 16px 4px 8px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94; flex: none">Font</h2>
+  <div role="radiogroup" aria-label="Terminal font" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; flex: none">
+    <sc-for list="{{fonts}}" as="f" hint-placeholder-count="4">
+      <button type="button" role="radio" aria-checked="{{f.checked}}" onClick="{{f.pick}}" style="height: 64px; border-radius: 12px; border: 0; background: #15171A; box-shadow: {{f.ring}}; padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px">
+        <span style="font-family: {{f.stack}}; font-size: 20px; font-weight: 600; color: #EDEFF2">{{f.sample}}</span>
+        <span style="font-size: 10.5px; color: #A3A9B1">{{f.name}}</span>
+      </button>
+    </sc-for>
+  </div>
+
+  <div style="margin-top: 16px; background: #15171A; border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; flex: none">
+    <div style="height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px 0 14px">
+      <span style="font-size: 16px">Text size</span>
+      <div style="display: flex; align-items: center; gap: 4px">
+        <button type="button" aria-label="Smaller text" onClick="{{smaller}}" style="width: 44px; height: 36px; border-radius: 9px; border: 0; background: #23262B; color: #EDEFF2; font-size: 13px; font-weight: 600; padding: 0">A–</button>
+        <span style="width: 52px; text-align: center; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 14px; font-weight: 600">{{size}} pt</span>
+        <button type="button" aria-label="Larger text" onClick="{{larger}}" style="width: 44px; height: 36px; border-radius: 9px; border: 0; background: #23262B; color: #EDEFF2; font-size: 16px; font-weight: 600; padding: 0">A+</button>
+      </div>
+    </div>
+    <div style="height: 1px; background: #23262B; margin-left: 14px"></div>
+    <div style="height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px 0 14px">
+      <span style="font-size: 16px">Cursor</span>
+      <div role="radiogroup" aria-label="Cursor shape" style="height: 34px; padding: 3px; box-sizing: border-box; border-radius: 9px; background: #0F1113; display: flex; gap: 2px">
+        <sc-for list="{{cursors}}" as="c" hint-placeholder-count="3">
+          <button type="button" role="radio" aria-checked="{{c.checked}}" aria-label="{{c.name}}" onClick="{{c.pick}}" style="width: 44px; border: 0; border-radius: 7px; background: {{c.bg}}; padding: 0; display: flex; align-items: center; justify-content: center">
+            <span style="width: {{c.w}}; height: {{c.h}}; align-self: {{c.align}}; margin-bottom: {{c.mb}}; background: {{c.fg}}; border-radius: 1px"></span>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="height: 1px; background: #23262B; margin-left: 14px"></div>
+    <div style="height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 14px">
+      <span style="font-size: 16px">Accent</span>
+      <div role="radiogroup" aria-label="Accent color" style="display: flex">
+        <sc-for list="{{accents}}" as="a" hint-placeholder-count="4">
+          <button type="button" role="radio" aria-checked="{{a.checked}}" aria-label="{{a.name}}" onClick="{{a.pick}}" style="width: 40px; height: 44px; border: 0; background: transparent; padding: 0; display: flex; align-items: center; justify-content: center">
+            <span style="width: 24px; height: 24px; border-radius: 12px; background: {{a.color}}; box-shadow: {{a.ring}}"></span>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="height: 1px; background: #23262B; margin-left: 14px"></div>
+    <div style="height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px 0 14px">
+      <span style="font-size: 16px">Interface</span>
+      <div role="radiogroup" aria-label="Interface appearance" style="height: 34px; padding: 3px; box-sizing: border-box; border-radius: 9px; background: #0F1113; display: flex; gap: 2px">
+        <sc-for list="{{uis}}" as="u" hint-placeholder-count="3">
+          <button type="button" role="radio" aria-checked="{{u.checked}}" onClick="{{u.pick}}" style="padding: 0 12px; border: 0; border-radius: 7px; background: {{u.bg}}; color: {{u.fg}}; font-size: 13px; font-weight: 600">{{u.name}}</button>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#0ABAB5","options":["#0ABAB5","#9EF07A","#7CCBFF","#B9A4FF"]},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { theme: 'night', font: 'jb', size: 13, cursor: 'block', accent: null, ui: 'dark' };
+  }
+  renderVals() {
+    const s = this.state;
+    const accent = s.accent || (this.props.accent ?? '#0ABAB5');
+    const T = {
+      night: { name: 'Night', bg: '#0A0B0D', fg: '#D8DCE1', green: '#8BD17C', blue: '#6CB6FF', yellow: '#E8C46B', dim: '#7D8590' },
+      paper: { name: 'Paper', bg: '#F7F6F2', fg: '#1E2125', green: '#2F7D32', blue: '#1F5FBF', yellow: '#8A5A00', dim: '#5F646C' },
+      phosphor: { name: 'Phosphor', bg: '#0B0F0A', fg: '#B8F5A0', green: '#7BEA5E', blue: '#9CF3C9', yellow: '#E3F57A', dim: '#6F9C67' },
+      dusk: { name: 'Dusk', bg: '#17142A', fg: '#E6E1FF', green: '#9BE7C4', blue: '#8FB8FF', yellow: '#FFCF8A', dim: '#9A94C0' }
+    };
+    const ring = (on) => on ? '0 0 0 2px #0A0B0D, 0 0 0 4px ' + accent : '0 0 0 1px #2A2E33';
+    const themes = Object.keys(T).map((k) => {
+      const on = k === s.theme;
+      return Object.assign({}, T[k], {
+        checked: on ? 'true' : 'false', ring: ring(on),
+        weight: on ? '600' : '500', label: on ? '#EDEFF2' : '#A3A9B1',
+        pick: () => this.setState({ theme: k })
+      });
+    });
+    const F = {
+      jb: { name: 'JetBrains', stack: "'JetBrains Mono', ui-monospace, monospace" },
+      plex: { name: 'Plex Mono', stack: "'IBM Plex Mono', ui-monospace, monospace" },
+      fira: { name: 'Fira Code', stack: "'Fira Code', ui-monospace, monospace" },
+      geist: { name: 'Geist Mono', stack: "'Geist Mono', ui-monospace, monospace" }
+    };
+    const fonts = Object.keys(F).map((k) => {
+      const on = k === s.font;
+      return { name: F[k].name, stack: F[k].stack, sample: 'Aa{}', checked: on ? 'true' : 'false', ring: on ? '0 0 0 2px ' + accent : 'none', pick: () => this.setState({ font: k }) };
+    });
+    const C = {
+      block: { name: 'Block', w: '9px', h: '16px', align: 'center', mb: '0' },
+      bar: { name: 'Bar', w: '2px', h: '16px', align: 'center', mb: '0' },
+      under: { name: 'Underline', w: '11px', h: '2px', align: 'flex-end', mb: '8px' }
+    };
+    const cursors = Object.keys(C).map((k) => {
+      const on = k === s.cursor;
+      return Object.assign({}, C[k], { checked: on ? 'true' : 'false', bg: on ? '#3A3E45' : 'transparent', fg: on ? accent : '#A3A9B1', pick: () => this.setState({ cursor: k }) });
+    });
+    const accents = [["Tiffany", "#0ABAB5"], ['Phosphor', '#9EF07A'], ['Ice', '#7CCBFF'], ['Iris', '#B9A4FF']].map((a) => {
+      const on = a[1].toLowerCase() === String(accent).toLowerCase();
+      return { name: a[0], color: a[1], checked: on ? 'true' : 'false', ring: on ? '0 0 0 2px #15171A, 0 0 0 4px #EDEFF2' : 'none', pick: () => this.setState({ accent: a[1] }) };
+    });
+    const uis = [['dark', 'Dark'], ['light', 'Light'], ['auto', 'Auto']].map((u) => {
+      const on = u[0] === s.ui;
+      return { name: u[1], checked: on ? 'true' : 'false', bg: on ? '#3A3E45' : 'transparent', fg: on ? '#EDEFF2' : '#A3A9B1', pick: () => this.setState({ ui: u[0] }) };
+    });
+    const em = s.size;
+    const cur = {
+      block: { w: Math.round(em * 0.6) + 'px', h: Math.round(em * 1.25) + 'px', a: 'center' },
+      bar: { w: '2px', h: Math.round(em * 1.25) + 'px', a: 'center' },
+      under: { w: Math.round(em * 0.6) + 'px', h: '2px', a: 'flex-end' }
+    }[s.cursor];
+    return {
+      accent: accent,
+      t: T[s.theme],
+      themes: themes,
+      fonts: fonts,
+      fontStack: F[s.font].stack,
+      fontName: F[s.font].name,
+      size: s.size,
+      sizePx: s.size + 'px',
+      curW: cur.w, curH: cur.h, curAlign: cur.a,
+      cursors: cursors,
+      accents: accents,
+      uis: uis,
+      smaller: () => this.setState({ size: Math.max(10, this.state.size - 1) }),
+      larger: () => this.setState({ size: Math.min(16, this.state.size + 1) })
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+{
+  "v": 3,
+  "attachments": {},
+  "createdOnFiles": { "at": "2026-10-12T11:28:58.318Z", "v": 1 },
+  "title": "Shello",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 390, "h": 844, "title": "Hosts", "is_interactive": true, "radius": 44 },
+    "Terminal.dc.html": { "x": 470, "y": 0, "w": 390, "h": 844, "title": "Terminal + Shello keyboard", "is_interactive": true, "radius": 44 },
+    "Tmux.dc.html": { "x": 940, "y": 0, "w": 390, "h": 844, "title": "tmux sessions", "is_interactive": true, "radius": 44 },
+    "Vim.dc.html": { "x": 1410, "y": 0, "w": 390, "h": 844, "title": "Vim mode", "is_interactive": true, "radius": 44 },
+    "Desktop.dc.html": { "x": 1880, "y": 0, "w": 390, "h": 844, "title": "Remote desktop", "is_interactive": true, "radius": 44 },
+    "NewHost.dc.html": { "x": 0, "y": 1264, "w": 390, "h": 844, "title": "New host", "is_interactive": true, "radius": 44 },
+    "Snippets.dc.html": { "x": 470, "y": 1264, "w": 390, "h": 844, "title": "Command palette", "is_interactive": true, "radius": 44 },
+    "Keyboard.dc.html": { "x": 940, "y": 1264, "w": 390, "h": 844, "title": "Keyboard settings", "is_interactive": true, "radius": 44 },
+    "Appearance.dc.html": { "x": 1410, "y": 1264, "w": 390, "h": 844, "title": "Appearance", "is_interactive": true, "radius": 44 },
+    "HostsLight.dc.html": { "x": 1880, "y": 1264, "w": 390, "h": 844, "title": "Hosts · Light", "is_interactive": true, "radius": 44 },
+    "System.dc.html": { "x": 0, "y": 2268, "w": 1280, "h": 920, "title": "System" }
+  },
+  "order": [
+    "Main.dc.html",
+    "Terminal.dc.html",
+    "Tmux.dc.html",
+    "Vim.dc.html",
+    "Desktop.dc.html",
+    "NewHost.dc.html",
+    "Snippets.dc.html",
+    "Keyboard.dc.html",
+    "Appearance.dc.html",
+    "HostsLight.dc.html",
+    "System.dc.html"
+  ],
+  "notes": {
+    "note-ozidf0": { "text": "", "w": 240, "x": 1525, "y": 4 },
+    "row1": { "x": 0, "y": -300, "text": "Connect & work", "kind": "title1", "maxW": 2270 },
+    "row2": { "x": 0, "y": 964, "text": "Make it yours", "kind": "title1", "maxW": 2270 }
+  },
+  "designSystems": []
+}

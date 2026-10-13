@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shello — Command palette</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap">
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+@keyframes shBlink{0%,55%{opacity:1}56%,100%{opacity:0}}
+.sh-cursor{animation:shBlink 1.1s steps(1,end) infinite}
+@media (prefers-reduced-motion: reduce){.sh-cursor{animation:none}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #0A0B0D; color: #EDEFF2; font-family: 'Geist', -apple-system, 'SF Pro Text', system-ui, sans-serif">
+
+  <div aria-hidden="true" style="position: absolute; inset: 0; padding: 112px 14px 0; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; line-height: 18px; color: #D8DCE1">
+    <div style="white-space: pre"><span style="color: #8BD17C">deploy@prod-api-01</span>:<span style="color: #6CB6FF">~</span>$ docker compose ps</div>
+    <div style="white-space: pre; color: #7D8590">NAME      IMAGE            STATUS</div>
+    <div style="white-space: pre">api       app/api:2.14     <span style="color: #8BD17C">Up 3 days</span></div>
+    <div style="white-space: pre">worker    app/worker:2.14  <span style="color: #8BD17C">Up 3 days</span></div>
+    <div style="white-space: pre">redis     redis:7-alpine   <span style="color: #8BD17C">Up 3 days</span></div>
+    <div style="white-space: pre"><span style="color: #8BD17C">deploy@prod-api-01</span>:<span style="color: #6CB6FF">~</span>$ </div>
+  </div>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(0,0,0,0.6)"></div>
+
+  <div role="dialog" aria-label="Command palette" style="position: absolute; left: 0; right: 0; bottom: 0; top: 232px; border-radius: 18px 18px 0 0; background: #131518; border-top: 1px solid #2A2E33; display: flex; flex-direction: column; padding: 0 16px 34px; box-sizing: border-box">
+    <span aria-hidden="true" style="align-self: center; margin: 7px 0 11px; width: 36px; height: 5px; border-radius: 3px; background: #3A3E45; flex: none"></span>
+
+    <div style="display: flex; gap: 8px; align-items: center; flex: none">
+      <label style="flex: 1; height: 46px; border-radius: 12px; background: #1C1E22; display: flex; align-items: center; gap: 10px; padding: 0 12px; box-sizing: border-box">
+        <span aria-hidden="true" style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 16px; font-weight: 700; color: {{accent}}">&gt;</span>
+        <input type="text" aria-label="Search snippets, commands and hosts" value="dep" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 16px; color: #EDEFF2; padding: 0">
+      </label>
+      <a href="Terminal.dc.html" aria-label="Close" style="width: 44px; height: 44px; border-radius: 22px; background: #1C1E22; display: flex; align-items: center; justify-content: center; color: #C7CCD2; flex: none">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </a>
+    </div>
+
+    <h2 style="margin: 16px 4px 8px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94">Snippets</h2>
+
+    <section aria-label="Deploy API snippet" style="border-radius: 14px; background: #1A1D21; border: 1px solid #2E3238; padding: 12px 12px 12px 14px; display: flex; flex-direction: column; gap: 10px; flex: none">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <span style="font-size: 16px; font-weight: 600"><span style="color: {{accent}}">Dep</span>loy API</span>
+        <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #868C94">used 14× this week</span>
+      </div>
+      <div style="border-radius: 8px; background: #0D0F11; padding: 8px 10px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; line-height: 18px; color: #D8DCE1; white-space: pre-wrap">./deploy.sh api --tag <span style="padding: 1px 5px; border-radius: 4px; background: {{accentSoft}}; color: {{accent}}">{{tag}}</span> &amp;&amp; docker compose up -d api</div>
+      <label style="height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 9px; background: #23262B">
+        <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #A3A9B1">$tag</span>
+        <input type="text" value="{{tag}}" onChange="{{onTag}}" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; color: #EDEFF2; padding: 0">
+        <span style="font-size: 11px; color: #868C94">last: 2.14</span>
+      </label>
+      <div role="group" aria-label="Run on hosts" style="display: flex; flex-wrap: wrap; gap: 6px">
+        <sc-for list="{{hosts}}" as="h" hint-placeholder-count="3">
+          <button type="button" aria-pressed="{{h.pressed}}" onClick="{{h.toggle}}" style="height: 32px; padding: 0 10px; border-radius: 999px; border: 1px solid {{h.border}}; background: {{h.bg}}; color: {{h.fg}}; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px">
+            <span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 3px; background: {{h.dot}}"></span>{{h.name}}
+          </button>
+        </sc-for>
+      </div>
+      <a href="Terminal.dc.html" style="height: 46px; border-radius: 12px; background: {{accent}}; color: #16130B; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 16px; font-weight: 600">
+        {{runLabel}}
+        <span style="height: 22px; padding: 0 6px; border-radius: 5px; background: rgba(0,0,0,0.14); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; display: flex; align-items: center">⏎</span>
+      </a>
+    </section>
+
+    <button type="button" style="margin-top: 6px; height: 52px; border: 0; border-radius: 12px; background: transparent; display: flex; align-items: center; gap: 12px; padding: 0 4px; text-align: left; flex: none">
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+        <span style="font-size: 15px; font-weight: 500"><span style="color: {{accent}}">Dep</span>endency audit</span>
+        <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #868C94; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">npm audit --omit=dev</span>
+      </span>
+    </button>
+
+    <h2 style="margin: 8px 4px 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94">Recent</h2>
+    <button type="button" style="height: 48px; border: 0; background: transparent; display: flex; align-items: center; gap: 10px; padding: 0 4px; text-align: left; flex: none">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#868C94" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+      <span style="flex: 1; min-width: 0; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">docker compose logs -f api</span>
+      <span style="font-size: 12px; color: #868C94">prod-api-01</span>
+    </button>
+
+    <h2 style="margin: 8px 4px 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94">Jump to</h2>
+    <a href="Main.dc.html" style="height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 4px; flex: none">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#868C94" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/></svg>
+      <span style="flex: 1; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px">prod-api-<span style="color: {{accent}}">02</span> <span style="color: #868C94">· new</span></span>
+      <span style="font-size: 12px; color: #868C94">Production</span>
+    </a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#0ABAB5","options":["#0ABAB5","#9EF07A","#7CCBFF","#B9A4FF"]},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tag: '2.15', on: { 'prod-api-01': true, 'prod-api-02': true, 'staging-web': false } };
+  }
+  soft(hex, a) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return hex;
+    const n = parseInt(m[1], 16);
+    return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + a + ')';
+  }
+  renderVals() {
+    const accent = this.props.accent ?? '#0ABAB5';
+    const s = this.state;
+    const names = ['prod-api-01', 'prod-api-02', 'staging-web'];
+    const hosts = names.map((name) => {
+      const on = !!s.on[name];
+      return {
+        name: name,
+        pressed: on ? 'true' : 'false',
+        bg: on ? '#EDEFF2' : 'transparent',
+        fg: on ? '#0A0B0D' : '#A3A9B1',
+        border: on ? '#EDEFF2' : '#3A3E45',
+        dot: name === 'staging-web' ? '#868C94' : '#46D39A',
+        toggle: () => this.setState({ on: Object.assign({}, this.state.on, { [name]: !this.state.on[name] }) })
+      };
+    });
+    const count = names.filter((n) => s.on[n]).length;
+    return {
+      accent: accent,
+      accentSoft: this.soft(accent, 0.16),
+      tag: s.tag,
+      onTag: (e) => this.setState({ tag: e.target.value }),
+      hosts: hosts,
+      runLabel: count === 0 ? 'Pick a host' : (count === 1 ? 'Run on 1 host' : 'Run on ' + count + ' hosts')
+    };
+  }
+}
+</script>
+</body>
+</html>

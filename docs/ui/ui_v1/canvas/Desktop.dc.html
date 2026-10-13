@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shello — Remote desktop</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap">
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #0A0B0D; color: #EDEFF2; font-family: 'Geist', -apple-system, 'SF Pro Text', system-ui, sans-serif; display: flex; flex-direction: column">
+
+  <header style="padding-top: 54px; flex: none">
+    <div style="height: 48px; display: flex; align-items: center; gap: 2px; padding: 0 6px">
+      <a href="Main.dc.html" aria-label="Back to hosts" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: {{accent}}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </a>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px">
+        <div style="display: flex; align-items: center; gap: 7px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 14px; font-weight: 600"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 4px; background: #46D39A"></span>media-pc</div>
+        <div style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #868C94">vnc · 1920×1080 · 32 ms</div>
+      </div>
+      <button type="button" aria-label="Stream quality: balanced" style="height: 30px; padding: 0 10px; margin-right: 4px; border-radius: 8px; border: 1px solid #2E3238; background: transparent; color: #C7CCD2; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; font-weight: 600; display: flex; align-items: center; gap: 6px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 20V14M10 20V9M16 20V12M22 20V5"/></svg>
+        Auto
+      </button>
+      <button type="button" aria-label="Disconnect" style="width: 44px; height: 44px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; color: #C7CCD2; padding: 0">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div role="img" aria-label="Remote screen of media-pc, zoomed to 160 percent" style="flex: none; height: 330px; position: relative; overflow: hidden; background-color: #1A2130; background-image: radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px); background-size: 14px 14px">
+    <div style="position: absolute; left: 18px; top: 22px; width: 300px; height: 214px; border-radius: 8px; overflow: hidden; background: #1A1E25; box-shadow: 0 10px 30px rgba(0,0,0,0.45); display: flex; flex-direction: column">
+      <div style="height: 28px; background: #2A2F38; display: flex; align-items: center; padding: 0 10px; gap: 8px; font-size: 11px; color: #D8DCE1">
+        <span style="flex: 1; font-weight: 600">Media Library</span>
+        <span aria-hidden="true" style="display: flex; gap: 10px; color: #8A9098; font-size: 11px">
+          <span>–</span><span>□</span><span>×</span>
+        </span>
+      </div>
+      <div style="flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 10px">
+        <div style="display: flex; flex-direction: column; gap: 4px"><span style="flex: 1; border-radius: 5px; background: #3B4A63"></span><span style="font-size: 9.5px; color: #D8DCE1">Films</span></div>
+        <div style="display: flex; flex-direction: column; gap: 4px"><span style="flex: 1; border-radius: 5px; background: #4E3F5E"></span><span style="font-size: 9.5px; color: #D8DCE1">Series</span></div>
+        <div style="display: flex; flex-direction: column; gap: 4px"><span style="flex: 1; border-radius: 5px; background: #3E5A4E"></span><span style="font-size: 9.5px; color: #D8DCE1">Music</span></div>
+        <div style="display: flex; flex-direction: column; gap: 4px"><span style="flex: 1; border-radius: 5px; background: #5E4B3A"></span><span style="font-size: 9.5px; color: #D8DCE1">Photos</span></div>
+        <div style="display: flex; flex-direction: column; gap: 4px"><span style="flex: 1; border-radius: 5px; background: #34505E"></span><span style="font-size: 9.5px; color: #D8DCE1">Home videos</span></div>
+        <div style="display: flex; flex-direction: column; gap: 4px"><span style="flex: 1; border-radius: 5px; background: #4A4A52"></span><span style="font-size: 9.5px; color: #D8DCE1">Downloads</span></div>
+      </div>
+    </div>
+
+    <div style="position: absolute; left: 236px; top: 150px; width: 250px; height: 132px; border-radius: 8px; overflow: hidden; background: #1A1E25; box-shadow: 0 10px 30px rgba(0,0,0,0.45); display: flex; flex-direction: column">
+      <div style="height: 28px; background: #2A2F38; display: flex; align-items: center; padding: 0 10px; font-size: 11px; font-weight: 600; color: #D8DCE1">Transfers</div>
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 12px 10px">
+        <div style="display: flex; flex-direction: column; gap: 5px"><span style="font-size: 9.5px; color: #D8DCE1">backup-oct.tar</span><span style="height: 5px; border-radius: 3px; background: #2A2F38; overflow: hidden"><span style="display: block; width: 68%; height: 100%; background: #6CB6FF"></span></span></div>
+        <div style="display: flex; flex-direction: column; gap: 5px"><span style="font-size: 9.5px; color: #D8DCE1">photos-2026.zip</span><span style="height: 5px; border-radius: 3px; background: #2A2F38; overflow: hidden"><span style="display: block; width: 24%; height: 100%; background: #6CB6FF"></span></span></div>
+      </div>
+    </div>
+
+    <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 34px; background: rgba(12,15,21,0.92); display: flex; align-items: center; gap: 8px; padding: 0 12px">
+      <span style="width: 18px; height: 18px; border-radius: 5px; background: #3B4A63"></span>
+      <span style="width: 18px; height: 18px; border-radius: 5px; background: #4E3F5E"></span>
+      <span style="width: 18px; height: 18px; border-radius: 5px; background: #3E5A4E"></span>
+      <span style="width: 18px; height: 18px; border-radius: 5px; background: #4A4A52"></span>
+      <span style="flex: 1"></span>
+      <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #D8DCE1">13:24</span>
+    </div>
+
+    <sc-if value="{{isPad}}" hint-placeholder-val="{{true}}">
+      <div aria-hidden="true" style="position: absolute; left: 196px; top: 100px; width: 40px; height: 40px; border-radius: 20px; border: 2px solid {{accent}}; opacity: 0.55; box-sizing: border-box"></div>
+      <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" style="position: absolute; left: 213px; top: 117px"><path d="M4 3l15 7.5-6.2 1.8L10 19z" fill="#FFFFFF" stroke="#0A0B0D" stroke-width="1.4" stroke-linejoin="round"/></svg>
+    </sc-if>
+
+    <div style="position: absolute; top: 10px; right: 10px; width: 100px; height: 58px; border-radius: 8px; background: rgba(10,11,13,0.78); border: 1px solid #2E3238; box-sizing: border-box; overflow: hidden">
+      <span style="position: absolute; left: 10px; top: 9px; width: 34px; height: 24px; border-radius: 2px; background: #3A4150"></span>
+      <span style="position: absolute; left: 40px; top: 26px; width: 30px; height: 15px; border-radius: 2px; background: #3A4150"></span>
+      <span style="position: absolute; left: 6px; top: 5px; width: 60px; height: 34px; border-radius: 3px; border: 1.5px solid {{accent}}; box-sizing: border-box"></span>
+      <span style="position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: #20252F"></span>
+    </div>
+
+    <div style="position: absolute; left: 10px; top: 10px; height: 24px; padding: 0 8px; border-radius: 7px; background: rgba(10,11,13,0.78); display: flex; align-items: center; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #EDEFF2">160%</div>
+  </div>
+
+  <div style="flex: none; display: flex; align-items: center; gap: 8px; padding: 12px 16px">
+    <div role="radiogroup" aria-label="Input mode" style="flex: 1; height: 38px; padding: 3px; box-sizing: border-box; border-radius: 10px; background: #1A1C20; display: flex; gap: 2px">
+      <button type="button" role="radio" aria-checked="{{padChecked}}" onClick="{{toPad}}" style="flex: 1; border: 0; border-radius: 8px; background: {{padBg}}; color: {{padFg}}; font-size: 13px; font-weight: 600; padding: 0">Trackpad</button>
+      <button type="button" role="radio" aria-checked="{{touchChecked}}" onClick="{{toTouch}}" style="flex: 1; border: 0; border-radius: 8px; background: {{touchBg}}; color: {{touchFg}}; font-size: 13px; font-weight: 600; padding: 0">Touch</button>
+    </div>
+    <button type="button" aria-label="Show keyboard" style="width: 44px; height: 44px; border-radius: 12px; border: 0; background: #1A1C20; color: #EDEFF2; display: flex; align-items: center; justify-content: center; padding: 0">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M8 14h8"/></svg>
+    </button>
+    <button type="button" aria-label="Send key combination" style="width: 44px; height: 44px; border-radius: 12px; border: 0; background: #1A1C20; color: #EDEFF2; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 700; padding: 0">⌃⌥⌦</button>
+    <button type="button" aria-label="Shared clipboard" style="width: 44px; height: 44px; border-radius: 12px; border: 0; background: #1A1C20; color: #EDEFF2; display: flex; align-items: center; justify-content: center; padding: 0">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="6" y="5" width="12" height="16" rx="2"/><path d="M9 5V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/></svg>
+    </button>
+    <button type="button" aria-label="Fit screen" style="width: 44px; height: 44px; border-radius: 12px; border: 0; background: #1A1C20; color: #EDEFF2; display: flex; align-items: center; justify-content: center; padding: 0">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+    </button>
+  </div>
+
+  <div style="flex: 1; min-height: 0; margin: 0 16px 34px; border-radius: 20px; border: 1px solid #23262B; overflow: hidden; display: flex; flex-direction: column; background-color: #111316; background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px); background-size: 12px 12px">
+    <sc-if value="{{isPad}}" hint-placeholder-val="{{true}}">
+      <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 0 24px; text-align: center">
+        <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94">Trackpad</span>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; font-size: 13px; color: #C7CCD2; text-align: left">
+          <span>Drag · move</span><span>Tap · click</span>
+          <span>2 fingers · scroll</span><span>Pinch · zoom</span>
+          <span>Hold + drag · select</span><span>3 fingers · pan</span>
+        </div>
+      </div>
+      <div style="flex: none; height: 58px; display: flex; border-top: 1px solid #23262B">
+        <button type="button" aria-label="Left click" style="flex: 1; border: 0; background: rgba(255,255,255,0.025); color: #C7CCD2; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; font-weight: 600; padding: 0">L</button>
+        <span aria-hidden="true" style="width: 1px; background: #23262B"></span>
+        <button type="button" aria-label="Right click" style="flex: 1; border: 0; background: rgba(255,255,255,0.025); color: #C7CCD2; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; font-weight: 600; padding: 0">R</button>
+      </div>
+    </sc-if>
+    <sc-if value="{{isTouch}}" hint-placeholder-val="{{false}}">
+      <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 0 28px; text-align: center">
+        <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #868C94">Direct touch</span>
+        <span style="font-size: 15px; line-height: 22px; color: #C7CCD2; text-wrap: pretty">Tap the screen where you want to click. Long-press for right-click, two fingers to pan.</span>
+        <button type="button" style="height: 40px; padding: 0 16px; border-radius: 999px; border: 0; background: #23262B; color: #EDEFF2; font-size: 14px; font-weight: 600">Go full screen</button>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#0ABAB5","options":["#0ABAB5","#9EF07A","#7CCBFF","#B9A4FF"]},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { mode: 'pad' };
+  }
+  renderVals() {
+    const accent = this.props.accent ?? '#0ABAB5';
+    const pad = this.state.mode === 'pad';
+    return {
+      accent: accent,
+      isPad: pad,
+      isTouch: !pad,
+      padChecked: pad ? 'true' : 'false',
+      touchChecked: pad ? 'false' : 'true',
+      padBg: pad ? '#3A3E45' : 'transparent',
+      padFg: pad ? '#EDEFF2' : '#A3A9B1',
+      touchBg: pad ? 'transparent' : '#3A3E45',
+      touchFg: pad ? '#A3A9B1' : '#EDEFF2',
+      toPad: () => this.setState({ mode: 'pad' }),
+      toTouch: () => this.setState({ mode: 'touch' })
+    };
+  }
+}
+</script>
+</body>
+</html>
