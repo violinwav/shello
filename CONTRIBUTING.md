@@ -23,6 +23,17 @@ When two of these disagree, do not silently pick one. Say so in the issue or pul
 - Claim an issue before starting it: assign it to yourself. Never start an issue assigned to the other developer; ask first.
 - One issue, one branch, one pull request. The pull request says `Closes #<issue>`.
 
+## Building and testing
+
+Open `Shello.xcodeproj` in Xcode 26.6 and use the `Shello` scheme: it runs the app and, with Product → Test, every `ShelloKit` unit test plus the UI tests. From the command line, the same checks CI runs (`.github/workflows/ci.yml`):
+
+```sh
+xcrun swift-format lint --strict --recursive --parallel App UITests Packages/ShelloKit
+xcodebuild test -project Shello.xcodeproj -scheme Shello -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'
+```
+
+Build settings live in `Configurations/*.xcconfig`, not in the Xcode project. Set them there so both developers see the change in review.
+
 ## Branches and pull requests
 
 - Nothing is pushed to `main` directly, documents included. Every change goes through a pull request.

@@ -66,7 +66,9 @@ A thin Xcode project holds only the app and extension targets. All logic lives i
 ```
 shello/
 ├── Shello.xcodeproj           app + extension targets only, buildable folders
-├── App/                       @main, scenes, composition root, assets, Info.plist, entitlements
+├── App/                       @main, scenes, composition root, assets, entitlements, privacy manifest
+├── UITests/                   XCUITest target, including the accessibility audits
+├── Configurations/            xcconfig files holding the build settings in section 5
 ├── Extensions/
 │   └── Share/                 "Upload to host" share extension (v1)
 ├── Packages/ShelloKit/
@@ -134,6 +136,7 @@ Xcode 26's [Enhanced Security capability](https://developer.apple.com/documentat
 Consequences:
 
 - The arm64e slice is only added when `ARCHS` is left at `ARCHS_STANDARD`, so the `Vendor/` scripts build libssh, OpenSSL and Mosh for **arm64e as well as arm64**. Whether OpenSSL's assembly works on arm64e is a spike item (section 13). Disabling OpenSSL assembly would be the last resort, because it costs a lot of throughput.
+- Swift package targets do not inherit the project's build settings, so `ShelloKit` would build without arm64e and the device build fails. The workspace setting `iOSPackagesShouldBuildARM64e`, in `Shello.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings`, makes Xcode build packages for arm64e too ([BrowserEngineKit: build for pointer authentication](https://developer.apple.com/documentation/browserenginekit/creating-browser-extensions-in-xcode#Build-for-pointer-authentication)). CI checks both slices.
 - Memory tagging only works on A19 and later and is not available in the Simulator. Address Sanitizer [cannot be combined with it](https://developer.apple.com/documentation/xcode-release-notes/xcode-26_1-release-notes), so sanitizer runs use a separate build configuration.
 
 ### C and C++ hardening for vendored code
