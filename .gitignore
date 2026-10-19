@@ -7,3 +7,12 @@ graphify-out/
 
 # Claude Code: personal instructions (shared ones live in CLAUDE.md)
 CLAUDE.local.md
+
+# Xcode and SwiftPM
+xcuserdata/
+*.xcuserstate
+DerivedData/
+/build/
+.build/
+Packages/ShelloKit/.swiftpm/
+*.xcresult

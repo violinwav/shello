@@ -1,0 +1,10 @@
+// UI tests for the Shello app. Project-wide settings are in Project.xcconfig.
+
+PRODUCT_NAME = $(TARGET_NAME)
+PRODUCT_BUNDLE_IDENTIFIER = ch.shello.ShelloUITests
+MARKETING_VERSION = 0.1
+CURRENT_PROJECT_VERSION = 1
+CODE_SIGN_STYLE = Automatic
+GENERATE_INFOPLIST_FILE = YES
+SWIFT_EMIT_LOC_STRINGS = NO
+TEST_TARGET_NAME = Shello

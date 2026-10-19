@@ -1,0 +1,318 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		5E1100000000000000000027 /* ShelloFeatures in Frameworks */ = {isa = PBXBuildFile; productRef = 5E1100000000000000000028 /* ShelloFeatures */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5E1100000000000000000038 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5E1100000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5E1100000000000000000020;
+			remoteInfo = Shello;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		5E1100000000000000000012 /* ShelloKit */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = ShelloKit; path = Packages/ShelloKit; sourceTree = "<group>"; };
+		5E1100000000000000000007 /* Project.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Project.xcconfig; sourceTree = "<group>"; };
+		5E1100000000000000000008 /* Shello.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shello.xcconfig; sourceTree = "<group>"; };
+		5E1100000000000000000009 /* ShelloUITests.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShelloUITests.xcconfig; sourceTree = "<group>"; };
+		5E1100000000000000000010 /* Shello.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Shello.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E1100000000000000000011 /* ShelloUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShelloUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		5E1100000000000000000004 /* App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = App;
+			sourceTree = "<group>";
+		};
+		5E1100000000000000000005 /* UITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = UITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5E1100000000000000000022 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5E1100000000000000000027 /* ShelloFeatures in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E1100000000000000000032 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5E1100000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				5E1100000000000000000012 /* ShelloKit */,
+				5E1100000000000000000004 /* App */,
+				5E1100000000000000000005 /* UITests */,
+				5E1100000000000000000006 /* Configurations */,
+				5E1100000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5E1100000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5E1100000000000000000010 /* Shello.app */,
+				5E1100000000000000000011 /* ShelloUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5E1100000000000000000006 /* Configurations */ = {
+			isa = PBXGroup;
+			children = (
+				5E1100000000000000000007 /* Project.xcconfig */,
+				5E1100000000000000000008 /* Shello.xcconfig */,
+				5E1100000000000000000009 /* ShelloUITests.xcconfig */,
+			);
+			path = Configurations;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5E1100000000000000000020 /* Shello */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E1100000000000000000024 /* Build configuration list for PBXNativeTarget "Shello" */;
+			buildPhases = (
+				5E1100000000000000000021 /* Sources */,
+				5E1100000000000000000022 /* Frameworks */,
+				5E1100000000000000000023 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5E1100000000000000000004 /* App */,
+			);
+			name = Shello;
+			packageProductDependencies = (
+				5E1100000000000000000028 /* ShelloFeatures */,
+			);
+			productName = Shello;
+			productReference = 5E1100000000000000000010 /* Shello.app */;
+			productType = "com.apple.product-type.application";
+		};
+		5E1100000000000000000030 /* ShelloUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E1100000000000000000034 /* Build configuration list for PBXNativeTarget "ShelloUITests" */;
+			buildPhases = (
+				5E1100000000000000000031 /* Sources */,
+				5E1100000000000000000032 /* Frameworks */,
+				5E1100000000000000000033 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5E1100000000000000000037 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				5E1100000000000000000005 /* UITests */,
+			);
+			name = ShelloUITests;
+			packageProductDependencies = (
+			);
+			productName = ShelloUITests;
+			productReference = 5E1100000000000000000011 /* ShelloUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		5E1100000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					5E1100000000000000000020 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					5E1100000000000000000030 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = 5E1100000000000000000020;
+					};
+				};
+			};
+			buildConfigurationList = 5E1100000000000000000040 /* Build configuration list for PBXProject "Shello" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 5E1100000000000000000002;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				5E1100000000000000000029 /* XCLocalSwiftPackageReference "Packages/ShelloKit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5E1100000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5E1100000000000000000020 /* Shello */,
+				5E1100000000000000000030 /* ShelloUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5E1100000000000000000023 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E1100000000000000000033 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5E1100000000000000000021 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E1100000000000000000031 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5E1100000000000000000037 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5E1100000000000000000020 /* Shello */;
+			targetProxy = 5E1100000000000000000038 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		5E1100000000000000000025 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5E1100000000000000000008 /* Shello.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		5E1100000000000000000026 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5E1100000000000000000008 /* Shello.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+		5E1100000000000000000035 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5E1100000000000000000009 /* ShelloUITests.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		5E1100000000000000000036 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5E1100000000000000000009 /* ShelloUITests.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+		5E1100000000000000000041 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5E1100000000000000000007 /* Project.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		5E1100000000000000000042 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5E1100000000000000000007 /* Project.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5E1100000000000000000024 /* Build configuration list for PBXNativeTarget "Shello" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E1100000000000000000025 /* Debug */,
+				5E1100000000000000000026 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5E1100000000000000000034 /* Build configuration list for PBXNativeTarget "ShelloUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E1100000000000000000035 /* Debug */,
+				5E1100000000000000000036 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5E1100000000000000000040 /* Build configuration list for PBXProject "Shello" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E1100000000000000000041 /* Debug */,
+				5E1100000000000000000042 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		5E1100000000000000000029 /* XCLocalSwiftPackageReference "Packages/ShelloKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ShelloKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		5E1100000000000000000028 /* ShelloFeatures */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5E1100000000000000000029 /* XCLocalSwiftPackageReference "Packages/ShelloKit" */;
+			productName = ShelloFeatures;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 5E1100000000000000000001 /* Project object */;
+}
