@@ -33,7 +33,13 @@ let package = Package(
         // Keychain, Secure Enclave, unlock window, SSH agent, security log.
         .target(name: "ShelloSecurity", dependencies: ["ShelloModel"], swiftSettings: core),
         // libssh wrapper: connection actor, channels, SFTP, forwards, algorithm policy.
-        .target(name: "ShelloSSH", dependencies: ["ShelloModel"], swiftSettings: core),
+        // The only target that reaches libssh and OpenSSL. zlib is the iOS SDK's.
+        .target(
+            name: "ShelloSSH",
+            dependencies: ["ShelloModel", "libssh", "libcrypto"],
+            swiftSettings: core,
+            linkerSettings: [.linkedLibrary("z")]
+        ),
         // tmux queries and parsers over hidden channels.
         .target(name: "ShelloTmux", dependencies: ["ShelloModel", "ShelloSSH"], swiftSettings: core),
         // Tabs and connections lifecycle, reconnect and reattach, detection, multi-host run.
@@ -47,9 +53,14 @@ let package = Package(
         // SwiftUI screens.
         .target(
             name: "ShelloFeatures",
-            dependencies: ["ShelloModel", "ShelloCore", "ShelloTerminalUI"],
+            dependencies: ["ShelloModel", "ShelloCore", "ShelloSSH", "ShelloTerminalUI"],
             swiftSettings: ui
         ),
+
+        // Static XCFrameworks that Vendor/build.sh builds from verified source (STACK section 12).
+        // Run it once before building; the outputs are not in git.
+        .binaryTarget(name: "libssh", path: "../../Vendor/build/xcframeworks/libssh.xcframework"),
+        .binaryTarget(name: "libcrypto", path: "../../Vendor/build/xcframeworks/libcrypto.xcframework"),
 
         .testTarget(name: "ShelloModelTests", dependencies: ["ShelloModel"], swiftSettings: core),
         .testTarget(name: "ShelloStorageTests", dependencies: ["ShelloStorage"], swiftSettings: core),
