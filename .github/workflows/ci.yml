@@ -1,7 +1,10 @@
 name: CI
 
 # Lints, builds and tests the app and ShelloKit on every pull request and on main.
-# Compiler warnings are errors here (docs/spec/STACK.md section 11).
+# Compiler warnings are errors in Shello's own targets (docs/spec/STACK.md section 11). That is set in
+# Configurations/Project.xcconfig and Package.swift, not here: on the command line it would also reach
+# package dependencies, which Xcode builds with warnings suppressed, and the compiler rejects
+# -warnings-as-errors together with -suppress-warnings.
 # No signing: simulator builds sign to run locally, the device build is unsigned.
 
 on:
@@ -19,7 +22,6 @@ concurrency:
 env:
   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
   SIMULATOR: platform=iOS Simulator,name=iPhone 17,OS=26.5
-  STRICT: SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES
 
 jobs:
   macos:
@@ -72,7 +74,6 @@ jobs:
           xcodebuild test -quiet
           -project Shello.xcodeproj -scheme Shello
           -destination "$SIMULATOR"
-          $STRICT
 
       # Enhanced Security adds an arm64e slice, which every linked target must have.
       - name: Device build (arm64 and arm64e)
@@ -80,5 +81,5 @@ jobs:
           xcodebuild build -quiet \
             -project Shello.xcodeproj -scheme Shello -configuration Release \
             -destination generic/platform=iOS -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO $STRICT
+            CODE_SIGNING_ALLOWED=NO
           lipo build/Build/Products/Release-iphoneos/Shello.app/Shello -verify_arch arm64 arm64e

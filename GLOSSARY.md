@@ -25,8 +25,12 @@ The one group a host belongs to, if any. New hosts in a group inherit its defaul
 _Avoid_: Folder, category
 
 **Tag**:
-A label on a host. A host can have any number of tags.
+A label on a host, with a name and a colour. A host can have any number of tags.
 _Avoid_: Label, category
+
+**Favourite**:
+A host the user marked to list before the others.
+_Avoid_: Starred, pinned, bookmark
 
 **Production host**:
 A host with at least one tag marked production. Shello asks for extra confirmation before risky actions on it.

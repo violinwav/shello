@@ -12,12 +12,18 @@ let approachableConcurrency: [SwiftSetting] = [
     .enableUpcomingFeature("InferIsolatedConformances"),
 ]
 
+/// Warnings are errors in Shello's own targets, as in Configurations/Project.xcconfig. Set here
+/// rather than on the xcodebuild command line, which would also reach package dependencies such as
+/// GRDB: Xcode builds those with warnings suppressed, and the compiler rejects `-warnings-as-errors`
+/// together with `-suppress-warnings`.
+let warningsAsErrors: [SwiftSetting] = [.treatAllWarnings(as: .error)]
+
 /// UI-free targets: nonisolated by default, and every unsafe pointer use is marked `unsafe` (SE-0458).
 /// They import Foundation and their C libraries only, so they stay buildable on Linux.
-let core: [SwiftSetting] = approachableConcurrency + [.strictMemorySafety()]
+let core: [SwiftSetting] = approachableConcurrency + warningsAsErrors + [.strictMemorySafety()]
 
 /// UIKit and SwiftUI targets: main actor by default (SE-0466).
-let ui: [SwiftSetting] = approachableConcurrency + [.defaultIsolation(MainActor.self)]
+let ui: [SwiftSetting] = approachableConcurrency + warningsAsErrors + [.defaultIsolation(MainActor.self)]
 
 let package = Package(
     name: "ShelloKit",
@@ -25,11 +31,19 @@ let package = Package(
     products: [
         .library(name: "ShelloFeatures", targets: ["ShelloFeatures"])
     ],
+    // Pinned exactly; docs/spec/STACK.md section 8 lists every dependency and why.
+    dependencies: [
+        .package(url: "https://github.com/groue/GRDB.swift", exact: "7.11.1")
+    ],
     targets: [
         // Domain types: host, group, tag, snippet, preset.
         .target(name: "ShelloModel", swiftSettings: core),
         // GRDB database, migrations, JSON export and import.
-        .target(name: "ShelloStorage", dependencies: ["ShelloModel"], swiftSettings: core),
+        .target(
+            name: "ShelloStorage",
+            dependencies: ["ShelloModel", .product(name: "GRDB", package: "GRDB.swift")],
+            swiftSettings: core
+        ),
         // Keychain, Secure Enclave, unlock window, SSH agent, security log.
         .target(name: "ShelloSecurity", dependencies: ["ShelloModel"], swiftSettings: core),
         // libssh wrapper: connection actor, channels, SFTP, forwards, algorithm policy.
@@ -63,7 +77,14 @@ let package = Package(
         .binaryTarget(name: "libcrypto", path: "../../Vendor/build/xcframeworks/libcrypto.xcframework"),
 
         .testTarget(name: "ShelloModelTests", dependencies: ["ShelloModel"], swiftSettings: core),
-        .testTarget(name: "ShelloStorageTests", dependencies: ["ShelloStorage"], swiftSettings: core),
+        // GRDB too, for the tests that inspect the schema and the stored rows. Fixtures holds a
+        // database written by each schema version, for the migration tests.
+        .testTarget(
+            name: "ShelloStorageTests",
+            dependencies: ["ShelloStorage", "ShelloModel", .product(name: "GRDB", package: "GRDB.swift")],
+            resources: [.copy("Fixtures")],
+            swiftSettings: core
+        ),
         .testTarget(name: "ShelloSecurityTests", dependencies: ["ShelloSecurity"], swiftSettings: core),
         .testTarget(name: "ShelloSSHTests", dependencies: ["ShelloSSH"], swiftSettings: core),
         .testTarget(name: "ShelloTmuxTests", dependencies: ["ShelloTmux"], swiftSettings: core),

@@ -1,0 +1,88 @@
+import GRDB
+
+/// The database schema, as an ordered list of migrations.
+///
+/// A schema change is a new migration, registered after the others. A migration that shipped never
+/// changes, because databases on devices have already run it: each one has a fixture database, and
+/// MigrationTests checks that the migration still builds exactly that schema.
+///
+/// The schema is ready for sync (docs/spec/STACK.md section 7.10):
+/// - Identifiers are UUIDs, stored as 16-byte blobs.
+/// - Every synced field has a modification time next to it, `<field>ModifiedAt`, so that sync can
+///   merge per field. A host's tags are one field, `tagsModifiedAt`.
+/// - Deleting writes a tombstone: `deletedAt` is set and the row stays, so that the deletion can sync
+///   and be undone. `deletedAt` has its own modification time, which also covers an undo.
+/// - Foreign keys are deferred to the end of the transaction, so that a write can store related rows
+///   in any order.
+/// - Times are seconds since 2001-01-01 (`Date.timeIntervalSinceReferenceDate`), durations whole
+///   milliseconds. Enum values are stored as fixed strings (`StoredEnum`).
+enum Schema {
+    static let migrator: DatabaseMigrator = {
+        var migrator = DatabaseMigrator()
+        migrator.registerMigration("v1", migrate: v1)
+        return migrator
+    }()
+
+    /// Hosts, groups and tags (README section 3).
+    private static func v1(_ db: Database) throws {
+        try db.create(table: "hostGroup", options: .strict) { t in
+            t.primaryKey("id", .blob)
+            t.column("name", .text).notNull()
+            t.column("nameModifiedAt", .real).notNull()
+            t.column("deletedAt", .real)
+            t.column("deletedAtModifiedAt", .real).notNull()
+        }
+        try db.create(table: "tag", options: .strict) { t in
+            t.primaryKey("id", .blob)
+            t.column("name", .text).notNull()
+            t.column("nameModifiedAt", .real).notNull()
+            t.column("color", .text).notNull()
+            t.column("colorModifiedAt", .real).notNull()
+            t.column("deletedAt", .real)
+            t.column("deletedAtModifiedAt", .real).notNull()
+        }
+        try db.create(table: "host", options: .strict) { t in
+            t.primaryKey("id", .blob)
+            t.column("name", .text).notNull()
+            t.column("nameModifiedAt", .real).notNull()
+            t.column("address", .text).notNull()
+            t.column("addressModifiedAt", .real).notNull()
+            t.column("port", .integer).notNull()
+            t.column("portModifiedAt", .real).notNull()
+            t.column("protocol", .text).notNull()
+            t.column("protocolModifiedAt", .real).notNull()
+            t.column("username", .text).notNull()
+            t.column("usernameModifiedAt", .real).notNull()
+            t.column("authMethod", .text).notNull()
+            t.column("authMethodModifiedAt", .real).notNull()
+            // No foreign key: the SSH key may exist on another device only (README section 15).
+            t.column("sshKeyID", .blob)
+            t.column("sshKeyIDModifiedAt", .real).notNull()
+            t.column("groupID", .blob).references("hostGroup", onDelete: .setNull, deferred: true).indexed()
+            t.column("groupIDModifiedAt", .real).notNull()
+            t.column("tagsModifiedAt", .real).notNull()
+            t.column("notes", .text).notNull()
+            t.column("notesModifiedAt", .real).notNull()
+            t.column("startupCommand", .text).notNull()
+            t.column("startupCommandModifiedAt", .real).notNull()
+            t.column("terminalType", .text).notNull()
+            t.column("terminalTypeModifiedAt", .real).notNull()
+            t.column("keepaliveInterval", .integer).notNull()
+            t.column("keepaliveIntervalModifiedAt", .real).notNull()
+            t.column("connectTimeout", .integer).notNull()
+            t.column("connectTimeoutModifiedAt", .real).notNull()
+            t.column("isFavorite", .integer).notNull()
+            t.column("isFavoriteModifiedAt", .real).notNull()
+            t.column("lastConnectedAt", .real)
+            t.column("lastConnectedAtModifiedAt", .real).notNull()
+            t.column("deletedAt", .real)
+            t.column("deletedAtModifiedAt", .real).notNull()
+        }
+        try db.create(table: "hostTag", options: .strict) { t in
+            t.primaryKey {
+                t.column("hostID", .blob).references("host", onDelete: .cascade, deferred: true)
+                t.column("tagID", .blob).references("tag", onDelete: .cascade, deferred: true).indexed()
+            }
+        }
+    }
+}
