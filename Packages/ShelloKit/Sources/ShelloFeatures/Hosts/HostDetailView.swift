@@ -99,21 +99,21 @@ struct HostDetailView: View {
             }
 
             Section {
-                LabeledContent("Protocol", value: host.protocol.displayName)
+                valueRow("Protocol", host.protocol.displayName)
                 dataRow("Address", host.address)
                 dataRow("Port", String(host.port))
                 dataRow("User", host.username.isEmpty ? nil : host.username)
-                LabeledContent("Authentication", value: host.authMethod.displayName)
+                valueRow("Authentication", host.authMethod.displayName)
             } header: {
                 SectionHeader("Connection")
             }
             .listRowBackground(Palette.cell)
 
             Section {
-                LabeledContent("Group", value: model.groupName ?? "None")
+                valueRow("Group", model.groupName ?? "None")
                 LabeledContent("Tags") {
                     if model.hostTags.isEmpty {
-                        Text("None")
+                        ValueText("None")
                     } else {
                         TagLine(tags: model.hostTags)
                     }
@@ -127,9 +127,9 @@ struct HostDetailView: View {
             Section {
                 dataRow("Startup command", host.startupCommand.isEmpty ? nil : host.startupCommand)
                 dataRow("Terminal type", host.terminalType)
-                LabeledContent("Keepalive", value: host.keepaliveInterval.formattedSeconds)
+                valueRow("Keepalive", host.keepaliveInterval.formattedSeconds)
                     .accessibilityValue(host.keepaliveInterval.spokenSeconds)
-                LabeledContent("Connect timeout", value: host.connectTimeout.formattedSeconds)
+                valueRow("Connect timeout", host.connectTimeout.formattedSeconds)
                     .accessibilityValue(host.connectTimeout.spokenSeconds)
             } header: {
                 SectionHeader("On Connect")
@@ -147,6 +147,7 @@ struct HostDetailView: View {
 
             Section {
                 Button("Delete Host", role: .destructive) { confirmsDelete = true }
+                    .destructiveStyle()
             }
             .listRowBackground(Palette.cell)
         }
@@ -154,15 +155,20 @@ struct HostDetailView: View {
         .scrollContentBackground(.hidden)
     }
 
+    private func valueRow(_ label: String, _ value: String) -> some View {
+        LabeledContent(label) {
+            ValueText(value)
+        }
+    }
+
     /// A value the user reads exactly, such as an address, in the data font. Nil shows "None".
     private func dataRow(_ label: String, _ value: String?) -> some View {
         LabeledContent(label) {
             if let value {
-                Text(value)
-                    .font(Typography.data)
+                ValueText(value, font: Typography.data)
                     .textSelection(.enabled)
             } else {
-                Text("None")
+                ValueText("None")
             }
         }
     }

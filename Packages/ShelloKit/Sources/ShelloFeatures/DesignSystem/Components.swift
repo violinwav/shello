@@ -165,6 +165,24 @@ struct FieldRow<Field: View>: View {
     }
 }
 
+/// A row's value next to its label, in the secondary text token. `LabeledContent` draws values in the
+/// system's secondary colour, which is about 3.5:1 on a white cell; the token keeps 8:1.
+struct ValueText: View {
+    let text: String
+    var font: Font?
+
+    init(_ text: String, font: Font? = nil) {
+        self.text = text
+        self.font = font
+    }
+
+    var body: some View {
+        Text(text)
+            .font(font)
+            .foregroundStyle(Palette.textSecondary)
+    }
+}
+
 /// Text under a group of rows, in the secondary text colour, which keeps 4.5:1 contrast on the
 /// ground in both appearances.
 struct FooterText: View {
@@ -228,6 +246,12 @@ extension View {
     /// so the fill is the deep accent in both appearances rather than Tiffany.
     func prominentToolbarButton() -> some View {
         tint(Palette.accentDeep)
+    }
+
+    /// A destructive button's title in the error token: the system's red is about 3.6:1 on a white
+    /// cell, the token 5.6:1.
+    func destructiveStyle() -> some View {
+        foregroundStyle(Palette.statusError)
     }
 }
 

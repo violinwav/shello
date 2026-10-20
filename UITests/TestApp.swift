@@ -21,6 +21,9 @@ extension XCUIApplication {
     /// attached to the test's results.
     @MainActor
     func auditAccessibility() throws {
+        // The audit reads the screen as it is drawn: a push or a sheet still moving in shows up as
+        // low contrast or clipped text, on a slow CI runner especially. Give it time to settle.
+        _ = XCTWaiter.wait(for: [XCTestExpectation(description: "The screen settles")], timeout: 1)
         var ignored: [String] = []
         try performAccessibilityAudit { issue in
             let isFalsePositive =

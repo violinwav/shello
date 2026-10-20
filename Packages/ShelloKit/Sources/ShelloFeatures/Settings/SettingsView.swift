@@ -9,7 +9,7 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 Section {
-                    LabeledContent("Version", value: Self.version)
+                    LabeledContent("Version") { ValueText(Self.version) }
                     NavigationLink("Diagnostics") { DiagnosticsView() }
                 } header: {
                     SectionHeader("About")

@@ -10,8 +10,7 @@ struct DiagnosticsView: View {
         List {
             Section {
                 LabeledContent("libssh") {
-                    Text(libSSHVersion)
-                        .font(Typography.data)
+                    ValueText(libSSHVersion, font: Typography.data)
                 }
             } footer: {
                 FooterText("The SSH library inside this copy of Shello, with its crypto and compression libraries.")

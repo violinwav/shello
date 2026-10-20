@@ -63,6 +63,7 @@ struct HostEditorView: View {
                 if model.isEditing {
                     Section {
                         Button("Delete Host", role: .destructive) { confirmsDelete = true }
+                            .destructiveStyle()
                     }
                     .listRowBackground(Palette.cell)
                 }
@@ -186,7 +187,7 @@ struct HostEditorView: View {
                 }
             }
             if model.draft.authMethod == .sshKey {
-                LabeledContent("SSH Key", value: model.sshKeySummary)
+                LabeledContent("SSH Key") { ValueText(model.sshKeySummary) }
             }
         } header: {
             SectionHeader("Authentication")
@@ -277,11 +278,11 @@ struct HostEditorView: View {
             textField(
                 "Terminal type", text: $model.draft.terminalType, prompt: "required", focus: .terminalType)
             Stepper(value: $model.draft.keepaliveSeconds, in: 5...300, step: 5) {
-                LabeledContent("Keepalive", value: model.draft.keepaliveInterval.formattedSeconds)
+                LabeledContent("Keepalive") { ValueText(model.draft.keepaliveInterval.formattedSeconds) }
             }
             .accessibilityValue(model.draft.keepaliveInterval.spokenSeconds)
             Stepper(value: $model.draft.connectTimeoutSeconds, in: 5...120, step: 5) {
-                LabeledContent("Connect timeout", value: model.draft.connectTimeout.formattedSeconds)
+                LabeledContent("Connect timeout") { ValueText(model.draft.connectTimeout.formattedSeconds) }
             }
             .accessibilityValue(model.draft.connectTimeout.spokenSeconds)
         } header: {
