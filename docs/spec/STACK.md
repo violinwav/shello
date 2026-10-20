@@ -135,7 +135,7 @@ Xcode 26's [Enhanced Security capability](https://developer.apple.com/documentat
 
 Consequences:
 
-- The arm64e slice is only added when `ARCHS` is left at `ARCHS_STANDARD`, so the `Vendor/` scripts build libssh, OpenSSL and Mosh for **arm64e as well as arm64**. Whether OpenSSL's assembly works on arm64e is a spike item (section 13). Disabling OpenSSL assembly would be the last resort, because it costs a lot of throughput.
+- The arm64e slice is only added when `ARCHS` is left at `ARCHS_STANDARD`, so the `Vendor/` scripts build libssh, OpenSSL and Mosh for **arm64e as well as arm64**. OpenSSL's assembly works on arm64e with one patch (spike item 7, section 13). Poly1305's assembly hands C unsigned code pointers, which pointer authentication rejects, so ChaCha20-Poly1305 crashed. `Vendor/patches/openssl/` signs them. `Vendor/test-openssl-arm64e.sh` runs OpenSSL's test suite as arm64e on macOS, where pointer authentication is enforced too. Disabling OpenSSL assembly would have been the last resort, because it costs a lot of throughput.
 - Swift package targets do not inherit the project's build settings, so `ShelloKit` would build without arm64e and the device build fails. The workspace setting `iOSPackagesShouldBuildARM64e`, in `Shello.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings`, makes Xcode build packages for arm64e too ([BrowserEngineKit: build for pointer authentication](https://developer.apple.com/documentation/browserenginekit/creating-browser-extensions-in-xcode#Build-for-pointer-authentication)). CI checks both slices.
 - Memory tagging only works on A19 and later and is not available in the Simulator. Address Sanitizer [cannot be combined with it](https://developer.apple.com/documentation/xcode-release-notes/xcode-26_1-release-notes), so sanitizer runs use a separate build configuration.
 
@@ -143,7 +143,7 @@ Consequences:
 
 - C: `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=2`, `-ftrivial-auto-var-init=zero`, plus the typed allocators above. Shello's own C shims also get `ENABLE_C_BOUNDS_SAFETY = YES` (`-fbounds-safety`); upstream libraries are not annotated for it.
 - C++ (Mosh, protobuf, Abseil): `CLANG_CXX_STANDARD_LIBRARY_HARDENING = fast` in Release and `extensive` in Debug and tests (`_LIBCPP_HARDENING_MODE`, [Xcode 16](https://developer.apple.com/documentation/xcode-release-notes/xcode-16-release-notes)).
-- OpenSSL is configured with only what libssh, Mosh and the backup need: libcrypto, no libssl, and `no-shared no-engine no-comp no-legacy no-apps no-docs no-tests`. The exact option list is fixed in the spike.
+- OpenSSL is configured with only what libssh, Mosh and the backup need: libcrypto, no libssl, and `no-shared no-engine no-comp no-legacy no-apps no-docs no-tests no-autoload-config`. The spike added `no-autoload-config`, because an app has no `openssl.cnf` to load. `Vendor/README.md` lists the libssh options.
 
 ## 6. Concurrency and performance model
 

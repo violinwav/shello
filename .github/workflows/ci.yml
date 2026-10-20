@@ -24,7 +24,8 @@ env:
 jobs:
   macos:
     runs-on: macos-26
-    timeout-minutes: 30
+    # A cold vendor build adds about 10 minutes.
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -34,6 +35,37 @@ jobs:
 
       - name: Lint
         run: xcrun swift-format lint --strict --recursive --parallel App UITests Packages/ShelloKit
+
+      # libssh and OpenSSL, built from verified source by Vendor/build.sh (Vendor/README.md).
+      # Cached by the files that determine the build and by the Xcode version, so they are
+      # rebuilt only when one of those changes.
+      - name: Vendored libraries cache key
+        id: vendor-key
+        env:
+          INPUTS: ${{ hashFiles('Vendor/build.sh', 'Vendor/lib.sh', 'Vendor/sources.sha256', 'Vendor/keys/**', 'Vendor/openssl/**', 'Vendor/libssh/**', 'Vendor/patches/**') }}
+        run: echo "key=vendor-$(xcodebuild -version | shasum -a 256 | cut -c1-16)-$INPUTS" >> "$GITHUB_OUTPUT"
+
+      - name: Restore vendored libraries
+        id: vendor-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Vendor/build/xcframeworks
+          key: ${{ steps.vendor-key.outputs.key }}
+
+      - name: Build vendored libraries
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
+        run: |
+          command -v gpgv >/dev/null || brew install gnupg
+          command -v cmake >/dev/null || brew install cmake
+          Vendor/build.sh
+
+      # Saved straight away, so that a later failing step does not throw the build away.
+      - name: Save vendored libraries
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Vendor/build/xcframeworks
+          key: ${{ steps.vendor-key.outputs.key }}
 
       - name: Unit and UI tests
         run: >-

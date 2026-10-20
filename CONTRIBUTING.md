@@ -25,6 +25,8 @@ When two of these disagree, do not silently pick one. Say so in the issue or pul
 
 ## Building and testing
 
+First build libssh and OpenSSL from verified source with `Vendor/build.sh` (needs `brew install cmake gnupg`). The output is not in git. Rerun the script after `Vendor/` changes; it does nothing when the libraries are current. See `Vendor/README.md`.
+
 Open `Shello.xcodeproj` in Xcode 26.6 and use the `Shello` scheme: it runs the app and, with Product → Test, every `ShelloKit` unit test plus the UI tests. From the command line, the same checks CI runs (`.github/workflows/ci.yml`):
 
 ```sh
