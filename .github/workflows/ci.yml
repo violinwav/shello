@@ -74,6 +74,17 @@ jobs:
           xcodebuild test -quiet
           -project Shello.xcodeproj -scheme Shello
           -destination "$SIMULATOR"
+          -resultBundlePath TestResults.xcresult
+
+      # -quiet hides why a test failed; the result bundle has the failure, logs and screenshots.
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results
+          path: TestResults.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
 
       # Enhanced Security adds an arm64e slice, which every linked target must have.
       - name: Device build (arm64 and arm64e)
