@@ -1,0 +1,231 @@
+import XCTest
+
+/// The host list and the host editor (README section 3).
+final class HostTests: XCTestCase {
+    override func setUp() {
+        continueAfterFailure = false
+    }
+
+    @MainActor
+    func testCreateAndEditAHost() throws {
+        let app = XCUIApplication.launchWithEmptyDatabase()
+
+        app.addHost(name: "prod-api-02", address: "10.0.4.22", port: "2222", user: "deploy")
+        let row = app.buttons["prod-api-02"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        XCTAssertEqual(row.value as? String, "SSH, deploy at 10.0.4.22, port 2222")
+
+        row.tap()
+        app.navigationBars["prod-api-02"].buttons["Edit"].tap()
+        XCTAssertTrue(app.navigationBars["Edit Host"].waitForExistence(timeout: 5))
+        app.replace(with: "prod-api-03", in: app.textFields["Name"])
+        app.navigationBars["Edit Host"].buttons["Save"].tap()
+
+        XCTAssertTrue(app.navigationBars["prod-api-03"].waitForExistence(timeout: 5))
+        app.navigationBars["prod-api-03"].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons["prod-api-03"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["prod-api-02"].exists)
+    }
+
+    @MainActor
+    func testNewHostEditorPassesAccessibilityAudit() throws {
+        let app = XCUIApplication.launchWithEmptyDatabase()
+
+        app.buttons["Add Host"].firstMatch.tap()
+
+        XCTAssertTrue(app.navigationBars["New Host"].waitForExistence(timeout: 5))
+        try app.auditAccessibility()
+    }
+
+    @MainActor
+    func testNewTagScreenPassesAccessibilityAudit() throws {
+        let app = XCUIApplication.launchWithEmptyDatabase()
+        app.buttons["Add Host"].firstMatch.tap()
+        app.enter("nas", into: app.textFields["Name"])
+        app.reveal(app.buttons["New Tag…"])
+        app.buttons["New Tag…"].tap()
+        XCTAssertTrue(app.navigationBars["New Tag"].waitForExistence(timeout: 5))
+
+        // The name field takes the focus. Return in the empty field puts the keyboard away and adds
+        // nothing; the audit then sees the screen at rest.
+        app.textFields["Tag Name"].typeText("\n")
+        XCTAssertTrue(app.navigationBars["New Tag"].exists)
+
+        try app.auditAccessibility()
+    }
+
+    /// A host with a group, a tag and a favourite fills every kind of section and row.
+    @MainActor
+    func testListDetailsAndEditorOfATaggedHostPassAccessibilityAudit() throws {
+        let app = XCUIApplication.launchWithEmptyDatabase()
+        addTaggedFavorite(in: app)
+
+        try app.auditAccessibility()
+
+        app.buttons["nas"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["nas"].waitForExistence(timeout: 5))
+        try app.auditAccessibility()
+
+        app.navigationBars["nas"].buttons["Edit"].tap()
+        XCTAssertTrue(app.navigationBars["Edit Host"].waitForExistence(timeout: 5))
+        try app.auditAccessibility()
+    }
+
+    @MainActor
+    func testScreensPassAccessibilityAuditInDarkMode() throws {
+        XCUIDevice.shared.appearance = .dark
+        addTeardownBlock { @MainActor in XCUIDevice.shared.appearance = .light }
+        let app = XCUIApplication.launchWithEmptyDatabase()
+        addTaggedFavorite(in: app)
+
+        try app.auditAccessibility()
+
+        app.buttons["nas"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["nas"].waitForExistence(timeout: 5))
+        try app.auditAccessibility()
+
+        app.navigationBars["nas"].buttons["Edit"].tap()
+        XCTAssertTrue(app.navigationBars["Edit Host"].waitForExistence(timeout: 5))
+        try app.auditAccessibility()
+    }
+
+    @MainActor
+    func testScreensPassAccessibilityAuditAtTheLargestTextSize() throws {
+        let app = XCUIApplication.launchWithEmptyDatabase(arguments: largestTextSize)
+        app.addHost(name: "prod-api-01", address: "10.0.4.21", user: "deploy")
+
+        try app.auditAccessibility()
+
+        app.buttons["prod-api-01"].tap()
+        XCTAssertTrue(app.navigationBars["prod-api-01"].waitForExistence(timeout: 5))
+        try app.auditAccessibility()
+
+        app.navigationBars["prod-api-01"].buttons["Edit"].tap()
+        XCTAssertTrue(app.navigationBars["Edit Host"].waitForExistence(timeout: 5))
+        try app.auditAccessibility()
+    }
+
+    /// The design's fonts scale with Dynamic Type: Geist for labels, JetBrains Mono for section
+    /// headers and for what the user types.
+    @MainActor
+    func testTextGrowsWithDynamicType() {
+        let regular = editorTextHeights(XCUIApplication.launchWithEmptyDatabase())
+        let largest = editorTextHeights(XCUIApplication.launchWithEmptyDatabase(arguments: largestTextSize))
+
+        for (name, height) in regular {
+            XCTAssertGreaterThan(largest[name] ?? 0, height * 1.5, "\(name) does not grow with Dynamic Type")
+        }
+    }
+
+    @MainActor
+    func testHostWithProblemsIsNotSavedAndSaysWhatIsWrong() throws {
+        let app = XCUIApplication.launchWithEmptyDatabase()
+        app.buttons["Add Host"].firstMatch.tap()
+        app.enter("nas", into: app.textFields["Name"])
+        app.enter("nas lan", into: app.textFields["Address"])
+        app.replace(with: "70000", in: app.textFields["Port"])
+
+        app.navigationBars["New Host"].buttons["Save"].tap()
+
+        XCTAssertTrue(
+            app.staticTexts["Enter a hostname, an IPv4 address or an IPv6 address."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Enter a port from 1 to 65535."].exists)
+        XCTAssertTrue(app.navigationBars["New Host"].exists)
+        // Return in the last field puts the keyboard away, so that the audit sees the whole sheet.
+        app.textFields["User"].tap()
+        app.textFields["User"].typeText("\n")
+        try app.auditAccessibility()
+    }
+
+    @MainActor
+    func testSearchAndTagFilterNarrowTheList() {
+        let app = XCUIApplication.launchWithEmptyDatabase()
+        addTaggedFavorite(in: app)
+        app.addHost(name: "prod-api-01", address: "10.0.4.21", user: "deploy")
+
+        app.buttons["Staging"].tap()
+        XCTAssertTrue(app.buttons["Staging"].isSelected)
+        XCTAssertTrue(app.buttons["nas"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["prod-api-01"].exists)
+        app.buttons["All Tags"].tap()
+        XCTAssertTrue(app.buttons["prod-api-01"].waitForExistence(timeout: 5))
+
+        let search = app.searchFields.firstMatch
+        search.tap()
+        search.typeText("10.0.4")
+        XCTAssertTrue(app.buttons["prod-api-01"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["nas"].exists)
+
+        // Not audited: the audit flags the hit area of the system search field's clear button.
+        search.typeText(".99")
+        XCTAssertTrue(app.staticTexts["No Results for “10.0.4.99”"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testDeletingAHostAsksFirst() {
+        let app = XCUIApplication.launchWithEmptyDatabase()
+        app.addHost(name: "nas", address: "nas.lan")
+        let row = app.buttons["nas"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+
+        row.swipeLeft()
+        app.buttons["Delete"].tap()
+        let confirm = app.buttons["Delete Host"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+
+        XCTAssertTrue(app.staticTexts["No Hosts"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["nas"].exists)
+    }
+
+    private let largestTextSize = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+
+    /// The heights of interface text, a section header and a text field in the new host sheet.
+    @MainActor
+    private func editorTextHeights(_ app: XCUIApplication) -> [String: CGFloat] {
+        app.buttons["Add Host"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["New Host"].waitForExistence(timeout: 5))
+        let heights = [
+            "interface text": app.staticTexts["Plain SSH-2. Works with any SSH server, with nothing to set up on it."]
+                .frame.height,
+            "section header": app.staticTexts["Connection"].frame.height,
+            "text field": app.textFields["Name"].frame.height,
+        ]
+        app.terminate()
+        return heights
+    }
+
+    /// Adds `nas`, a favourite in the new group Homelab with the new tag Staging.
+    @MainActor
+    private func addTaggedFavorite(in app: XCUIApplication) {
+        app.buttons["Add Host"].firstMatch.tap()
+        app.enter("nas", into: app.textFields["Name"])
+        app.enter("nas.lan", into: app.textFields["Address"])
+        // Return in the last field of the section puts the keyboard away.
+        app.enter("admin\n", into: app.textFields["User"])
+
+        // A tap in the middle of a switch's row can land on its label; tap the switch itself.
+        let favorite = app.switches["Favorite"].firstMatch
+        app.reveal(favorite)
+        favorite.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(favorite.value as? String, "1")
+        app.reveal(app.buttons["New Group…"])
+        app.buttons["New Group…"].tap()
+        app.enter("Homelab", into: app.alerts["New Group"].textFields.firstMatch)
+        app.alerts["New Group"].buttons["Add"].tap()
+
+        app.reveal(app.buttons["New Tag…"])
+        app.buttons["New Tag…"].tap()
+        // The keyboard can cover the colours: put it away, choose the colour, then type the name.
+        app.textFields["Tag Name"].typeText("\n")
+        app.buttons["Purple"].tap()
+        XCTAssertTrue(app.buttons["Purple"].isSelected)
+        app.enter("Staging", into: app.textFields["Tag Name"])
+        app.navigationBars["New Tag"].buttons["Add"].tap()
+        XCTAssertTrue(app.buttons["Staging"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Staging"].isSelected)
+
+        app.navigationBars["New Host"].buttons["Save"].tap()
+        XCTAssertTrue(app.buttons["nas"].firstMatch.waitForExistence(timeout: 5))
+    }
+}

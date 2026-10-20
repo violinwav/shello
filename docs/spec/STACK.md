@@ -416,7 +416,7 @@ Shipped in the app:
 | zlib | system `libz` | zlib | libssh compression, Mosh, VNC | MVP | Part of iOS. |
 | SwiftTerm | v1.99.0, then 2.0.0 | MIT | Terminal emulation and iOS view | MVP | Pinned exactly while 2.0 settles. |
 | GRDB.swift | 7.11.1 | MIT | SQLite access, migrations, observation | MVP | |
-| Geist, JetBrains Mono | current release | OFL-1.1 | Fonts | MVP | Licence texts in the acknowledgements. |
+| Geist, JetBrains Mono | Geist 1.8.1, JetBrains Mono 2.304 | OFL-1.1 | Fonts | MVP | Licence texts in the acknowledgements. Sources and checksums: `Packages/ShelloKit/Sources/ShelloFeatures/Resources/Fonts/README.md`. |
 | Mosh (blinksh/mosh fork) | pinned commit | GPL-3.0-or-later, OpenSSL exception | Mosh client | v1 | Upstream 1.4.0 plus master. |
 | protobuf (lite) | v36.x (fallback 3.21.x) | BSD-3-Clause | Mosh wire format | v1 | Spike decides the version. |
 | Abseil | version required by the protobuf pin | Apache-2.0 | protobuf dependency | v1 | Only with protobuf ≥ v22. |

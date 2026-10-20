@@ -32,6 +32,10 @@ _Avoid_: Label, category
 A host the user marked to list before the others.
 _Avoid_: Starred, pinned, bookmark
 
+**Recents**:
+The hosts Shello connected to last, newest first.
+_Avoid_: History, last used
+
 **Production host**:
 A host with at least one tag marked production. Shello asks for extra confirmation before risky actions on it.
 _Avoid_: Prod server, critical host

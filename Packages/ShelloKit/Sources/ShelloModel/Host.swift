@@ -33,6 +33,8 @@ public struct Host: Identifiable, Hashable, Sendable {
     /// When Shello last connected to the host, or nil if it never has.
     public var lastConnectedAt: Date?
 
+    /// The ports a host can use. Port 0 is reserved.
+    public static let validPorts: ClosedRange<UInt16> = 1...65535
     /// The `TERM` value for new hosts.
     public static let defaultTerminalType = "xterm-256color"
     /// The keepalive interval for new hosts: a starting value, to confirm during the MVP.

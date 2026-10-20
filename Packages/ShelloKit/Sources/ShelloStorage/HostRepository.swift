@@ -148,6 +148,15 @@ public struct HostRepository: Sendable {
             .values(in: database.writer)
     }
 
+    /// The host with this identifier: first as it is, then again after every change to it, its
+    /// group or its tags. Nil while there is no such host, and once it is deleted.
+    public func observeHost(id: Host.ID) -> some AsyncSequence<Host?, any Error> {
+        ValueObservation
+            .tracking { db in try Self.fetchHosts(db, HostRecord.filter(id: id)).first }
+            .removeDuplicates()
+            .values(in: database.writer)
+    }
+
     /// Every group: first as they are, then again after every change to them.
     public func observeGroups() -> some AsyncSequence<[HostGroup], any Error> {
         ValueObservation.tracking(Self.fetchGroups).removeDuplicates().values(in: database.writer)

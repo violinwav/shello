@@ -43,6 +43,51 @@ struct ObservationTests {
         #expect(try await hosts.next() == [prod])
     }
 
+    @Test func singleHostObservationSendsTheHostThenEveryChangeThenNilOnceDeleted() async throws {
+        let nas = Host(name: "nas", address: "nas.lan", username: "admin")
+        try await repository.create(nas)
+        var host = repository.observeHost(id: nas.id).makeAsyncIterator()
+        #expect(try await host.next() == nas)
+
+        var renamed = nas
+        renamed.name = "nas-2"
+        try await repository.update(renamed)
+        #expect(try await host.next() == renamed)
+
+        try await repository.deleteHost(id: nas.id)
+        let deleted = try await host.next()
+        #expect(deleted == .some(nil))
+    }
+
+    @Test func singleHostObservationSendsNothingForChangesToOtherHosts() async throws {
+        let nas = Host(name: "nas", address: "nas.lan", username: "admin")
+        try await repository.create(nas)
+        var host = repository.observeHost(id: nas.id).makeAsyncIterator()
+        #expect(try await host.next() == nas)
+
+        try await repository.create(Host(name: "forge", address: "forge.lan", username: "dev"))
+        var favorite = nas
+        favorite.isFavorite = true
+        try await repository.update(favorite)
+
+        #expect(try await host.next() == favorite)
+    }
+
+    /// A host in a deleted group reads as having no group, so its observers hear of the deletion.
+    @Test func singleHostObservationSendsTheHostAgainWhenItsGroupIsDeleted() async throws {
+        let homelab = HostGroup(name: "Homelab")
+        try await repository.create(homelab)
+        let nas = Host(name: "nas", address: "nas.lan", username: "admin", groupID: homelab.id)
+        try await repository.create(nas)
+        var host = repository.observeHost(id: nas.id).makeAsyncIterator()
+        #expect(try await host.next()??.groupID == homelab.id)
+
+        try await repository.deleteGroup(id: homelab.id)
+
+        let ungrouped = try #require(try await host.next() ?? nil)
+        #expect(ungrouped.groupID == nil)
+    }
+
     @Test func groupObservationSendsTheGroupsThenEveryChange() async throws {
         let homelab = HostGroup(name: "Homelab")
         try await repository.create(homelab)

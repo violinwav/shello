@@ -29,7 +29,8 @@ let package = Package(
     name: "ShelloKit",
     platforms: [.iOS(.v26)],
     products: [
-        .library(name: "ShelloFeatures", targets: ["ShelloFeatures"])
+        // The app's screens, plus the storage its composition root opens and hands to them.
+        .library(name: "ShelloFeatures", targets: ["ShelloFeatures", "ShelloStorage"])
     ],
     // Pinned exactly; docs/spec/STACK.md section 8 lists every dependency and why.
     dependencies: [
@@ -64,10 +65,18 @@ let package = Package(
         ),
         // UIKit: SwiftTerm host view, Shello keyboard, extra keys row, pads.
         .target(name: "ShelloTerminalUI", dependencies: ["ShelloModel"], swiftSettings: ui),
-        // SwiftUI screens.
+        // SwiftUI screens, with the design system's colours and fonts. Each font family folder is
+        // copied whole, so that its licence ships next to its files; Resources/Fonts/README.md
+        // records where they come from.
         .target(
             name: "ShelloFeatures",
-            dependencies: ["ShelloModel", "ShelloCore", "ShelloSSH", "ShelloTerminalUI"],
+            dependencies: ["ShelloModel", "ShelloStorage", "ShelloCore", "ShelloSSH", "ShelloTerminalUI"],
+            exclude: ["Resources/Fonts/README.md"],
+            resources: [
+                .process("Resources/Colors.xcassets"),
+                .copy("Resources/Fonts/Geist"),
+                .copy("Resources/Fonts/JetBrainsMono"),
+            ],
             swiftSettings: ui
         ),
 
@@ -90,7 +99,12 @@ let package = Package(
         .testTarget(name: "ShelloTmuxTests", dependencies: ["ShelloTmux"], swiftSettings: core),
         .testTarget(name: "ShelloCoreTests", dependencies: ["ShelloCore"], swiftSettings: core),
         .testTarget(name: "ShelloTerminalUITests", dependencies: ["ShelloTerminalUI"], swiftSettings: ui),
-        .testTarget(name: "ShelloFeaturesTests", dependencies: ["ShelloFeatures"], swiftSettings: ui),
+        // The view models run against a real database in a temporary directory.
+        .testTarget(
+            name: "ShelloFeaturesTests",
+            dependencies: ["ShelloFeatures", "ShelloStorage", "ShelloModel"],
+            swiftSettings: ui
+        ),
     ],
     swiftLanguageModes: [.v6]
 )
