@@ -16,6 +16,7 @@ final class TestDatabase: Sendable {
     let database: AppDatabase
     let clock: TestClock
     let repository: HostRepository
+    let exports: ExportRepository
 
     /// The directory the database owns.
     var directory: URL { Self.databaseDirectory(in: root) }
@@ -35,6 +36,7 @@ final class TestDatabase: Sendable {
         self.clock = clock
         database = try AppDatabase(directory: directory)
         repository = HostRepository(database, now: { clock.now })
+        exports = ExportRepository(database, now: { clock.now })
     }
 
     deinit {
@@ -52,6 +54,22 @@ final class TestDatabase: Sendable {
     /// A host's row, tombstone or not.
     func hostRecord(id: Host.ID) async throws -> HostRecord? {
         try await database.writer.read { db in try HostRecord.fetchOne(db, id: id) }
+    }
+
+    /// Every row of every table, tombstones and modification times included: the whole database,
+    /// to compare before and after a write.
+    func snapshot() async throws -> [String: [[String: DatabaseValue]]] {
+        try await database.writer.read { db in
+            let tables = try String.fetchAll(
+                db, sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+            var snapshot: [String: [[String: DatabaseValue]]] = [:]
+            for table in tables {
+                snapshot[table] = try Row.fetchAll(db, sql: "SELECT * FROM \(table) ORDER BY rowid").map { row in
+                    Dictionary(row.map { ($0, $1) }, uniquingKeysWith: { first, _ in first })
+                }
+            }
+            return snapshot
+        }
     }
 
     /// The modification times in a row, by column: `nameModifiedAt` and so on.

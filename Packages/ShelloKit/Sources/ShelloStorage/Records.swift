@@ -24,6 +24,15 @@ protocol Tombstoned {
     var deletedAtModifiedAt: Date { get set }
 }
 
+extension Tombstoned {
+    /// Makes a tombstone a live row again, at `now`. A live row stays as it is.
+    mutating func undoDeletion(at now: Date) {
+        guard deletedAt != nil else { return }
+        deletedAt = nil
+        deletedAtModifiedAt = now
+    }
+}
+
 // MARK: - Host
 
 struct HostRecord: StoredRecord, Tombstoned, Identifiable {
@@ -304,6 +313,7 @@ struct HostTagRecord: StoredRecord {
 
     enum Columns {
         static let hostID = Column(CodingKeys.hostID)
+        static let tagID = Column(CodingKeys.tagID)
     }
 }
 

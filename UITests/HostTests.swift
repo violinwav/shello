@@ -58,7 +58,7 @@ final class HostTests: XCTestCase {
     @MainActor
     func testListDetailsAndEditorOfATaggedHostPassAccessibilityAudit() throws {
         let app = XCUIApplication.launchWithEmptyDatabase()
-        addTaggedFavorite(in: app)
+        app.addTaggedFavorite()
 
         try app.auditAccessibility()
 
@@ -76,7 +76,7 @@ final class HostTests: XCTestCase {
         XCUIDevice.shared.appearance = .dark
         addTeardownBlock { @MainActor in XCUIDevice.shared.appearance = .light }
         let app = XCUIApplication.launchWithEmptyDatabase()
-        addTaggedFavorite(in: app)
+        app.addTaggedFavorite()
 
         try app.auditAccessibility()
 
@@ -140,7 +140,7 @@ final class HostTests: XCTestCase {
     @MainActor
     func testSearchAndTagFilterNarrowTheList() {
         let app = XCUIApplication.launchWithEmptyDatabase()
-        addTaggedFavorite(in: app)
+        app.addTaggedFavorite()
         app.addHost(name: "prod-api-01", address: "10.0.4.21", user: "deploy")
 
         app.buttons["Staging"].tap()
@@ -193,39 +193,5 @@ final class HostTests: XCTestCase {
         ]
         app.terminate()
         return heights
-    }
-
-    /// Adds `nas`, a favourite in the new group Homelab with the new tag Staging.
-    @MainActor
-    private func addTaggedFavorite(in app: XCUIApplication) {
-        app.buttons["Add Host"].firstMatch.tap()
-        app.enter("nas", into: app.textFields["Name"])
-        app.enter("nas.lan", into: app.textFields["Address"])
-        // Return in the last field of the section puts the keyboard away.
-        app.enter("admin\n", into: app.textFields["User"])
-
-        // A tap in the middle of a switch's row can land on its label; tap the switch itself.
-        let favorite = app.switches["Favorite"].firstMatch
-        app.reveal(favorite)
-        favorite.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
-        XCTAssertEqual(favorite.value as? String, "1")
-        app.reveal(app.buttons["New Group…"])
-        app.buttons["New Group…"].tap()
-        app.enter("Homelab", into: app.alerts["New Group"].textFields.firstMatch)
-        app.alerts["New Group"].buttons["Add"].tap()
-
-        app.reveal(app.buttons["New Tag…"])
-        app.buttons["New Tag…"].tap()
-        // The keyboard can cover the colours: put it away, choose the colour, then type the name.
-        app.textFields["Tag Name"].typeText("\n")
-        app.buttons["Purple"].tap()
-        XCTAssertTrue(app.buttons["Purple"].isSelected)
-        app.enter("Staging", into: app.textFields["Tag Name"])
-        app.navigationBars["New Tag"].buttons["Add"].tap()
-        XCTAssertTrue(app.buttons["Staging"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Staging"].isSelected)
-
-        app.navigationBars["New Host"].buttons["Save"].tap()
-        XCTAssertTrue(app.buttons["nas"].firstMatch.waitForExistence(timeout: 5))
     }
 }

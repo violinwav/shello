@@ -8,23 +8,25 @@ import os
 @main
 struct ShelloApp: App {
     @Environment(\.scenePhase) private var scenePhase
-    /// The one database of the app, opened once at launch, or why it could not be opened.
-    private let hostRepository: Result<HostRepository, any Error>
+    /// The services around the one database of the app, opened once at launch, or why it could not
+    /// be opened.
+    private let services: Result<Services, any Error>
 
     init() {
         DesignSystem.registerFonts()
-        hostRepository = Result { HostRepository(try Self.openDatabase()) }
-        if case .failure(let error) = hostRepository {
+        services = Result { Services(database: try Self.openDatabase()) }
+        if case .failure(let error) = services {
             Logger(subsystem: "ch.shello.Shello", category: "Storage").error("Could not open the database: \(error)")
         }
     }
 
     var body: some Scene {
         WindowGroup {
-            switch hostRepository {
-            case .success(let repository):
+            switch services {
+            case .success(let services):
                 RootView()
-                    .environment(\.hostRepository, repository)
+                    .environment(\.hostRepository, services.hostRepository)
+                    .environment(\.exportRepository, services.exportRepository)
             case .failure(let error):
                 DatabaseUnavailableView(error: error)
             }
@@ -49,5 +51,16 @@ struct ShelloApp: App {
             }
         #endif
         return try AppDatabase.openInAppGroup()
+    }
+}
+
+/// What the screens read and write the database through.
+private struct Services {
+    let hostRepository: HostRepository
+    let exportRepository: ExportRepository
+
+    init(database: AppDatabase) {
+        hostRepository = HostRepository(database)
+        exportRepository = ExportRepository(database)
     }
 }

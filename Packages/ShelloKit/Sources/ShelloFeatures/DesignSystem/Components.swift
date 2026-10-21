@@ -38,6 +38,24 @@ struct ProtocolBadge: View {
     }
 }
 
+/// A list row's icon beside its title, as two views. In a list, a `Label` sets its icon inside the
+/// title's text, so that a long title wraps under the icon, which the accessibility audit reports as
+/// clipped text. The icon is decoration: the title says what the row does.
+struct RowLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            configuration.icon
+                .accessibilityHidden(true)
+            configuration.title
+        }
+    }
+}
+
+extension LabelStyle where Self == RowLabelStyle {
+    /// The icon beside the title, which wraps on its own.
+    static var row: RowLabelStyle { RowLabelStyle() }
+}
+
 /// A colour dot and a name: a tag's, or a colour's in the colour picker. A plain stack rather than a
 /// `Label`: the accessibility audit takes a label's icon colour for its text colour.
 struct ColorLabel: View {

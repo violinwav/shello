@@ -352,7 +352,7 @@ How the database works:
   - A modification timestamp per syncable field.
   - Tombstones for deletions, with an undo window.
   - This avoids a data migration when sync arrives in v1.
-- **JSON export and import:** `Codable` with an explicit `schemaVersion`. Imports are validated before they touch the database.
+- **JSON export and import:** `Codable` with an explicit `schemaVersion`. Imports are validated before they touch the database. The format: `docs/spec/EXPORT.md`.
 - **No secrets in the database,** so no SQLCipher. Data Protection plus the Keychain cover the threat model.
 
 ### 7.11 Sync and backup (README section 15) — v1

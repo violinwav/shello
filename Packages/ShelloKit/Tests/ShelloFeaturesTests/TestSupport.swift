@@ -12,11 +12,14 @@ typealias Tag = ShelloModel.Tag
 nonisolated final class TestDatabase: Sendable {
     let root: URL
     let repository: HostRepository
+    let exports: ExportRepository
 
     init() throws {
         root = URL.temporaryDirectory.appending(
             path: "ShelloFeaturesTests-\(UUID().uuidString)", directoryHint: .isDirectory)
-        repository = HostRepository(try AppDatabase(directory: root))
+        let database = try AppDatabase(directory: root)
+        repository = HostRepository(database)
+        exports = ExportRepository(database)
     }
 
     deinit {

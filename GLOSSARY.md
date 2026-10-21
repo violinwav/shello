@@ -155,6 +155,12 @@ _Avoid_: Multi-host snippets, fan-out
 Sending the user's keystrokes to several open tabs at once.
 _Avoid_: Sync typing, synchronized panes
 
+## Data
+
+**Export**:
+The JSON file with all of Shello's non-secret data: its hosts, groups and tags, and later its snippets, presets and settings. Importing an export adds its records and replaces those already in Shello with the same identifier.
+_Avoid_: Backup (the encrypted full backup also holds passwords and imported keys), dump
+
 ## Buying Shello
 
 **Pro**:
