@@ -1,6 +1,6 @@
 name: CI
 
-# Lints, builds and tests the app and ShelloKit on every pull request and on main.
+# Lints, builds and tests the app and ShelloKit on every pull request and on pushes to main and dev.
 # Compiler warnings are errors in Shello's own targets (docs/spec/STACK.md section 11). That is set in
 # Configurations/Project.xcconfig and Package.swift, not here: on the command line it would also reach
 # package dependencies, which Xcode builds with warnings suppressed, and the compiler rejects
@@ -24,10 +24,17 @@ env:
   SIMULATOR: platform=iOS Simulator,name=iPhone 17,OS=26.5
 
 jobs:
+  # Two jobs in parallel: "checks" runs lint, the unit tests and the device build; "ui-tests" runs
+  # the XCUITest target, which takes most of the time.
   macos:
+    name: ${{ matrix.suite }}
     runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [checks, ui-tests]
     # A cold vendor build adds about 10 minutes.
-    timeout-minutes: 45
+    timeout-minutes: ${{ matrix.suite == 'ui-tests' && 60 || 40 }}
     permissions:
       contents: read
     steps:
@@ -36,6 +43,7 @@ jobs:
           persist-credentials: false
 
       - name: Lint
+        if: matrix.suite == 'checks'
         run: xcrun swift-format lint --strict --recursive --parallel App UITests Packages/ShelloKit
 
       # libssh and OpenSSL, built from verified source by Vendor/build.sh (Vendor/README.md).
@@ -75,6 +83,7 @@ jobs:
       # Boot the simulator in SIMULATOR first, and mark the tip as shown; the keyboard reads this
       # key before it shows the tip.
       - name: Prepare the simulator
+        if: matrix.suite == 'ui-tests'
         run: |
           devices=$(xcrun simctl list devices available --json \
             | jq -r '.devices | to_entries[] | select(.key | endswith(".iOS-26-5")) | .value[]
@@ -89,11 +98,22 @@ jobs:
               DidShowContinuousPathIntroduction -bool true
           done
 
-      - name: Unit and UI tests
+      - name: Unit tests
+        if: matrix.suite == 'checks'
         run: >-
           xcodebuild test -quiet
           -project Shello.xcodeproj -scheme Shello
           -destination "$SIMULATOR"
+          -skip-testing:ShelloUITests
+          -resultBundlePath TestResults.xcresult
+
+      - name: UI tests
+        if: matrix.suite == 'ui-tests'
+        run: >-
+          xcodebuild test -quiet
+          -project Shello.xcodeproj -scheme Shello
+          -destination "$SIMULATOR"
+          -only-testing:ShelloUITests
           -resultBundlePath TestResults.xcresult
 
       # -quiet hides why a test failed; the result bundle has the failure, logs and screenshots.
@@ -101,13 +121,14 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: test-results
+          name: test-results-${{ matrix.suite }}
           path: TestResults.xcresult
           if-no-files-found: ignore
           retention-days: 7
 
       # Enhanced Security adds an arm64e slice, which every linked target must have.
       - name: Device build (arm64 and arm64e)
+        if: matrix.suite == 'checks'
         run: |
           xcodebuild build -quiet \
             -project Shello.xcodeproj -scheme Shello -configuration Release \
