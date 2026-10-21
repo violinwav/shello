@@ -50,6 +50,7 @@ final class HostTests: XCTestCase {
         // nothing; the audit then sees the screen at rest.
         app.textFields["Tag Name"].typeText("\n")
         XCTAssertTrue(app.navigationBars["New Tag"].exists)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
 
         try app.auditAccessibility()
     }

@@ -183,10 +183,10 @@ extension XCUIApplication {
             .matching(NSPredicate(format: "label == %@ AND isEnabled == true", "Save")).firstMatch
         XCTAssertTrue(save.waitForExistence(timeout: 30), "Save stays disabled")
         save.tap()
-        XCTAssertTrue(filePicker.waitForNonExistence(timeout: 10))
+        XCTAssertTrue(filePicker.waitForNonExistence(timeout: 30))
         // "Exported 1 host to “Shello Export 2026-10-21 14.05.09.json”."
         let result = staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Exported ")).firstMatch
-        XCTAssertTrue(result.waitForExistence(timeout: 5))
+        XCTAssertTrue(result.waitForExistence(timeout: 10))
         guard let name = result.label.firstMatch(of: /“(.+)”/)?.1 else {
             XCTFail("\(result.label) does not name the file")
             return ""
@@ -200,45 +200,46 @@ extension XCUIApplication {
         buttons["Import Data…"].tap()
         // The importer opens on the recent files; the exporter's files are under Browse.
         let browse = tabBars["DOC.browsingModeTabBar"].buttons["Browse"]
-        XCTAssertTrue(browse.waitForExistence(timeout: 10))
+        XCTAssertTrue(browse.waitForExistence(timeout: 30))
         browse.tap()
         showOnMyIPhone()
         let file = cells.containing(.staticText, identifier: name).firstMatch
         // The file's icon, at the top of its cell.
         let icon = CGVector(dx: 0.5, dy: 0.25)
-        scrollClearOfTheBars(file, at: icon)
-        // A picked file closes the importer within seconds. On a CI runner the importer has ignored
-        // a tap on a file it had shown for six seconds and more: the screen recordings show no
-        // reaction at all. So a file the importer still shows ten seconds on is tapped again.
-        for attempt in 1...3 {
+        // A picked file closes the importer at once, but only once Files has indexed it. A new
+        // simulator indexes the first file saved to On My iPhone a minute or more late, and until
+        // then picking it does nothing at all: the importer stays, and the app logs "Could not
+        // resolve bookmark … The file doesn’t exist." CI starts each run on a new simulator. So a
+        // file the importer still shows is tapped again every ten seconds, for up to three minutes.
+        let deadline = Date.now.addingTimeInterval(180)
+        repeat {
+            scrollClearOfTheBars(file, at: icon)
             file.coordinate(withNormalizedOffset: icon).tap()
             if filePicker.waitForNonExistence(timeout: 10) { return }
-            guard attempt < 3, file.exists else { break }
-            scrollClearOfTheBars(file, at: icon)
-        }
+        } while Date.now < deadline && file.exists
         XCTFail("The file importer does not pick \(name)")
     }
 
     /// Scrolls the file picker until the point `offset` of `file` lies between the picker's bars,
     /// which the files scroll under: a tap there would otherwise land on the search field or a tab.
     /// Files are sorted by name, so a new export comes after the earlier ones, and the picker makes
-    /// cells only as they scroll into view. Each drag starts at once, since holding a file first
-    /// picks it up to move it, and holds still at its end, so that the list stops at once: a tap on a
-    /// gliding list only stops it.
+    /// cells only as they scroll into view. While the file has no cell yet, a flick passes many files
+    /// at once, however many earlier runs left. Then each drag starts at once, since holding a file
+    /// first picks it up to move it, and holds still at its end, so that the list stops at once: a
+    /// tap on a gliding list only stops it.
     @MainActor
     private func scrollClearOfTheBars(_ file: XCUIElement, at offset: CGVector) {
         let clear = (filePicker.frame.maxY + 20)...(tabBars["DOC.browsingModeTabBar"].frame.minY - 20)
         for _ in 0..<40 {
             let point = file.exists ? file.frame.minY + file.frame.height * offset.dy : nil
             if let point, clear.contains(point) { return }
-            // A drag up brings later files into view, a long one while the file has no cell yet; a
-            // drag down brings back earlier ones.
-            let (start, distance): (CGFloat, CGFloat) =
-                switch point {
-                case nil: (0.75, -0.4 * frame.height)
-                case let point? where point < clear.lowerBound: (0.45, 200)
-                default: (0.75, -200)
-                }
+            guard let point else {
+                swipeUp(velocity: .fast)
+                settle(for: 2)
+                continue
+            }
+            // A drag up brings later files into view, a drag down earlier ones.
+            let (start, distance): (CGFloat, CGFloat) = point < clear.lowerBound ? (0.45, 200) : (0.75, -200)
             let from = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: start))
             from.press(
                 forDuration: 0, thenDragTo: from.withOffset(CGVector(dx: 0, dy: distance)), withVelocity: .slow,
@@ -251,7 +252,8 @@ extension XCUIApplication {
     /// there, signed in to iCloud or not.
     @MainActor
     private func showOnMyIPhone() {
-        XCTAssertTrue(filePicker.waitForExistence(timeout: 10))
+        // The picker can take more than ten seconds to show while a new simulator is still busy.
+        XCTAssertTrue(filePicker.waitForExistence(timeout: 30))
         // The title is text, or a button for the folder's menu, "On My iPhone, Actions Menu".
         let title = filePickerBars.descendants(matching: .any)
             .matching(NSPredicate(format: "label BEGINSWITH %@", "On My iPhone")).firstMatch
@@ -261,11 +263,11 @@ extension XCUIApplication {
             if !location.exists {
                 filePicker.buttons["BackButton"].tap()
             }
-            XCTAssertTrue(location.waitForExistence(timeout: 5))
+            XCTAssertTrue(location.waitForExistence(timeout: 10))
             location.tap()
-            XCTAssertTrue(title.waitForExistence(timeout: 5))
+            XCTAssertTrue(title.waitForExistence(timeout: 10))
         }
-        // The folder's screen may still be sliding or fading in, and a tap on it then is lost.
+        // Let the folder's screen come to rest before the next tap.
         settle()
     }
 }

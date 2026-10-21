@@ -69,6 +69,26 @@ jobs:
           path: Vendor/build/xcframeworks
           key: ${{ steps.vendor-key.outputs.key }}
 
+      # About ten minutes after a new simulator boots, it puts a tip over the keyboard ("Speed up
+      # your typing by sliding your finger across the letters to compose a word"). Both times the
+      # New Tag screen's accessibility audit failed in CI, the tip had just come up on that screen.
+      # Boot the simulator in SIMULATOR first, and mark the tip as shown; the keyboard reads this
+      # key before it shows the tip.
+      - name: Prepare the simulator
+        run: |
+          devices=$(xcrun simctl list devices available --json \
+            | jq -r '.devices | to_entries[] | select(.key | endswith(".iOS-26-5")) | .value[]
+                | select(.name == "iPhone 17") | .udid')
+          if [ -z "$devices" ]; then
+            echo "No iPhone 17 simulator with iOS 26.5" >&2
+            exit 1
+          fi
+          for device in $devices; do
+            xcrun simctl bootstatus "$device" -b
+            xcrun simctl spawn "$device" defaults write com.apple.keyboard.preferences \
+              DidShowContinuousPathIntroduction -bool true
+          done
+
       - name: Unit and UI tests
         run: >-
           xcodebuild test -quiet
