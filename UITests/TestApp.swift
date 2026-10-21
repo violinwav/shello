@@ -53,10 +53,20 @@ extension XCUIApplication {
 
     /// Shows the enrolled face to the Face ID prompt until Shello unlocks. The face only counts while
     /// the prompt looks for one, so it is shown again every second.
+    ///
+    /// When Shello says it could not ask, it offers Unlock, which this taps, as the user would. In a
+    /// CI run, the system put up no prompt as Shello came back to the foreground, and
+    /// LocalAuthentication answered with its internal error -1000. Shello must have tried first: Unlock
+    /// is only tapped once the locked screen shows the problem.
     @MainActor
     func unlockWithFaceID(file: StaticString = #filePath, line: UInt = #line) {
         let deadline = Date.now.addingTimeInterval(30)
+        let problem = staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Shello couldn’t")).firstMatch
+        let unlock = buttons["Unlock"]
         while lockedScreen.exists, Date.now < deadline {
+            if problem.exists, unlock.isEnabled {
+                unlock.tap()
+            }
             SimulatedFaceID.match()
             _ = lockedScreen.waitForNonExistence(timeout: 1)
         }
