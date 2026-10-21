@@ -1,15 +1,91 @@
 import XCTest
+import notify
 
 extension XCUIApplication {
-    /// Launches Shello with an empty database of its own, so that every test starts from no hosts.
-    /// Debug builds only; see App/ShelloApp.swift.
+    /// Launches Shello with an empty database and settings of its own, so that every test starts
+    /// from no hosts. Debug builds only; see App/ShelloApp.swift.
+    /// - Parameters:
+    ///   - appearance: How the screens look, whatever the simulator's appearance. A test cannot
+    ///     rely on `XCUIDevice.appearance`: CI's simulators stayed light with it set to dark.
+    ///   - appLock: Whether app lock asks at launch and after its timeout. Off, Shello opens
+    ///     unlocked, whatever the simulator's Face ID.
+    ///   - environment: Further debug options of App/ShelloApp.swift.
     @MainActor
-    static func launchWithEmptyDatabase(arguments: [String] = []) -> XCUIApplication {
+    static func launchWithEmptyDatabase(
+        arguments: [String] = [], appearance: XCUIDevice.Appearance = .light, appLock: Bool = false,
+        environment: [String: String] = [:]
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["SHELLO_UI_TESTING"] = "1"
+        app.launchEnvironment["SHELLO_UI_TESTING_APPEARANCE"] = appearance == .dark ? "dark" : "light"
+        app.launchEnvironment["SHELLO_UI_TESTING_APP_LOCK"] = appLock ? "1" : "0"
+        app.launchEnvironment.merge(environment) { _, option in option }
         app.launchArguments += arguments
         app.launch()
         return app
+    }
+
+    /// Checks from a screenshot that the screen is drawn in `appearance`, and attaches it: the
+    /// design's dark ground is nearly black, its light ground nearly white.
+    @MainActor
+    func assertAppearance(_ appearance: XCUIDevice.Appearance, file: StaticString = #filePath, line: UInt = #line) {
+        let screenshot = screenshot()
+        XCTContext.runActivity(named: "The screen in \(appearance == .dark ? "dark" : "light") mode") { activity in
+            let attachment = XCTAttachment(screenshot: screenshot)
+            attachment.lifetime = .keepAlways
+            activity.add(attachment)
+        }
+        let brightness = screenshot.image.averageBrightness
+        if appearance == .dark {
+            XCTAssertLessThan(brightness, 0.3, "The screen is not dark", file: file, line: line)
+        } else {
+            XCTAssertGreaterThan(brightness, 0.7, "The screen is not light", file: file, line: line)
+        }
+    }
+
+    // MARK: - App lock
+
+    /// The locked screen's title, which shows while app lock is engaged.
+    @MainActor
+    var lockedScreen: XCUIElement {
+        staticTexts["Shello Is Locked"]
+    }
+
+    /// Shows the enrolled face to the Face ID prompt until Shello unlocks. The face only counts while
+    /// the prompt looks for one, so it is shown again every second.
+    @MainActor
+    func unlockWithFaceID(file: StaticString = #filePath, line: UInt = #line) {
+        let deadline = Date.now.addingTimeInterval(30)
+        while lockedScreen.exists, Date.now < deadline {
+            SimulatedFaceID.match()
+            _ = lockedScreen.waitForNonExistence(timeout: 1)
+        }
+        XCTAssertFalse(lockedScreen.exists, "Face ID does not unlock Shello", file: file, line: line)
+    }
+
+    /// Ends the Face ID prompt without unlocking, as a user who changes their mind does: a face that
+    /// does not match, then Cancel in LocalAuthentication's alert. Shello stays locked and offers
+    /// Unlock.
+    @MainActor
+    func cancelFaceID(file: StaticString = #filePath, line: UInt = #line) {
+        // The alert's button holds a button of the same name.
+        let cancel = Self.springboard.buttons["com.apple.localauthentication.ax.authentication.button.cancel"]
+            .firstMatch
+        let deadline = Date.now.addingTimeInterval(30)
+        while !cancel.exists, Date.now < deadline {
+            SimulatedFaceID.failToMatch()
+            _ = cancel.waitForExistence(timeout: 1)
+        }
+        cancel.tap()
+        let unlock = buttons["Unlock"]
+        XCTAssertTrue(
+            unlock.wait(for: \.isEnabled, toEqual: true, timeout: 10), "Unlock stays disabled", file: file,
+            line: line)
+    }
+
+    @MainActor
+    static var springboard: XCUIApplication {
+        XCUIApplication(bundleIdentifier: "com.apple.springboard")
     }
 
     /// `performAccessibilityAudit()`, less one false positive of its Dynamic Type check. The check
@@ -110,6 +186,26 @@ extension XCUIApplication {
         // A list glides on after a swipe, and a tap on a gliding list only stops it.
         if swiped { settle() }
         XCTAssertTrue(element.isHittable, "\(element) is not on screen")
+    }
+
+    /// The menu picker labelled `label`: a button that reads the label, then the chosen value, such
+    /// as "Method, SSH Key".
+    @MainActor
+    func picker(_ label: String) -> XCUIElement {
+        buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "\(label), ")).firstMatch
+    }
+
+    /// Chooses `option` in the menu of the picker labelled `label`.
+    @MainActor
+    func choose(_ option: String, in label: String) {
+        let picker = picker(label)
+        reveal(picker)
+        picker.tap()
+        let item = buttons[option]
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        item.tap()
+        XCTAssertTrue(item.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(picker.label, "\(label), \(option)")
     }
 
     /// Replaces a text field's value with `text`.
@@ -315,5 +411,53 @@ extension XCUIApplication {
         }
         // Let the folder's screen come to rest before the next tap.
         settle()
+    }
+}
+
+extension UIImage {
+    /// The image's mean brightness, from 0 for black to 1 for white.
+    var averageBrightness: CGFloat {
+        guard let image = cgImage else { return 0 }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        pixel.withUnsafeMutableBytes { bytes in
+            let context = CGContext(
+                data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            context?.interpolationQuality = .medium
+            context?.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
+        return CGFloat(Int(pixel[0]) + Int(pixel[1]) + Int(pixel[2])) / (3 * 255)
+    }
+}
+
+/// Face ID in the simulator, driven through the notifications that its simulated biometry listens
+/// to, as the simulator's Features menu does.
+enum SimulatedFaceID {
+    /// Enrols a face, so that LocalAuthentication can ask for Face ID.
+    static func enroll() {
+        setEnrolled(true)
+    }
+
+    /// Removes the face, as a new simulator has none.
+    static func unenroll() {
+        setEnrolled(false)
+    }
+
+    /// The face in front of the camera matches.
+    static func match() {
+        notify_post("com.apple.BiometricKit_Sim.pearl.match")
+    }
+
+    /// The face in front of the camera does not match.
+    static func failToMatch() {
+        notify_post("com.apple.BiometricKit_Sim.pearl.nomatch")
+    }
+
+    private static func setEnrolled(_ isEnrolled: Bool) {
+        var token: Int32 = 0
+        notify_register_check("com.apple.BiometricKit.enrollmentChanged", &token)
+        notify_set_state(token, isEnrolled ? 1 : 0)
+        notify_post("com.apple.BiometricKit.enrollmentChanged")
+        notify_cancel(token)
     }
 }

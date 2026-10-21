@@ -4,6 +4,8 @@ import SwiftUI
 /// addresses and commands, and for section headers. Each role scales with Dynamic Type relative to
 /// the system text style of the same size.
 enum Typography {
+    /// A title inside a screen's content, such as the locked screen's.
+    static let title = Font.custom(FontFace.jetBrainsMonoSemiBold.postScriptName, size: 28, relativeTo: .title)
     /// Labels and running text.
     static let body = Font.custom(FontFace.geistRegular.postScriptName, size: 17, relativeTo: .body)
     /// A host's name in a list.

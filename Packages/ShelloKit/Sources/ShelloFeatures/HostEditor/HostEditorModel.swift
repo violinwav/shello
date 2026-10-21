@@ -1,17 +1,30 @@
 import Foundation
 import Observation
 import ShelloModel
+import ShelloSecurity
 import ShelloStorage
 import os
 
 /// The new and edit host sheet: a draft of every MVP field, the groups and tags to choose from, and
 /// the groups and tags created on the way, which are stored only with the host.
+///
+/// The host's password goes into the Keychain, never into the host: the Keychain item is found by
+/// the host's identifier (`SecretID.password(of:)`).
 @Observable
 final class HostEditorModel {
     let repository: HostRepository
+    /// The Keychain's secrets. Without it, as in previews, the editor offers no password.
+    let secrets: SecretStore?
     var draft: HostDraft
     /// Set when saving or deleting fails; the sheet shows it and clears it.
     var saveError: String?
+    /// The password the user typed, or empty to keep the one stored. The secure field hands it over
+    /// as a string; saving turns it into a `Secret` for the Keychain and empties it.
+    var password = ""
+    /// Whether the Keychain holds a password for the host.
+    private(set) var hasStoredPassword = false
+    /// Whether saving removes the stored password, as the user asked.
+    private(set) var removesStoredPassword = false
 
     /// The host as it was read when the editor opened, or a new host's defaults.
     private let base: Host
@@ -28,18 +41,72 @@ final class HostEditorModel {
     private var leftFields: Set<HostDraft.Field> = []
 
     /// An editor for `host` as the caller last read it, or for a new host.
-    init(repository: HostRepository, host: Host?) {
+    init(repository: HostRepository, secrets: SecretStore? = nil, host: Host?) {
         self.repository = repository
+        self.secrets = secrets
         isEditing = host != nil
         base = host ?? Host(name: "", address: "", username: "")
         original = HostDraft(base)
         draft = original
+        if isEditing, let secrets {
+            do {
+                hasStoredPassword = try secrets.contains(.password(of: base.id))
+            } catch {
+                Self.logger.error("Could not look for a host's password: \(error)")
+            }
+        }
     }
 
     var title: String { isEditing ? "Edit Host" : "New Host" }
 
+    /// The identifier of the host being edited, or of the new one.
+    var hostID: Host.ID { base.id }
+
     /// Whether closing the editor would lose anything the user entered.
-    var hasChanges: Bool { draft != original }
+    var hasChanges: Bool { draft != original || !password.isEmpty || removesStoredPassword }
+
+    /// Whether the editor shows the password field: for the password method, with the Keychain.
+    var offersPassword: Bool { secrets != nil && draft.authMethod == .password }
+
+    /// The password field's placeholder: whether a password is stored, which typing replaces.
+    var passwordPrompt: String {
+        keepsStoredPassword ? "saved" : "optional"
+    }
+
+    /// What VoiceOver adds to the password field, whose placeholder says this in one word.
+    var passwordHint: String {
+        keepsStoredPassword ? "A password is saved. Typing a new one replaces it." : ""
+    }
+
+    /// Whether the editor offers to remove the stored password, or, once the user asked for that, to
+    /// keep it after all.
+    var managesStoredPassword: Bool {
+        offersPassword && hasStoredPassword && password.isEmpty
+    }
+
+    private var keepsStoredPassword: Bool {
+        hasStoredPassword && !removesStoredPassword
+    }
+
+    /// What saving does to the stored password, when the user has asked for anything, for the
+    /// footer under the field.
+    var passwordNote: String? {
+        guard hasStoredPassword, password.isEmpty || draft.authMethod != .password else { return nil }
+        if draft.authMethod != .password {
+            return "Saving removes the saved password, which only the Password method uses."
+        }
+        return removesStoredPassword ? "Saving removes the saved password." : nil
+    }
+
+    /// Removes the stored password when the host is saved.
+    func removeStoredPassword() {
+        removesStoredPassword = true
+    }
+
+    /// Keeps the stored password after all.
+    func keepStoredPassword() {
+        removesStoredPassword = false
+    }
 
     /// Every group the host can be in, by name.
     var groups: [HostGroup] {
@@ -132,41 +199,87 @@ final class HostEditorModel {
         _ = await (groups, tags)
     }
 
-    /// Stores the host, with the new group and tags it uses. Returns false if the draft has a
-    /// problem, which is then shown, or if storing fails.
+    /// Stores the host, with the new group and tags it uses, and its password in the Keychain.
+    /// Returns false if the draft has a problem, which is then shown, or if storing fails.
+    ///
+    /// A typed password is stored first, so that nothing is saved if the Keychain refuses it. If the
+    /// host then cannot be stored, a new host's password goes again; an existing host keeps the new
+    /// one, which saving again stores once more. A stored password that the user removed, or that
+    /// the host's method no longer uses, goes once the host is saved.
     func save() async -> Bool {
         attemptedSave = true
         guard draft.problems.isEmpty else { return false }
         guard hasChanges || !isEditing else { return true }
+        let passwordID = SecretID.password(of: base.id)
+        let storesPassword = offersPassword && !password.isEmpty
         do {
-            try await storeNewGroupAndTags()
-            if isEditing {
-                // Apply the user's changes to the host as it is stored now, not as it was read.
-                guard let stored = try await repository.host(id: base.id) else {
-                    saveError = "This host was deleted while you were editing it."
-                    return false
-                }
-                try await repository.update(draft.applied(to: stored, comparedTo: original))
-            } else {
-                try await repository.create(draft.applied(to: base, comparedTo: original))
+            if storesPassword {
+                try secrets?.store(Secret(utf8: password), as: passwordID)
             }
-            return true
+            guard try await saveHost() else {
+                // Its password went with it, and must not come back.
+                if storesPassword { discardPassword(passwordID) }
+                saveError = "This host was deleted while you were editing it."
+                return false
+            }
         } catch {
+            // A host that is not stored has no use for a password.
+            if storesPassword, !isEditing { discardPassword(passwordID) }
             Self.logger.error("Could not save a host: \(error)")
             saveError = String(describing: error)
             return false
         }
+        password = ""
+        if storesPassword {
+            hasStoredPassword = true
+            removesStoredPassword = false
+        } else if hasStoredPassword, removesStoredPassword || draft.authMethod != .password {
+            do {
+                try secrets?.remove(passwordID)
+                hasStoredPassword = false
+                removesStoredPassword = false
+            } catch {
+                Self.logger.error("Could not remove a host's password: \(error)")
+                saveError = "The host is saved, but its saved password could not be removed. \(error)"
+                return false
+            }
+        }
+        return true
     }
 
-    /// Deletes the host being edited. The repository keeps a tombstone (README section 15).
+    /// Deletes the host being edited, and its password. The repository keeps a tombstone (README
+    /// section 15).
     func delete() async -> Bool {
         do {
-            try await repository.deleteHost(id: base.id)
+            try await repository.deleteHost(id: base.id, removingSecretsFrom: secrets)
             return true
         } catch {
             Self.logger.error("Could not delete a host: \(error)")
             saveError = String(describing: error)
             return false
+        }
+    }
+
+    /// Stores the host and the new group and tags it uses. Returns false if the host was deleted
+    /// while the editor was open.
+    private func saveHost() async throws -> Bool {
+        try await storeNewGroupAndTags()
+        if isEditing {
+            // Apply the user's changes to the host as it is stored now, not as it was read.
+            guard let stored = try await repository.host(id: base.id) else { return false }
+            try await repository.update(draft.applied(to: stored, comparedTo: original))
+        } else {
+            try await repository.create(draft.applied(to: base, comparedTo: original))
+        }
+        return true
+    }
+
+    /// Removes a password that this editor stored for a host that does not exist.
+    private func discardPassword(_ id: SecretID) {
+        do {
+            try secrets?.remove(id)
+        } catch {
+            Self.logger.error("Could not remove the password of a host that was not saved: \(error)")
         }
     }
 

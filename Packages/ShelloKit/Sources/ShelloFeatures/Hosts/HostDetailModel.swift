@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import ShelloModel
+import ShelloSecurity
 import ShelloStorage
 import os
 
@@ -9,6 +10,8 @@ import os
 @Observable
 final class HostDetailModel {
     let repository: HostRepository
+    /// The Keychain's secrets, which go with the host when it is deleted.
+    let secrets: SecretStore?
     let hostID: Host.ID
     /// Set when a change the user asked for fails; the screen shows it and clears it.
     var actionError: String?
@@ -18,8 +21,9 @@ final class HostDetailModel {
     private var tags: [Tag] = []
     private var hasLoaded = false
 
-    init(repository: HostRepository, hostID: Host.ID) {
+    init(repository: HostRepository, secrets: SecretStore? = nil, hostID: Host.ID) {
         self.repository = repository
+        self.secrets = secrets
         self.hostID = hostID
     }
 
@@ -60,10 +64,10 @@ final class HostDetailModel {
         }
     }
 
-    /// Deletes the host. The repository keeps a tombstone (README section 15).
+    /// Deletes the host and its password. The repository keeps a tombstone (README section 15).
     func delete() async -> Bool {
         do {
-            try await repository.deleteHost(id: hostID)
+            try await repository.deleteHost(id: hostID, removingSecretsFrom: secrets)
             return true
         } catch {
             Self.logger.error("Could not delete a host: \(error)")
@@ -119,5 +123,13 @@ extension HostRepository {
         }
         stored.isFavorite = isFavorite
         try await update(stored)
+    }
+
+    /// Deletes a host and its secrets (README section 13). The secrets go first: if writing the
+    /// tombstone then fails, a host the user wanted gone is left without its password, rather than a
+    /// password without its host.
+    func deleteHost(id: Host.ID, removingSecretsFrom secrets: SecretStore?) async throws {
+        try secrets?.removeSecrets(ofHost: id)
+        try await deleteHost(id: id)
     }
 }

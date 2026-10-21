@@ -1,23 +1,28 @@
 import Foundation
+import ShelloSecurity
 import ShelloStorage
 import SwiftUI
 
-/// The settings sheet: export and import of the user's data, and About with the diagnostics of the
-/// SSH library.
+/// The settings sheet: export and import of the user's data, app lock, and About with the
+/// diagnostics of the SSH library.
 struct SettingsView: View {
     @Environment(\.exportRepository) private var exportRepository
+    @Environment(\.appLock) private var appLock
 
     var body: some View {
-        SettingsList(exportRepository: exportRepository)
+        SettingsList(exportRepository: exportRepository, appLock: appLock)
     }
 }
 
-/// The settings, with export and import when the environment has the export repository.
+/// The settings, with export and import when the environment has the export repository, and app
+/// lock when it has app lock.
 private struct SettingsList: View {
+    let appLock: AppLock?
     @Environment(\.dismiss) private var dismiss
     @State private var exportImport: ExportImportModel?
 
-    init(exportRepository: ExportRepository?) {
+    init(exportRepository: ExportRepository?, appLock: AppLock?) {
+        self.appLock = appLock
         _exportImport = State(initialValue: exportRepository.map { ExportImportModel(repository: $0) })
     }
 
@@ -26,6 +31,9 @@ private struct SettingsList: View {
             List {
                 if let exportImport {
                     ExportImportSection(model: exportImport)
+                }
+                if let appLock {
+                    AppLockSection(appLock: appLock)
                 }
                 Section {
                     LabeledContent("Version") { ValueText(Self.version) }
@@ -97,6 +105,37 @@ private struct ExportImportSection: View {
         }
         .disabled(model.isWorking)
         .listRowBackground(Palette.cell)
+    }
+}
+
+/// How long Shello may stay in the background before app lock asks again (README section 13).
+private struct AppLockSection: View {
+    @Bindable var appLock: AppLock
+
+    var body: some View {
+        Section {
+            Picker("Require Unlock", selection: $appLock.timeout) {
+                ForEach(AppLockTimeout.allCases) { timeout in
+                    Text(timeout.displayName).tag(timeout)
+                }
+            }
+            // It would change nothing; the footer says why.
+            .disabled(!appLock.canAsk)
+        } header: {
+            SectionHeader("App Lock")
+        } footer: {
+            FooterText(footer)
+        }
+        .listRowBackground(Palette.cell)
+    }
+
+    private var footer: String {
+        guard appLock.canAsk else {
+            return "This device has no passcode, so app lock can’t ask for one. Set a passcode in the Settings app "
+                + "to turn app lock on."
+        }
+        return "Shello asks for \(appLock.biometry.inSentence) when it opens, and when you return after it has "
+            + "been in the background this long. Until then, your hosts stay hidden."
     }
 }
 

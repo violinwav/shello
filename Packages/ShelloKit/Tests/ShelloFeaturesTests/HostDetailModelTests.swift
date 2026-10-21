@@ -1,5 +1,6 @@
 import Foundation
 import ShelloModel
+import ShelloSecurity
 import ShelloStorage
 import Testing
 
@@ -63,6 +64,19 @@ struct HostDetailModelTests {
 
         await waitUntil { model.isGone }
         #expect(try await repository.host(id: nas.id) == nil)
+    }
+
+    @Test func deletingTheHostRemovesItsPassword() async throws {
+        let secrets = TestSecrets()
+        let nas = Host(name: "nas", address: "nas.lan", username: "admin", authMethod: .password)
+        try await repository.create(nas)
+        try secrets.store.store(Secret(utf8: "hunter2"), as: .password(of: nas.id))
+        let model = HostDetailModel(repository: repository, secrets: secrets.store, hostID: nas.id)
+
+        #expect(await model.delete())
+
+        #expect(try await repository.host(id: nas.id) == nil)
+        #expect(try secrets.password(of: nas.id) == nil)
     }
 
     @Test func unknownHostIsGone() async throws {

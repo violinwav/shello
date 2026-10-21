@@ -1,4 +1,5 @@
 import ShelloModel
+import ShelloSecurity
 import ShelloStorage
 import SwiftUI
 
@@ -12,8 +13,8 @@ struct HostDetailView: View {
     @State private var editsHost: Host?
     @State private var confirmsDelete = false
 
-    init(repository: HostRepository, hostID: Host.ID, onGone: @escaping () -> Void) {
-        _model = State(initialValue: HostDetailModel(repository: repository, hostID: hostID))
+    init(repository: HostRepository, secrets: SecretStore?, hostID: Host.ID, onGone: @escaping () -> Void) {
+        _model = State(initialValue: HostDetailModel(repository: repository, secrets: secrets, hostID: hostID))
         self.onGone = onGone
     }
 
@@ -55,7 +56,7 @@ struct HostDetailView: View {
             if isGone { onGone() }
         }
         .sheet(item: $editsHost) { host in
-            HostEditorView(repository: model.repository, host: host)
+            HostEditorView(repository: model.repository, secrets: model.secrets, host: host)
         }
         .confirmationDialog(
             "Delete “\(model.host?.name ?? "")”?", isPresented: $confirmsDelete, titleVisibility: .visible

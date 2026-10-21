@@ -32,9 +32,11 @@ final class LaunchTests: XCTestCase {
     }
 
     /// The app opens its database in the App Group container when no test asks for an empty one.
+    /// App lock stays off, so that the host list shows whatever the simulator's Face ID.
     @MainActor
     func testAppOpensItsDatabaseInTheAppGroup() {
         let app = XCUIApplication()
+        app.launchEnvironment["SHELLO_UI_TESTING_APP_LOCK"] = "0"
         app.launch()
 
         XCTAssertTrue(app.navigationBars["Hosts"].waitForExistence(timeout: 10))

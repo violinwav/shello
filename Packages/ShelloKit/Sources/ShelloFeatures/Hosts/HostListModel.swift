@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import ShelloModel
+import ShelloSecurity
 import ShelloStorage
 import os
 
@@ -16,6 +17,8 @@ final class HostListModel {
     }
 
     let repository: HostRepository
+    /// The Keychain's secrets, which go with a host when it is deleted.
+    let secrets: SecretStore?
 
     /// What the user typed into the search field. The screen observes the hosts again with
     /// `observeHosts(matching:)` whenever it changes.
@@ -37,8 +40,9 @@ final class HostListModel {
     /// Set when the hosts cannot be read.
     private(set) var loadError: String?
 
-    init(repository: HostRepository) {
+    init(repository: HostRepository, secrets: SecretStore? = nil) {
         self.repository = repository
+        self.secrets = secrets
     }
 
     /// The tag filter, unless its tag no longer exists.
@@ -103,12 +107,12 @@ final class HostListModel {
         }
     }
 
-    /// Deletes a host, and returns whether it worked. The repository keeps a tombstone (README
-    /// section 15), so that sync can carry the deletion later.
+    /// Deletes a host and its password, and returns whether it worked. The repository keeps a
+    /// tombstone (README section 15), so that sync can carry the deletion later.
     @discardableResult
     func delete(_ host: Host) async -> Bool {
         do {
-            try await repository.deleteHost(id: host.id)
+            try await repository.deleteHost(id: host.id, removingSecretsFrom: secrets)
             return true
         } catch {
             Self.logger.error("Could not delete a host: \(error)")

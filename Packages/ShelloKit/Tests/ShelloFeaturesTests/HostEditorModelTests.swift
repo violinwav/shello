@@ -1,5 +1,6 @@
 import Foundation
 import ShelloModel
+import ShelloSecurity
 import ShelloStorage
 import Testing
 
@@ -301,5 +302,244 @@ struct HostEditorModelTests {
         model.draft.name = "nas"
         model.draft.address = "nas.lan"
         return model
+    }
+}
+
+/// The host editor's password, which goes into the Keychain only (README section 13).
+@Suite(.timeLimit(.minutes(1)))
+struct HostEditorPasswordTests {
+    let test: TestDatabase
+    let secrets = TestSecrets()
+    var repository: HostRepository { test.repository }
+
+    init() throws {
+        test = try TestDatabase()
+    }
+
+    @Test func newHostWithAPasswordKeepsItInTheKeychainUnderTheHostsIdentifier() async throws {
+        let model = newPasswordHost()
+        model.password = "hunter2"
+
+        #expect(await model.save())
+
+        let host = try #require(try await repository.hosts().first)
+        #expect(host.authMethod == .password)
+        #expect(try secrets.password(of: host.id) == "hunter2")
+        // The typed string goes once the password is stored.
+        #expect(model.password.isEmpty)
+    }
+
+    @Test func passwordIsOptional() async throws {
+        let model = newPasswordHost()
+
+        #expect(model.passwordPrompt == "optional")
+        #expect(await model.save())
+
+        let host = try #require(try await repository.hosts().first)
+        #expect(try secrets.password(of: host.id) == nil)
+    }
+
+    @Test func passwordFieldIsOnlyOfferedForThePasswordMethod() {
+        let model = HostEditorModel(repository: repository, secrets: secrets.store, host: nil)
+        #expect(!model.offersPassword)
+
+        model.draft.authMethod = .password
+        #expect(model.offersPassword)
+
+        model.draft.authMethod = .keyboardInteractive
+        #expect(!model.offersPassword)
+    }
+
+    /// Previews have no Keychain.
+    @Test func editorWithoutTheKeychainOffersNoPassword() {
+        let model = HostEditorModel(repository: repository, host: nil)
+        model.draft.authMethod = .password
+
+        #expect(!model.offersPassword)
+    }
+
+    @Test func passwordTypedForAnotherMethodIsNotStored() async throws {
+        let model = newPasswordHost()
+        model.password = "hunter2"
+        model.draft.authMethod = .sshKey
+
+        #expect(await model.save())
+
+        let host = try #require(try await repository.hosts().first)
+        #expect(try secrets.password(of: host.id) == nil)
+    }
+
+    @Test func typedPasswordCountsAsAChange() throws {
+        let nas = Host(name: "nas", address: "nas.lan", username: "admin", authMethod: .password)
+        let model = HostEditorModel(repository: repository, secrets: secrets.store, host: nas)
+        #expect(!model.hasChanges)
+
+        model.password = "hunter2"
+
+        #expect(model.hasChanges)
+    }
+
+    @Test func editorSaysThatAPasswordIsSaved() async throws {
+        let nas = try await storedHost(password: "hunter2")
+
+        let model = HostEditorModel(repository: repository, secrets: secrets.store, host: nas)
+
+        #expect(model.hasStoredPassword)
+        #expect(model.passwordPrompt == "saved")
+        #expect(model.passwordHint == "A password is saved. Typing a new one replaces it.")
+        #expect(model.managesStoredPassword)
+        #expect(model.password.isEmpty)
+    }
+
+    /// While the user types a new password, there is nothing to remove: it replaces the saved one.
+    @Test func typingANewPasswordHidesTheRemoval() async throws {
+        let nas = try await storedHost(password: "hunter2")
+        let model = HostEditorModel(repository: repository, secrets: secrets.store, host: nas)
+
+        model.password = "correct horse"
+
+        #expect(!model.managesStoredPassword)
+    }
+
+    @Test func typingANewPasswordReplacesTheSavedOne() async throws {
+        let nas = try await storedHost(password: "hunter2")
+        let model = HostEditorModel(repository: repository, secrets: secrets.store, host: nas)
+
+        model.password = "correct horse"
+        #expect(await model.save())
+
+        #expect(try secrets.password(of: nas.id) == "correct horse")
+    }
+
+    @Test func savingWithoutTypingKeepsTheSavedPassword() async throws {
+        let nas = try await storedHost(password: "hunter2")
+        let model = HostEditorModel(repository: repository, secrets: secrets.store, host: nas)
+
+        model.draft.notes = "Backups"
+        #expect(await model.save())
+
+        #expect(try secrets.password(of: nas.id) == "hunter2")
+    }
+
+    @Test func removingTheSavedPasswordTakesEffectWhenTheHostIsSaved() async throws {
+        let nas = try await storedHost(password: "hunter2")
+        let model = HostEditorModel(repository: repository, secrets: secrets.store, host: nas)
+
+        model.removeStoredPassword()
+        #expect(model.hasChanges)
+        #expect(model.passwordPrompt == "optional")
+        #expect(model.passwordHint.isEmpty)
+        #expect(model.passwordNote == "Saving removes the saved password.")
+        // The same row offers to keep it after all.
+        #expect(model.managesStoredPassword)
+        #expect(try secrets.password(of: nas.id) == "hunter2")
+
+        #expect(await model.save())
+        #expect(try secrets.password(of: nas.id) == nil)
+        #expect(!model.managesStoredPassword)
+    }
+
+    @Test func keepingTheSavedPasswordUndoesTheRemoval() async throws {
+        let nas = try await storedHost(password: "hunter2")
+        let model = HostEditorModel(repository: repository, secrets: secrets.store, host: nas)
+        model.removeStoredPassword()
+
+        model.keepStoredPassword()
+
+        #expect(!model.hasChanges)
+        #expect(model.passwordPrompt == "saved")
+        #expect(model.passwordNote == nil)
+        #expect(await model.save())
+        #expect(try secrets.password(of: nas.id) == "hunter2")
+    }
+
+    /// Cancel throws the editor away, and the removal with it.
+    @Test func removalIsNotStoredUntilTheHostIsSaved() async throws {
+        let nas = try await storedHost(password: "hunter2")
+        let model = HostEditorModel(repository: repository, secrets: secrets.store, host: nas)
+
+        model.removeStoredPassword()
+
+        #expect(try secrets.password(of: nas.id) == "hunter2")
+    }
+
+    /// A password the host's method no longer uses does not stay in the Keychain.
+    @Test func switchingToAnotherMethodRemovesTheSavedPassword() async throws {
+        let nas = try await storedHost(password: "hunter2")
+        let model = HostEditorModel(repository: repository, secrets: secrets.store, host: nas)
+
+        model.draft.authMethod = .sshKey
+        #expect(model.passwordNote == "Saving removes the saved password, which only the Password method uses.")
+        #expect(await model.save())
+
+        #expect(try secrets.password(of: nas.id) == nil)
+        #expect(try await repository.host(id: nas.id)?.authMethod == .sshKey)
+    }
+
+    @Test func deletingTheHostRemovesItsPassword() async throws {
+        let nas = try await storedHost(password: "hunter2")
+        let model = HostEditorModel(repository: repository, secrets: secrets.store, host: nas)
+
+        #expect(await model.delete())
+
+        #expect(try await repository.host(id: nas.id) == nil)
+        #expect(try secrets.password(of: nas.id) == nil)
+    }
+
+    /// The host went while the editor was open, and its password went with it.
+    @Test func passwordForAHostDeletedMeanwhileIsNotKept() async throws {
+        let nas = try await storedHost(password: "hunter2")
+        let model = HostEditorModel(repository: repository, secrets: secrets.store, host: nas)
+        try await repository.deleteHost(id: nas.id, removingSecretsFrom: secrets.store)
+
+        model.password = "correct horse"
+        #expect(await model.save() == false)
+
+        #expect(model.saveError == "This host was deleted while you were editing it.")
+        #expect(try secrets.password(of: nas.id) == nil)
+    }
+
+    /// A new host that cannot be stored leaves no password behind.
+    @Test func newHostThatIsNotStoredLeavesNoPassword() async throws {
+        let model = newPasswordHost()
+        model.password = "hunter2"
+        // A group that does not exist breaks the database's foreign key.
+        model.draft.groupID = UUID()
+
+        #expect(await model.save() == false)
+
+        #expect(model.saveError != nil)
+        #expect(try await repository.hosts().isEmpty)
+        #expect(try secrets.password(of: model.hostID) == nil)
+    }
+
+    /// The Keychain refuses nothing while the unlock window is open; once app lock has engaged it
+    /// refuses the write, and nothing is saved.
+    @Test func hostIsNotSavedWhenItsPasswordCannotBeStored() async throws {
+        let model = newPasswordHost()
+        model.password = "hunter2"
+        secrets.window.close()
+
+        #expect(await model.save() == false)
+
+        #expect(model.saveError != nil)
+        #expect(try await repository.hosts().isEmpty)
+    }
+
+    /// A new host with the password method, whose required fields are filled in.
+    private func newPasswordHost() -> HostEditorModel {
+        let model = HostEditorModel(repository: repository, secrets: secrets.store, host: nil)
+        model.draft.name = "nas"
+        model.draft.address = "nas.lan"
+        model.draft.authMethod = .password
+        return model
+    }
+
+    /// Stores a host that signs in with `password`.
+    private func storedHost(password: String) async throws -> Host {
+        let nas = Host(name: "nas", address: "nas.lan", username: "admin", authMethod: .password)
+        try await repository.create(nas)
+        try secrets.store.store(Secret(utf8: password), as: .password(of: nas.id))
+        return nas
     }
 }

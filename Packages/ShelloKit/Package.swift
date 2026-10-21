@@ -29,8 +29,9 @@ let package = Package(
     name: "ShelloKit",
     platforms: [.iOS(.v26)],
     products: [
-        // The app's screens, plus the storage its composition root opens and hands to them.
-        .library(name: "ShelloFeatures", targets: ["ShelloFeatures", "ShelloStorage"])
+        // The app's screens, plus the storage and the security services its composition root opens
+        // and hands to them.
+        .library(name: "ShelloFeatures", targets: ["ShelloFeatures", "ShelloStorage", "ShelloSecurity"])
     ],
     // Pinned exactly; docs/spec/STACK.md section 8 lists every dependency and why.
     dependencies: [
@@ -70,7 +71,9 @@ let package = Package(
         // records where they come from.
         .target(
             name: "ShelloFeatures",
-            dependencies: ["ShelloModel", "ShelloStorage", "ShelloCore", "ShelloSSH", "ShelloTerminalUI"],
+            dependencies: [
+                "ShelloModel", "ShelloStorage", "ShelloSecurity", "ShelloCore", "ShelloSSH", "ShelloTerminalUI",
+            ],
             exclude: ["Resources/Fonts/README.md"],
             resources: [
                 .process("Resources/Colors.xcassets"),
@@ -99,10 +102,10 @@ let package = Package(
         .testTarget(name: "ShelloTmuxTests", dependencies: ["ShelloTmux"], swiftSettings: core),
         .testTarget(name: "ShelloCoreTests", dependencies: ["ShelloCore"], swiftSettings: core),
         .testTarget(name: "ShelloTerminalUITests", dependencies: ["ShelloTerminalUI"], swiftSettings: ui),
-        // The view models run against a real database in a temporary directory.
+        // The view models run against a real database in a temporary directory, and a Keychain in memory.
         .testTarget(
             name: "ShelloFeaturesTests",
-            dependencies: ["ShelloFeatures", "ShelloStorage", "ShelloModel"],
+            dependencies: ["ShelloFeatures", "ShelloStorage", "ShelloSecurity", "ShelloModel"],
             swiftSettings: ui
         ),
     ],

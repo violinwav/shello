@@ -98,10 +98,7 @@ final class ExportImportTests: XCTestCase {
 
     @MainActor
     func testExportAndImportPassAccessibilityAuditInDarkMode() throws {
-        XCUIDevice.shared.appearance = .dark
-        addTeardownBlock { @MainActor in XCUIDevice.shared.appearance = .light }
-
-        try auditExportAndImport(XCUIApplication.launchWithEmptyDatabase())
+        try auditExportAndImport(XCUIApplication.launchWithEmptyDatabase(appearance: .dark), appearance: .dark)
     }
 
     @MainActor
@@ -111,9 +108,10 @@ final class ExportImportTests: XCTestCase {
 
     /// Audits Settings before and after an export, with the result showing, and an alert of the import.
     @MainActor
-    private func auditExportAndImport(_ app: XCUIApplication) throws {
+    private func auditExportAndImport(_ app: XCUIApplication, appearance: XCUIDevice.Appearance = .light) throws {
         app.buttons["Settings"].tap()
         XCTAssertTrue(app.buttons["Export Data…"].waitForExistence(timeout: 5))
+        app.assertAppearance(appearance)
         try app.auditAccessibility()
 
         let file = app.exportData()

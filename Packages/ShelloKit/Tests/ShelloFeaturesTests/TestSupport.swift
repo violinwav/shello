@@ -1,12 +1,100 @@
 import Foundation
+import LocalAuthentication
 import Observation
 import ShelloModel
+import ShelloSecurity
 import ShelloStorage
 import Synchronization
 import Testing
 
 /// Swift Testing declares a `Tag` type too.
 typealias Tag = ShelloModel.Tag
+
+/// Secrets in a Keychain in memory, behind an unlock window that is open, as it is while the user
+/// edits hosts.
+nonisolated final class TestSecrets: Sendable {
+    let keychain = MemoryKeychain()
+    let window = UnlockWindow(authentication: TestAuthentication())
+    let store: SecretStore
+
+    init() {
+        store = SecretStore(keychain: keychain, unlockWindow: window)
+        window.openWithoutAuthentication()
+    }
+
+    /// The password stored for `hostID`, as text.
+    func password(of hostID: Host.ID) throws -> String? {
+        try store.secret(.password(of: hostID)).map { secret in
+            secret.withUnsafeBytes { String(decoding: $0, as: UTF8.self) }
+        }
+    }
+}
+
+/// LocalAuthentication's stand-in: every prompt is answered at once, as the test says, and counted.
+nonisolated final class TestAuthentication: Authentication {
+    private struct State {
+        var prompts = 0
+        var answer: Result<Void, UnlockError> = .success(())
+        var capability = AuthenticationCapability.available(.faceID)
+    }
+
+    private let state = Mutex(State())
+
+    /// How often the user was asked to authenticate.
+    var promptCount: Int { state.withLock { $0.prompts } }
+
+    /// How the next prompts end.
+    func answer(_ answer: Result<Void, UnlockError>) {
+        state.withLock { $0.answer = answer }
+    }
+
+    func setCapability(_ capability: AuthenticationCapability) {
+        state.withLock { $0.capability = capability }
+    }
+
+    func makeContext() -> sending LAContext {
+        LAContext()
+    }
+
+    func capability(of context: LAContext) -> AuthenticationCapability {
+        state.withLock { $0.capability }
+    }
+
+    func authenticate(_ context: LAContext, reason: String) async throws(UnlockError) {
+        let answer = state.withLock { state in
+            state.prompts += 1
+            return state.answer
+        }
+        try answer.get()
+    }
+
+    func invalidate(_ context: LAContext) {}
+}
+
+/// A clock that moves only when a test moves it.
+nonisolated final class TestTime: Sendable {
+    private let current = Mutex(ContinuousClock.now)
+
+    var now: ContinuousClock.Instant { current.withLock { $0 } }
+
+    func advance(by duration: Duration) {
+        current.withLock { $0 += duration }
+    }
+}
+
+/// Settings of their own, deleted when the test ends.
+nonisolated final class TestDefaults: @unchecked Sendable {
+    private let suite = "ShelloFeaturesTests-\(UUID().uuidString)"
+    let defaults: UserDefaults
+
+    init() {
+        defaults = UserDefaults(suiteName: suite)!
+    }
+
+    deinit {
+        defaults.removePersistentDomain(forName: suite)
+    }
+}
 
 /// A real database in its own temporary directory, deleted when the test ends.
 nonisolated final class TestDatabase: Sendable {

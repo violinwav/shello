@@ -1,8 +1,10 @@
 import ShelloModel
+import ShelloSecurity
 import ShelloStorage
 import SwiftUI
 
-/// The new and edit host sheet, with every MVP host field (README section 3).
+/// The new and edit host sheet, with every MVP host field (README section 3). The password goes
+/// into the Keychain.
 struct HostEditorView: View {
     /// The text fields, in the order the keyboard's Next key moves through them.
     private enum FocusField: Hashable {
@@ -10,6 +12,7 @@ struct HostEditorView: View {
         case address
         case port
         case username
+        case password
         case startupCommand
         case terminalType
         case notes
@@ -30,7 +33,7 @@ struct HostEditorView: View {
             case .address: .address
             case .port: .port
             case .terminalType: .terminalType
-            case .username, .startupCommand, .notes: nil
+            case .username, .password, .startupCommand, .notes: nil
             }
         }
     }
@@ -46,8 +49,8 @@ struct HostEditorView: View {
     @State private var newGroupName = ""
 
     /// An editor for `host` as the caller last read it, or for a new host.
-    init(repository: HostRepository, host: Host?) {
-        _model = State(initialValue: HostEditorModel(repository: repository, host: host))
+    init(repository: HostRepository, secrets: SecretStore?, host: Host?) {
+        _model = State(initialValue: HostEditorModel(repository: repository, secrets: secrets, host: host))
     }
 
     var body: some View {
@@ -189,14 +192,68 @@ struct HostEditorView: View {
             if model.draft.authMethod == .sshKey {
                 LabeledContent("SSH Key") { ValueText(model.sshKeySummary) }
             }
+            if model.offersPassword {
+                FieldRow(label: "Password") {
+                    SecureField("Password", text: $model.password, prompt: Text(model.passwordPrompt))
+                        .accessibilityLabel("Password")
+                        .accessibilityHint(model.passwordHint)
+                        .font(Typography.data)
+                        .textContentType(.password)
+                        .focused($focus, equals: .password)
+                        .submitLabel(.done)
+                        .onSubmit { focus = nil }
+                }
+            }
+            if model.managesStoredPassword {
+                storedPasswordButton
+            }
         } header: {
             SectionHeader("Authentication")
         } footer: {
-            if model.draft.authMethod == .sshKey {
-                FooterText("Choosing an SSH key comes with SSH key management.")
+            if let footer = authenticationFooter {
+                FooterText(footer)
             }
         }
         .listRowBackground(Palette.cell)
+        // A saved password that the new method does not use goes when the host is saved; the footer
+        // says so, but VoiceOver is back on the picker.
+        .onChange(of: model.draft.authMethod) {
+            if let note = model.passwordNote { announce(note, priority: .low) }
+        }
+    }
+
+    /// Removes the saved password when the host is saved, or keeps it after all. One button whose
+    /// title changes, so that VoiceOver stays on it. Not a destructive button: Cancel undoes the
+    /// removal too, and the error token marks it.
+    private var storedPasswordButton: some View {
+        let removes = model.removesStoredPassword
+        return Button(
+            removes ? "Keep Saved Password" : "Remove Saved Password",
+            systemImage: removes ? "arrow.uturn.backward" : "trash"
+        ) {
+            if removes {
+                model.keepStoredPassword()
+                announce("The saved password stays.")
+            } else {
+                model.removeStoredPassword()
+                announce("Saving removes the saved password.")
+            }
+        }
+        .labelStyle(.row)
+        .foregroundStyle(removes ? Palette.accentInk : Palette.statusError)
+    }
+
+    /// What the chosen method needs, and what saving does to a stored password.
+    private var authenticationFooter: String? {
+        let method: String? =
+            switch model.draft.authMethod {
+            case .sshKey: "Choosing an SSH key comes with SSH key management."
+            case .password where model.offersPassword:
+                "Shello keeps the password in the Keychain, on this device only, and never puts it in an export."
+            case .password, .keyboardInteractive: nil
+            }
+        let parts = [method, model.passwordNote].compactMap(\.self)
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 
     private var organizeSection: some View {

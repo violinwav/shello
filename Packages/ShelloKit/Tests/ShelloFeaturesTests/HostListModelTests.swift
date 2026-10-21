@@ -1,5 +1,6 @@
 import Foundation
 import ShelloModel
+import ShelloSecurity
 import ShelloStorage
 import Testing
 
@@ -198,6 +199,23 @@ struct HostListModelTests {
         #expect(await model.delete(Host(name: "nas", address: "nas.lan", username: "admin")) == false)
 
         #expect(model.actionError != nil)
+    }
+
+    /// A host's secrets go when it goes (README section 13), and no other host's do.
+    @Test func deletingAHostRemovesItsPassword() async throws {
+        let secrets = TestSecrets()
+        let model = HostListModel(repository: repository, secrets: secrets.store)
+        let nas = Host(name: "nas", address: "nas.lan", username: "admin", authMethod: .password)
+        let forge = Host(name: "forge", address: "forge.lan", username: "dev", authMethod: .password)
+        for host in [nas, forge] {
+            try await repository.create(host)
+            try secrets.store.store(Secret(utf8: host.name), as: .password(of: host.id))
+        }
+
+        #expect(await model.delete(nas))
+
+        #expect(try secrets.password(of: nas.id) == nil)
+        #expect(try secrets.password(of: forge.id) == "forge")
     }
 
     /// Observes the way the list screen does, until the returned task is cancelled.

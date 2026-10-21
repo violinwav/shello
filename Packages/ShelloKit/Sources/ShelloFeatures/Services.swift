@@ -1,3 +1,4 @@
+import ShelloSecurity
 import ShelloStorage
 import SwiftUI
 
@@ -9,4 +10,11 @@ extension EnvironmentValues {
     /// Export and import of all non-secret data, on the same database as `hostRepository`.
     /// Without it, Settings leaves export and import out.
     @Entry public var exportRepository: ExportRepository? = nil
+
+    /// The passwords and passphrases in the Keychain, read inside the unlock window. Without it, the
+    /// host editor has no password field, and deleting a host leaves the Keychain alone.
+    @Entry public var secretStore: SecretStore? = nil
+
+    /// App lock. Without it, Settings leaves app lock out.
+    @Entry public var appLock: AppLock? = nil
 }

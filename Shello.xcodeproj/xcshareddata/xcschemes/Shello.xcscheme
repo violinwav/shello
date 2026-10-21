@@ -122,6 +122,17 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "5E1100000000000000000058"
+               BuildableName = "ShelloAppTests.xctest"
+               BlueprintName = "ShelloAppTests"
+               ReferencedContainer = "container:Shello.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "5E1100000000000000000030"
                BuildableName = "ShelloUITests.xctest"
                BlueprintName = "ShelloUITests"

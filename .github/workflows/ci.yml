@@ -44,7 +44,7 @@ jobs:
 
       - name: Lint
         if: matrix.suite == 'checks'
-        run: xcrun swift-format lint --strict --recursive --parallel App UITests Packages/ShelloKit
+        run: xcrun swift-format lint --strict --recursive --parallel App AppTests UITests Packages/ShelloKit
 
       # libssh and OpenSSL, built from verified source by Vendor/build.sh (Vendor/README.md).
       # Cached by the files that determine the build and by the Xcode version, so they are

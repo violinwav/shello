@@ -129,9 +129,21 @@ _Avoid_: External key
 Shello holding the user's SSH keys and signing for servers on request, for agent forwarding and key-based sudo.
 _Avoid_: Agent (on its own), key agent
 
+**App lock**:
+Face ID, Touch ID or the device passcode before Shello shows anything: when it opens, and when it returns after app lock's timeout in the background. Passing it opens the unlock window.
+_Avoid_: Passcode lock, screen lock, PIN
+
 **Unlock window**:
 The time after the user passes app lock during which Shello and its SSH keys work without another prompt. It ends when app lock re-engages.
 _Avoid_: Grace period, session, unlock (for buying Pro)
+
+**Secret**:
+A password or passphrase, which Shello keeps in the Keychain only, never in the database or an export. A secret belongs to a host or an SSH key and is found by its owner's identifier.
+_Avoid_: Credential, key (for a password)
+
+**Privacy cover**:
+What the app switcher shows of Shello: its logo, over every screen and sheet, whenever Shello is not the active app.
+_Avoid_: Splash screen, blur
 
 **Auto sudo**:
 Shello answering sudo password prompts on a host, in one of three modes: off, confirm or automatic.

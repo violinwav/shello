@@ -27,6 +27,51 @@ final class HostTests: XCTestCase {
         XCTAssertFalse(app.buttons["prod-api-02"].exists)
     }
 
+    /// The password goes into the Keychain, which the editor reads back: it says that a password is
+    /// saved, and removing it takes it out of the Keychain.
+    @MainActor
+    func testPasswordIsKeptInTheKeychain() throws {
+        let app = XCUIApplication.launchWithEmptyDatabase()
+        app.buttons["Add Host"].firstMatch.tap()
+        // The method and the password first: while the keyboard is up, a tap on the picker only ends
+        // the typing, and the keyboard can cover the password field.
+        app.choose("Password", in: "Method")
+        let password = app.secureTextFields["Password"]
+        XCTAssertEqual(password.placeholderValue, "optional")
+        // Audited while the field is empty: screenshots leave out what a secure field holds, so the
+        // audit cannot see its contrast.
+        try app.auditAccessibility()
+        // Return puts the keyboard away.
+        app.enter("hunter2\n", into: password)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+        app.enter("vault", into: app.textFields["Name"])
+        app.enter("vault.lan", into: app.textFields["Address"])
+        app.navigationBars["New Host"].buttons["Save"].tap()
+
+        app.buttons["vault"].firstMatch.tap()
+        app.navigationBars["vault"].buttons["Edit"].tap()
+        XCTAssertTrue(app.navigationBars["Edit Host"].waitForExistence(timeout: 5))
+        app.reveal(password)
+        XCTAssertEqual(password.placeholderValue, "saved")
+        let remove = app.buttons["Remove Saved Password"]
+        app.reveal(remove)
+        try app.auditAccessibility()
+        remove.tap()
+        // The same row undoes the removal until the host is saved.
+        let keep = app.buttons["Keep Saved Password"]
+        XCTAssertTrue(keep.waitForExistence(timeout: 5))
+        XCTAssertEqual(password.placeholderValue, "optional")
+        try app.auditAccessibility()
+        app.navigationBars["Edit Host"].buttons["Save"].tap()
+
+        app.navigationBars["vault"].buttons["Edit"].tap()
+        XCTAssertTrue(app.navigationBars["Edit Host"].waitForExistence(timeout: 5))
+        app.reveal(password)
+        XCTAssertEqual(password.placeholderValue, "optional")
+        XCTAssertFalse(remove.exists)
+        XCTAssertFalse(keep.exists)
+    }
+
     @MainActor
     func testNewHostEditorPassesAccessibilityAudit() throws {
         let app = XCUIApplication.launchWithEmptyDatabase()
@@ -74,11 +119,10 @@ final class HostTests: XCTestCase {
 
     @MainActor
     func testScreensPassAccessibilityAuditInDarkMode() throws {
-        XCUIDevice.shared.appearance = .dark
-        addTeardownBlock { @MainActor in XCUIDevice.shared.appearance = .light }
-        let app = XCUIApplication.launchWithEmptyDatabase()
+        let app = XCUIApplication.launchWithEmptyDatabase(appearance: .dark)
         app.addTaggedFavorite()
 
+        app.assertAppearance(.dark)
         try app.auditAccessibility()
 
         app.buttons["nas"].firstMatch.tap()
@@ -87,6 +131,8 @@ final class HostTests: XCTestCase {
 
         app.navigationBars["nas"].buttons["Edit"].tap()
         XCTAssertTrue(app.navigationBars["Edit Host"].waitForExistence(timeout: 5))
+        // The sheet is dark too.
+        app.assertAppearance(.dark)
         try app.auditAccessibility()
     }
 
