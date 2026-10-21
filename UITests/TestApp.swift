@@ -125,16 +125,19 @@ extension XCUIApplication {
     @MainActor
     func addTaggedFavorite() {
         buttons["Add Host"].firstMatch.tap()
-        enter("nas", into: textFields["Name"])
-        enter("nas.lan", into: textFields["Address"])
-        // Return in the last field of the section puts the keyboard away.
-        enter("admin\n", into: textFields["User"])
-
-        // A tap in the middle of a switch's row can land on its label; tap the switch itself.
+        // The switch comes first, before the keyboard has been up. In three CI runs, the tap on it
+        // right after Return had put the keyboard away changed nothing, and the screen recordings
+        // show no reaction at all. A tap in the middle of the switch's row can land on its label;
+        // tap the switch itself.
         let favorite = switches["Favorite"].firstMatch
         reveal(favorite)
         favorite.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         XCTAssertEqual(favorite.value as? String, "1")
+
+        enter("nas", into: textFields["Name"])
+        enter("nas.lan", into: textFields["Address"])
+        // Return in the last field of the section puts the keyboard away.
+        enter("admin\n", into: textFields["User"])
         reveal(buttons["New Group…"])
         buttons["New Group…"].tap()
         enter("Homelab", into: alerts["New Group"].textFields.firstMatch)
@@ -197,28 +200,70 @@ extension XCUIApplication {
     /// Taps Import Data in the open Settings sheet and picks the file `name` in On My iPhone.
     @MainActor
     func importData(named name: String) {
+        showImporterOnMyIPhone()
+        // A picked file closes the importer at once, once Files knows it (see
+        // `prepareFilesForPicking()`). A file the importer still shows is tapped again every ten
+        // seconds, for up to three minutes.
+        let deadline = Date.now.addingTimeInterval(180)
+        repeat {
+            if pickOnce(named: name) { return }
+        } while Date.now < deadline && cells.containing(.staticText, identifier: name).firstMatch.exists
+        XCTFail("The file importer does not pick \(name)")
+    }
+
+    /// Makes sure that the importer can pick what the exporter saves in On My iPhone. A new
+    /// simulator, which CI starts each run with, does not allow that for minutes: until Files' first
+    /// indexing pass, picking a file there does nothing at all. The importer stays, and the app logs
+    /// "Could not resolve bookmark … The file doesn’t exist." On a Mac the pass came one to three
+    /// minutes after the first file was saved, while the importer kept trying. In CI it came only
+    /// once Shello had left the screen: an importer kept open for ten minutes never picked its file,
+    /// while the next test's file, a minute after Shello closed, was picked at once.
+    ///
+    /// So this saves an empty export and tries to import it. As long as the importer cannot pick it,
+    /// it closes Shello, waits half a minute and tries again in a new launch. A simulator whose
+    /// On My iPhone is already indexed picks the file at once.
+    @MainActor
+    static func prepareFilesForPicking() {
+        var app = launchWithEmptyDatabase()
+        app.buttons["Settings"].tap()
+        let name = app.exportData()
+        for _ in 0..<12 {
+            app.showImporterOnMyIPhone()
+            if app.pickOnce(named: name) {
+                let alert = app.alerts["Nothing to Import"]
+                XCTAssertTrue(alert.waitForExistence(timeout: 10))
+                alert.buttons["OK"].tap()
+                app.terminate()
+                return
+            }
+            app.terminate()
+            _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Files indexes On My iPhone")], timeout: 30)
+            app = launchWithEmptyDatabase()
+            app.buttons["Settings"].tap()
+        }
+        XCTFail("The file importer never picks \(name)")
+    }
+
+    /// Opens the file importer on On My iPhone from the open Settings sheet.
+    @MainActor
+    private func showImporterOnMyIPhone() {
         buttons["Import Data…"].tap()
         // The importer opens on the recent files; the exporter's files are under Browse.
         let browse = tabBars["DOC.browsingModeTabBar"].buttons["Browse"]
         XCTAssertTrue(browse.waitForExistence(timeout: 30))
         browse.tap()
         showOnMyIPhone()
+    }
+
+    /// Taps the file `name` in the open importer, and returns whether the importer picked it.
+    @MainActor
+    private func pickOnce(named name: String) -> Bool {
         let file = cells.containing(.staticText, identifier: name).firstMatch
         // The file's icon, at the top of its cell.
         let icon = CGVector(dx: 0.5, dy: 0.25)
-        // A picked file closes the importer at once, but only once Files has indexed it. On a new
-        // simulator, the first file saved to On My iPhone waits for Files' first indexing pass, one
-        // to more than three minutes later, and until then picking it does nothing at all: the
-        // importer stays, and the app logs "Could not resolve bookmark … The file doesn’t exist."
-        // CI starts each run on a new simulator. So a file the importer still shows is tapped again
-        // every ten seconds, for up to ten minutes.
-        let deadline = Date.now.addingTimeInterval(600)
-        repeat {
-            scrollClearOfTheBars(file, at: icon)
-            file.coordinate(withNormalizedOffset: icon).tap()
-            if filePicker.waitForNonExistence(timeout: 10) { return }
-        } while Date.now < deadline && file.exists
-        XCTFail("The file importer does not pick \(name)")
+        scrollClearOfTheBars(file, at: icon)
+        file.coordinate(withNormalizedOffset: icon).tap()
+        return filePicker.waitForNonExistence(timeout: 10)
     }
 
     /// Scrolls the file picker until the point `offset` of `file` lies between the picker's bars,

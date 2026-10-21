@@ -3,6 +3,12 @@ import XCTest
 /// Export and import of all non-secret data as one JSON file (README section 15), through the
 /// system's file exporter and importer and the Files app's On My iPhone.
 final class ExportImportTests: XCTestCase {
+    /// Once, before the first test: the importer must be able to pick what the exporter saves.
+    override class func setUp() {
+        super.setUp()
+        MainActor.assumeIsolated { XCUIApplication.prepareFilesForPicking() }
+    }
+
     override func setUp() {
         continueAfterFailure = false
     }
