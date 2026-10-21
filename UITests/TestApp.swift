@@ -23,7 +23,8 @@ extension XCUIApplication {
     func auditAccessibility() throws {
         // The audit reads the screen as it is drawn: a push or a sheet still moving in shows up as
         // low contrast or clipped text, on a slow CI runner especially. Give it time to settle.
-        _ = XCTWaiter.wait(for: [XCTestExpectation(description: "The screen settles")], timeout: 1)
+        settle(for: 2)
+        defer { settleAfterAudit() }
         var ignored: [String] = []
         try performAccessibilityAudit { issue in
             let isFalsePositive =
@@ -54,9 +55,24 @@ extension XCUIApplication {
     /// behind the alert gets the full audit before and after it.
     @MainActor
     func auditAlertAccessibility() throws {
-        _ = XCTWaiter.wait(for: [XCTestExpectation(description: "The alert settles")], timeout: 1)
+        settle(for: 2)
+        defer { settleAfterAudit() }
         try performAccessibilityAudit(
             for: XCUIAccessibilityAuditType.all.subtracting([.dynamicType, .elementDetection]))
+    }
+
+    /// Waits for moving views to come to rest, which XCUITest does not wait for in the system's file
+    /// pickers, nor for an accessibility audit to finish.
+    @MainActor
+    func settle(for seconds: TimeInterval = 1) {
+        _ = XCTWaiter.wait(for: [XCTestExpectation(description: "The screen settles")], timeout: seconds)
+    }
+
+    /// The audit makes the text larger while it runs and puts it back at the end. A tap while the
+    /// screen lays out again can miss what it aims at.
+    @MainActor
+    private func settleAfterAudit() {
+        settle(for: 1)
     }
 
     /// Fills in the host sheet's text fields that have a value here, and saves.
@@ -86,9 +102,13 @@ extension XCUIApplication {
     /// only as they scroll into view.
     @MainActor
     func reveal(_ element: XCUIElement) {
+        var swiped = false
         for _ in 0..<8 where !(element.exists && element.isHittable) {
             swipeUp(velocity: .slow)
+            swiped = true
         }
+        // A list glides on after a swipe, and a tap on a gliding list only stops it.
+        if swiped { settle() }
         XCTAssertTrue(element.isHittable, "\(element) is not on screen")
     }
 
@@ -140,7 +160,14 @@ extension XCUIApplication {
     /// The system's file exporter or importer, once it shows.
     @MainActor
     var filePicker: XCUIElement {
-        navigationBars["FullDocumentManagerViewControllerNavigationBar"]
+        filePickerBars.firstMatch
+    }
+
+    /// The bars of the file picker's screens. A folder's screen is pushed onto the list of
+    /// locations, so there can be more than one.
+    @MainActor
+    private var filePickerBars: XCUIElementQuery {
+        navigationBars.matching(identifier: "FullDocumentManagerViewControllerNavigationBar")
     }
 
     /// Taps Export Data in the open Settings sheet and saves the file in On My iPhone under the name
@@ -152,10 +179,11 @@ extension XCUIApplication {
         let nameField = textFields["DOCPicker.filenameTextField"]
         XCTAssertTrue(nameField.waitForExistence(timeout: 5))
         let name = nameField.value as? String ?? ""
-        // Save is enabled once the picker has opened the folder.
-        let save = filePicker.buttons["Save"]
-        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: save)
-        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed, "Save stays disabled")
+        // Save is enabled once the picker has opened the folder, which takes a while on a slow runner.
+        // It is the enabled one of the bars' Save buttons.
+        let save = filePickerBars.buttons
+            .matching(NSPredicate(format: "label == %@ AND isEnabled == true", "Save")).firstMatch
+        XCTAssertTrue(save.waitForExistence(timeout: 30), "Save stays disabled")
         save.tap()
         XCTAssertTrue(filePicker.waitForNonExistence(timeout: 10))
         return name.hasSuffix(".json") ? name : "\(name).json"
@@ -212,16 +240,19 @@ extension XCUIApplication {
     private func showOnMyIPhone() {
         XCTAssertTrue(filePicker.waitForExistence(timeout: 10))
         // The title is text, or a button for the folder's menu, "On My iPhone, Actions Menu".
-        let title = filePicker.descendants(matching: .any)
+        let title = filePickerBars.descendants(matching: .any)
             .matching(NSPredicate(format: "label BEGINSWITH %@", "On My iPhone")).firstMatch
-        guard !title.waitForExistence(timeout: 2) else { return }
-        let location = cells["DOC.sidebar.item.On My iPhone"]
-        // In a folder, the back button leads to the list of locations.
-        if !location.exists {
-            filePicker.buttons["BackButton"].tap()
+        if !title.waitForExistence(timeout: 2) {
+            let location = cells["DOC.sidebar.item.On My iPhone"]
+            // In a folder, the back button leads to the list of locations.
+            if !location.exists {
+                filePicker.buttons["BackButton"].tap()
+            }
+            XCTAssertTrue(location.waitForExistence(timeout: 5))
+            location.tap()
+            XCTAssertTrue(title.waitForExistence(timeout: 5))
         }
-        XCTAssertTrue(location.waitForExistence(timeout: 5))
-        location.tap()
-        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        // The folder's screen may still be sliding or fading in, and a tap on it then is lost.
+        settle()
     }
 }
