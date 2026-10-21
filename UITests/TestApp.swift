@@ -206,12 +206,13 @@ extension XCUIApplication {
         let file = cells.containing(.staticText, identifier: name).firstMatch
         // The file's icon, at the top of its cell.
         let icon = CGVector(dx: 0.5, dy: 0.25)
-        // A picked file closes the importer at once, but only once Files has indexed it. A new
-        // simulator indexes the first file saved to On My iPhone a minute or more late, and until
-        // then picking it does nothing at all: the importer stays, and the app logs "Could not
-        // resolve bookmark … The file doesn’t exist." CI starts each run on a new simulator. So a
-        // file the importer still shows is tapped again every ten seconds, for up to three minutes.
-        let deadline = Date.now.addingTimeInterval(180)
+        // A picked file closes the importer at once, but only once Files has indexed it. On a new
+        // simulator, the first file saved to On My iPhone waits for Files' first indexing pass, one
+        // to more than three minutes later, and until then picking it does nothing at all: the
+        // importer stays, and the app logs "Could not resolve bookmark … The file doesn’t exist."
+        // CI starts each run on a new simulator. So a file the importer still shows is tapped again
+        // every ten seconds, for up to ten minutes.
+        let deadline = Date.now.addingTimeInterval(600)
         repeat {
             scrollClearOfTheBars(file, at: icon)
             file.coordinate(withNormalizedOffset: icon).tap()
