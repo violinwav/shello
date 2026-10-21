@@ -97,12 +97,8 @@ extension XCUIApplication {
     /// attached to the test's results.
     @MainActor
     func auditAccessibility() throws {
-        // The audit reads the screen as it is drawn: a push or a sheet still moving in shows up as
-        // low contrast or clipped text, on a slow CI runner especially. Give it time to settle.
-        settle(for: 2)
-        defer { settleAfterAudit() }
         var ignored: [String] = []
-        try performAccessibilityAudit { issue in
+        try audit(XCUIAccessibilityAuditType.all) { issue in
             let isFalsePositive =
                 issue.auditType == .dynamicType
                 && issue.compactDescription == "Dynamic Type font sizes are partially unsupported"
@@ -131,10 +127,28 @@ extension XCUIApplication {
     /// behind the alert gets the full audit before and after it.
     @MainActor
     func auditAlertAccessibility() throws {
+        try audit(XCUIAccessibilityAuditType.all.subtracting([.dynamicType, .elementDetection])) { _ in false }
+    }
+
+    /// `performAccessibilityAudit(for:_:)` for `types`, a batch at a time. A single audit of every
+    /// check failed in CI with "Audit failed to complete in time" on the host editor, the longest
+    /// screen, on a slow runner. The two checks that try each text size take the longest, so each
+    /// runs on its own, after the others, which read the screen at its own size.
+    @MainActor
+    private func audit(
+        _ types: XCUIAccessibilityAuditType, ignoring isIgnored: @escaping (XCUIAccessibilityAuditIssue) -> Bool
+    ) throws {
+        // The audit reads the screen as it is drawn: a push or a sheet still moving in shows up as
+        // low contrast or clipped text, on a slow CI runner especially. Give it time to settle.
         settle(for: 2)
         defer { settleAfterAudit() }
-        try performAccessibilityAudit(
-            for: XCUIAccessibilityAuditType.all.subtracting([.dynamicType, .elementDetection]))
+        let sizeChecks: [XCUIAccessibilityAuditType] = [.textClipped, .dynamicType]
+        let batches = [types.subtracting([.textClipped, .dynamicType])] + sizeChecks.filter { types.contains($0) }
+        for (index, batch) in batches.enumerated() where !batch.isEmpty {
+            // A check that tried the text sizes puts the screen back at its own size as it ends.
+            if index > 1 { settleAfterAudit() }
+            try performAccessibilityAudit(for: batch, isIgnored)
+        }
     }
 
     /// Waits for moving views to come to rest, which XCUITest does not wait for in the system's file
@@ -184,7 +198,10 @@ extension XCUIApplication {
         var scrolled = false
         var previous: CGRect?
         for _ in 0..<16 {
-            let area = TapArea(self)
+            guard let area = try? TapArea(self) else {
+                XCTFail("The screen cannot be read", file: file, line: line)
+                return
+            }
             // At most this far per drag, so that a drag never carries the element past the area.
             let step = area.height * 0.4
             guard element.exists, element.isHittable else {
@@ -226,13 +243,25 @@ extension XCUIApplication {
 
         var height: CGFloat { bottom - top }
 
+        /// The area on the screen as it is now. The bars' frames come from one snapshot of the app:
+        /// a query for each would take a snapshot of its own, which is slow on a slow CI runner.
         @MainActor
-        init(_ app: XCUIApplication) {
-            let window = app.windows.firstMatch.frame
-            top = app.navigationBars.allElementsBoundByIndex.map(\.frame.maxY).max() ?? window.minY + 62
-            let keyboard = app.keyboards.firstMatch
-            if keyboard.exists {
-                bottom = min(window.maxY - 100, keyboard.frame.minY)
+        init(_ app: XCUIApplication) throws {
+            let screen = try app.snapshot()
+            let window = screen.frame
+            var navigationBarBottoms: [CGFloat] = []
+            var keyboardTops: [CGFloat] = []
+            var pending = [screen]
+            while let element = pending.popLast() {
+                switch element.elementType {
+                case .navigationBar: navigationBarBottoms.append(element.frame.maxY)
+                case .keyboard: keyboardTops.append(element.frame.minY)
+                default: pending += element.children
+                }
+            }
+            top = navigationBarBottoms.max() ?? window.minY + 62
+            if let keyboardTop = keyboardTops.min() {
+                bottom = min(window.maxY - 100, keyboardTop)
                 lowest = bottom
             } else {
                 bottom = window.maxY - 100
