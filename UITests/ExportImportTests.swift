@@ -18,7 +18,7 @@ final class ExportImportTests: XCTestCase {
 
         let file = original.exportData()
 
-        XCTAssertTrue(original.staticTexts["Exported 1 host, 1 group and 1 tag."].waitForExistence(timeout: 5))
+        XCTAssertTrue(original.staticTexts["Exported 1 host, 1 group and 1 tag to “\(file)”."].exists)
         try original.auditAccessibility()
         original.terminate()
 
@@ -79,7 +79,7 @@ final class ExportImportTests: XCTestCase {
         let app = XCUIApplication.launchWithEmptyDatabase()
         app.buttons["Settings"].tap()
         let file = app.exportData()
-        XCTAssertTrue(app.staticTexts["Exported no hosts, groups or tags."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Exported no hosts, groups or tags to “\(file)”."].exists)
 
         app.importData(named: file)
 
@@ -111,7 +111,7 @@ final class ExportImportTests: XCTestCase {
         try app.auditAccessibility()
 
         let file = app.exportData()
-        XCTAssertTrue(app.staticTexts["Exported no hosts, groups or tags."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Exported no hosts, groups or tags to “\(file)”."].exists)
         try app.auditAccessibility()
 
         app.importData(named: file)

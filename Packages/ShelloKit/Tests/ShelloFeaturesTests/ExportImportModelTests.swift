@@ -58,7 +58,7 @@ struct ExportImportModelTests {
 
         model.exportFinished(.success(test.root.appending(path: "Shello Export.json")))
 
-        #expect(model.status == "Exported 1 host, 1 group and 1 tag.")
+        #expect(model.status == "Exported 1 host, 1 group and 1 tag to “Shello Export.json”.")
         #expect(model.exportDocument == nil)
         #expect(model.alert == nil)
     }

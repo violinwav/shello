@@ -92,14 +92,15 @@ final class ExportImportModel {
         }
     }
 
-    /// The file exporter saved the file, or could not.
+    /// The file exporter saved the file, or could not. The result names the file as it was saved: the
+    /// user may have renamed it in the exporter.
     func exportFinished(_ result: Result<URL, any Error>) {
         exportDocument = nil
         switch result {
-        case .success:
+        case .success(let url):
             let counts = exportCounts ?? RecordCounts(hosts: 0, groups: 0, tags: 0)
             Self.logger.info("Exported \(counts.hosts) hosts, \(counts.groups) groups, \(counts.tags) tags")
-            report("Exported \(counts.listed).")
+            report("Exported \(counts.listed) to “\(url.lastPathComponent)”.")
         case .failure(let error):
             Self.logger.error("Could not save the export: \(error)")
             alert = .problem(title: "Couldn’t Save the Export", message: error.localizedDescription)

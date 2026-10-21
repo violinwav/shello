@@ -171,14 +171,12 @@ extension XCUIApplication {
     }
 
     /// Taps Export Data in the open Settings sheet and saves the file in On My iPhone under the name
-    /// the app suggests, which has the time in it. Returns the file's name.
+    /// the app suggests, which has the time in it. Returns the file's name as the app's result line
+    /// gives it: the exporter's name field is not always in the accessibility tree.
     @MainActor
     func exportData() -> String {
         buttons["Export Data…"].tap()
         showOnMyIPhone()
-        let nameField = textFields["DOCPicker.filenameTextField"]
-        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
-        let name = nameField.value as? String ?? ""
         // Save is enabled once the picker has opened the folder, which takes a while on a slow runner.
         // It is the enabled one of the bars' Save buttons.
         let save = filePickerBars.buttons
@@ -186,7 +184,14 @@ extension XCUIApplication {
         XCTAssertTrue(save.waitForExistence(timeout: 30), "Save stays disabled")
         save.tap()
         XCTAssertTrue(filePicker.waitForNonExistence(timeout: 10))
-        return name.hasSuffix(".json") ? name : "\(name).json"
+        // "Exported 1 host to “Shello Export 2026-10-21 14.05.09.json”."
+        let result = staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Exported ")).firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 5))
+        guard let name = result.label.firstMatch(of: /“(.+)”/)?.1 else {
+            XCTFail("\(result.label) does not name the file")
+            return ""
+        }
+        return String(name)
     }
 
     /// Taps Import Data in the open Settings sheet and picks the file `name` in On My iPhone.
@@ -202,8 +207,16 @@ extension XCUIApplication {
         // The file's icon, at the top of its cell.
         let icon = CGVector(dx: 0.5, dy: 0.25)
         scrollClearOfTheBars(file, at: icon)
-        file.coordinate(withNormalizedOffset: icon).tap()
-        XCTAssertTrue(filePicker.waitForNonExistence(timeout: 10))
+        // A picked file closes the importer within seconds. On a CI runner the importer has ignored
+        // a tap on a file it had shown for six seconds and more: the screen recordings show no
+        // reaction at all. So a file the importer still shows ten seconds on is tapped again.
+        for attempt in 1...3 {
+            file.coordinate(withNormalizedOffset: icon).tap()
+            if filePicker.waitForNonExistence(timeout: 10) { return }
+            guard attempt < 3, file.exists else { break }
+            scrollClearOfTheBars(file, at: icon)
+        }
+        XCTFail("The file importer does not pick \(name)")
     }
 
     /// Scrolls the file picker until the point `offset` of `file` lies between the picker's bars,
