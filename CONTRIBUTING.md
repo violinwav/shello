@@ -30,7 +30,7 @@ First build libssh and OpenSSL from verified source with `Vendor/build.sh` (need
 Open `Shello.xcodeproj` in Xcode 26.6 and use the `Shello` scheme: it runs the app and, with Product → Test, every `ShelloKit` unit test plus the UI tests. From the command line, the same checks CI runs (`.github/workflows/ci.yml`):
 
 ```sh
-xcrun swift-format lint --strict --recursive --parallel App UITests Packages/ShelloKit
+xcrun swift-format lint --strict --recursive --parallel App AppTests UITests Packages/ShelloKit
 xcodebuild test -project Shello.xcodeproj -scheme Shello -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'
 ```
 

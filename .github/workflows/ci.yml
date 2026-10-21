@@ -24,17 +24,18 @@ env:
   SIMULATOR: platform=iOS Simulator,name=iPhone 17,OS=26.5
 
 jobs:
-  # Two jobs in parallel: "checks" runs lint, the unit tests and the device build; "ui-tests" runs
-  # the XCUITest target, which takes most of the time.
+  # Three jobs in parallel: "checks" runs lint, the unit tests and the device build; "ui-tests" runs
+  # the XCUITest target except ExportImportTests; "ui-files" runs ExportImportTests alone, because
+  # waiting for Files to index a fresh simulator takes about a quarter of an hour by itself.
   macos:
     name: ${{ matrix.suite }}
     runs-on: macos-26
     strategy:
       fail-fast: false
       matrix:
-        suite: [checks, ui-tests]
+        suite: [checks, ui-tests, ui-files]
     # A cold vendor build adds about 10 minutes.
-    timeout-minutes: ${{ matrix.suite == 'ui-tests' && 60 || 40 }}
+    timeout-minutes: ${{ matrix.suite == 'checks' && 40 || 60 }}
     permissions:
       contents: read
     steps:
@@ -83,7 +84,7 @@ jobs:
       # Boot the simulator in SIMULATOR first, and mark the tip as shown; the keyboard reads this
       # key before it shows the tip.
       - name: Prepare the simulator
-        if: matrix.suite == 'ui-tests'
+        if: matrix.suite != 'checks'
         run: |
           devices=$(xcrun simctl list devices available --json \
             | jq -r '.devices | to_entries[] | select(.key | endswith(".iOS-26-5")) | .value[]
@@ -114,6 +115,16 @@ jobs:
           -project Shello.xcodeproj -scheme Shello
           -destination "$SIMULATOR"
           -only-testing:ShelloUITests
+          -skip-testing:ShelloUITests/ExportImportTests
+          -resultBundlePath TestResults.xcresult
+
+      - name: UI tests that use the Files app
+        if: matrix.suite == 'ui-files'
+        run: >-
+          xcodebuild test -quiet
+          -project Shello.xcodeproj -scheme Shello
+          -destination "$SIMULATOR"
+          -only-testing:ShelloUITests/ExportImportTests
           -resultBundlePath TestResults.xcresult
 
       # -quiet hides why a test failed; the result bundle has the failure, logs and screenshots.
