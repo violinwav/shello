@@ -183,6 +183,8 @@ public final class UnlockWindow: Sendable {
 
 /// The unlock window is closed: app lock has engaged, so nothing that needs the user's authentication
 /// runs until they unlock Shello again.
-public struct UnlockWindowClosed: Error, Equatable {
+public struct UnlockWindowClosed: Error, Equatable, CustomStringConvertible {
     public init() {}
+
+    public var description: String { "Shello is locked. Unlock it, then try again." }
 }

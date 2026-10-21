@@ -25,6 +25,8 @@ struct HostDraft: Equatable {
     var port: String
     var username: String
     var authMethod: AuthMethod
+    /// The SSH key to sign in with, which may not be on this device (README section 15).
+    var sshKeyID: UUID?
     var groupID: HostGroup.ID?
     var tagIDs: Set<Tag.ID>
     var notes: String
@@ -41,6 +43,7 @@ struct HostDraft: Equatable {
         port = String(host.port)
         username = host.username
         authMethod = host.authMethod
+        sshKeyID = host.sshKeyID
         groupID = host.groupID
         tagIDs = host.tagIDs
         notes = host.notes
@@ -99,7 +102,7 @@ struct HostDraft: Equatable {
 
     /// `base` with every field the user changed since `original` set to the draft's value. Text is
     /// saved without surrounding whitespace, except in the notes, where it may be deliberate.
-    /// Fields the draft does not hold, such as the SSH key, keep `base`'s values.
+    /// Fields the draft does not hold, such as when Shello last connected, keep `base`'s values.
     ///
     /// Pass the host as it is stored now as `base`: then saving never undoes a change made since
     /// the draft was taken. Call it on a draft without problems.
@@ -111,6 +114,7 @@ struct HostDraft: Equatable {
         if port != original.port, let portNumber { host.port = portNumber }
         if username != original.username { host.username = username.trimmed }
         if authMethod != original.authMethod { host.authMethod = authMethod }
+        if sshKeyID != original.sshKeyID { host.sshKeyID = sshKeyID }
         if groupID != original.groupID { host.groupID = groupID }
         if tagIDs != original.tagIDs { host.tagIDs = tagIDs }
         if notes != original.notes { host.notes = notes }

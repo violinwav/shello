@@ -231,6 +231,15 @@ Consequences:
 | Post-quantum signatures (Later) | CryptoKit `MLDSA65` / `MLDSA87`, including Secure Enclave variants, available since [iOS 26](https://developer.apple.com/documentation/cryptokit/enhancing-your-app-s-privacy-and-security-with-quantum-secure-workflows). Waits for OpenSSH. |
 | FIDO2 keys (Later) | libssh 0.12 supports FIDO/U2F through libfido2. The iOS transport is a later decision. |
 
+**Generated keys in the Keychain.**
+
+- Each generated key is one generic password item of the service `ch.shello.ssh-key`, found by the key's identifier.
+- The item's generic attribute holds the key's record: name, kind, signing policy, public key and creation time. Attributes read without authentication, so keys are listed without a prompt.
+- The item's data is the key itself: the Secure Enclave's blob, or the Ed25519 private key behind the access control. The record never holds it.
+- `SSHKeyStore` in `ShelloSecurity` is the only code that reads the data, and it hands out public keys and signatures only.
+
+**The iOS Simulator** reports a Secure Enclave (`SecureEnclave.isAvailable`) but refuses to make a key that needs the user's presence ("This call is not supported on iOS Simulator"). Its Keychain also gives out items that need the user's presence without asking. Shello therefore offers Ed25519 keys only in the simulator. Secure Enclave keys and the Keychain's access control are checked on a device (section 11).
+
 **App lock and privacy.**
 
 - LocalAuthentication handles app lock.

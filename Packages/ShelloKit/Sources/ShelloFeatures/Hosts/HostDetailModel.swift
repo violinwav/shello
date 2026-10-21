@@ -5,13 +5,15 @@ import ShelloSecurity
 import ShelloStorage
 import os
 
-/// One host's details, with the names of its group and tags. It follows the database, so the
-/// details update as soon as the host changes, and say so once it is deleted.
+/// One host's details, with the names of its group, tags and SSH key. It follows the database, so
+/// the details update as soon as the host changes, and say so once it is deleted.
 @Observable
 final class HostDetailModel {
     let repository: HostRepository
     /// The Keychain's secrets, which go with the host when it is deleted.
     let secrets: SecretStore?
+    /// The SSH keys on this device, which name the host's SSH key.
+    let keys: SSHKeyStore?
     let hostID: Host.ID
     /// Set when a change the user asked for fails; the screen shows it and clears it.
     var actionError: String?
@@ -19,12 +21,15 @@ final class HostDetailModel {
     private(set) var host: Host?
     private var groups: [HostGroup] = []
     private var tags: [Tag] = []
+    private var sshKeys: [SSHKey] = []
     private var hasLoaded = false
 
-    init(repository: HostRepository, secrets: SecretStore? = nil, hostID: Host.ID) {
+    init(repository: HostRepository, secrets: SecretStore? = nil, keys: SSHKeyStore? = nil, hostID: Host.ID) {
         self.repository = repository
         self.secrets = secrets
+        self.keys = keys
         self.hostID = hostID
+        loadSSHKeys()
     }
 
     /// Whether the host does not exist, or no longer does.
@@ -38,6 +43,23 @@ final class HostDetailModel {
     var hostTags: [Tag] {
         guard let host else { return [] }
         return tags.filter { host.tagIDs.contains($0.id) }
+    }
+
+    /// The host's SSH key, by name: "None", or "Not on this device" for a key made on another device
+    /// or deleted since (README section 15).
+    var sshKeySummary: String {
+        guard let id = host?.sshKeyID else { return "None" }
+        return sshKeys.first { $0.id == id }?.comment ?? "Not on this device"
+    }
+
+    /// Reads the SSH keys of this device again: the Keychain tells nobody when they change.
+    func loadSSHKeys() {
+        guard let keys else { return }
+        do {
+            sshKeys = try keys.keys()
+        } catch {
+            Self.logger.error("Could not read the SSH keys: \(error)")
+        }
     }
 
     /// Follows the host, the groups and the tags until the task is cancelled.

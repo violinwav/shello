@@ -125,6 +125,22 @@ _Avoid_: Device key, local key
 An SSH key the user brought into Shello from elsewhere.
 _Avoid_: External key
 
+**Secure Enclave key**:
+A generated key inside the device's Secure Enclave: ECDSA P-256, the only kind the Secure Enclave makes, and the default. Not even Shello can read its private key.
+_Avoid_: Hardware key (a FIDO2 security key is one too), device key
+
+**Public key**:
+The half of an SSH key that a server holds in its `authorized_keys` to let the user in. Shello shows, copies and shares it; the private key of a generated key never leaves the device.
+_Avoid_: Key (on its own), identity
+
+**Fingerprint**:
+The SHA-256 hash of a public key or a host key, written as `ssh-keygen` writes it (`SHA256:…`), to compare keys by eye.
+_Avoid_: Hash, key ID
+
+**Signing policy**:
+When an SSH key may sign: while Shello is unlocked, inside the unlock window, or on every use, after Face ID, Touch ID or the passcode for that one signature.
+_Avoid_: Unlock policy, key lock
+
 **SSH agent**:
 Shello holding the user's SSH keys and signing for servers on request, for agent forwarding and key-based sudo.
 _Avoid_: Agent (on its own), key agent

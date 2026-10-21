@@ -19,6 +19,8 @@ final class HostListModel {
     let repository: HostRepository
     /// The Keychain's secrets, which go with a host when it is deleted.
     let secrets: SecretStore?
+    /// The SSH keys on this device, which the host editor offers.
+    let keys: SSHKeyStore?
 
     /// What the user typed into the search field. The screen observes the hosts again with
     /// `observeHosts(matching:)` whenever it changes.
@@ -40,9 +42,10 @@ final class HostListModel {
     /// Set when the hosts cannot be read.
     private(set) var loadError: String?
 
-    init(repository: HostRepository, secrets: SecretStore? = nil) {
+    init(repository: HostRepository, secrets: SecretStore? = nil, keys: SSHKeyStore? = nil) {
         self.repository = repository
         self.secrets = secrets
+        self.keys = keys
     }
 
     /// The tag filter, unless its tag no longer exists.

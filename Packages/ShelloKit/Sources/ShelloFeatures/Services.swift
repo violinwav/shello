@@ -15,6 +15,10 @@ extension EnvironmentValues {
     /// host editor has no password field, and deleting a host leaves the Keychain alone.
     @Entry public var secretStore: SecretStore? = nil
 
+    /// The SSH keys on this device. Without it, Settings leaves SSH keys out, and the host editor
+    /// shows a host's SSH key without offering a choice.
+    @Entry public var sshKeyStore: SSHKeyStore? = nil
+
     /// App lock. Without it, Settings leaves app lock out.
     @Entry public var appLock: AppLock? = nil
 }

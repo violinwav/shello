@@ -3,26 +3,29 @@ import ShelloSecurity
 import ShelloStorage
 import SwiftUI
 
-/// The settings sheet: export and import of the user's data, app lock, and About with the
-/// diagnostics of the SSH library.
+/// The settings sheet: export and import of the user's data, app lock, the SSH keys, and About with
+/// the diagnostics of the SSH library.
 struct SettingsView: View {
     @Environment(\.exportRepository) private var exportRepository
     @Environment(\.appLock) private var appLock
+    @Environment(\.sshKeyStore) private var sshKeys
 
     var body: some View {
-        SettingsList(exportRepository: exportRepository, appLock: appLock)
+        SettingsList(exportRepository: exportRepository, appLock: appLock, sshKeys: sshKeys)
     }
 }
 
-/// The settings, with export and import when the environment has the export repository, and app
-/// lock when it has app lock.
+/// The settings, with export and import when the environment has the export repository, app lock
+/// when it has app lock, and the SSH keys when it has their store.
 private struct SettingsList: View {
     let appLock: AppLock?
+    let sshKeys: SSHKeyStore?
     @Environment(\.dismiss) private var dismiss
     @State private var exportImport: ExportImportModel?
 
-    init(exportRepository: ExportRepository?, appLock: AppLock?) {
+    init(exportRepository: ExportRepository?, appLock: AppLock?, sshKeys: SSHKeyStore?) {
         self.appLock = appLock
+        self.sshKeys = sshKeys
         _exportImport = State(initialValue: exportRepository.map { ExportImportModel(repository: $0) })
     }
 
@@ -34,6 +37,19 @@ private struct SettingsList: View {
                 }
                 if let appLock {
                     AppLockSection(appLock: appLock)
+                }
+                if let sshKeys {
+                    Section {
+                        NavigationLink {
+                            SSHKeyListView(store: sshKeys)
+                        } label: {
+                            Label("SSH Keys", systemImage: "key")
+                                .labelStyle(.row)
+                        }
+                    } footer: {
+                        FooterText("SSH keys that Shello makes never leave this device.")
+                    }
+                    .listRowBackground(Palette.cell)
                 }
                 Section {
                     LabeledContent("Version") { ValueText(Self.version) }

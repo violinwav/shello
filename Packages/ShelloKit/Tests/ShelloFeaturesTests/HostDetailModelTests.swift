@@ -51,6 +51,47 @@ struct HostDetailModelTests {
         #expect(model.hostTags.map(\.name) == ["backups", "Staging"])
     }
 
+    /// The host's SSH key by name, or that it is not on this device (README section 15).
+    @Test func namesTheHostsSSHKey() async throws {
+        let keys = TestKeys()
+        let homelab = try await keys.make("homelab")
+        let nas = Host(name: "nas", address: "nas.lan", username: "admin", sshKeyID: homelab.id)
+        let db = Host(name: "db", address: "db.lan", username: "admin", sshKeyID: UUID())
+        let vault = Host(name: "vault", address: "vault.lan", username: "admin")
+        for host in [nas, db, vault] {
+            try await repository.create(host)
+        }
+
+        var summaries: [String] = []
+        for host in [nas, db, vault] {
+            let model = HostDetailModel(repository: repository, keys: keys.store, hostID: host.id)
+            let observing = Task { await model.observe() }
+            await waitUntil { model.host != nil }
+            observing.cancel()
+            summaries.append(model.sshKeySummary)
+        }
+
+        #expect(summaries == ["homelab", "Not on this device", "None"])
+    }
+
+    /// The Keychain tells nobody about a new key, such as one the user made from the host editor:
+    /// the details read the keys again.
+    @Test func namesAnSSHKeyMadeSinceTheDetailsOpened() async throws {
+        let keys = TestKeys()
+        let id = UUID()
+        let model = HostDetailModel(repository: repository, keys: keys.store, hostID: id)
+        let key = try await keys.make("homelab")
+        try await repository.create(Host(id: id, name: "nas", address: "nas.lan", username: "admin", sshKeyID: key.id))
+        let observing = Task { await model.observe() }
+        defer { observing.cancel() }
+        await waitUntil { model.host != nil }
+        #expect(model.sshKeySummary == "Not on this device")
+
+        model.loadSSHKeys()
+
+        #expect(model.sshKeySummary == "homelab")
+    }
+
     @Test func deletedHostIsGone() async throws {
         let nas = Host(name: "nas", address: "nas.lan", username: "admin")
         try await repository.create(nas)

@@ -285,20 +285,94 @@ struct HostEditorModelTests {
         let model = HostEditorModel(repository: repository, host: nil)
 
         #expect(model.sshKeySummary == "None")
+        #expect(!model.sshKeyIsMissing)
     }
 
-    /// No SSH key can be created on this device yet, so a key that a host refers to is elsewhere.
-    @Test func hostWithAnSSHKeySaysItIsNotOnThisDevice() {
+    /// A key that a host refers to but that is not on this device, as after an import from another
+    /// device (README section 15).
+    @Test func hostWithAnSSHKeyOfAnotherDeviceSaysItIsNotOnThisDevice() async throws {
+        let keys = TestKeys()
+        _ = try await keys.make("homelab")
         let host = Host(name: "nas", address: "nas.lan", username: "admin", sshKeyID: UUID())
 
-        let model = HostEditorModel(repository: repository, host: host)
+        let model = HostEditorModel(repository: repository, keys: keys.store, host: host)
 
         #expect(model.sshKeySummary == "Not on this device")
+        #expect(model.sshKeyIsMissing)
+        #expect(model.chosenSSHKey == nil)
     }
 
-    /// An editor for a new host whose required fields are filled in.
-    private func filledEditor() -> HostEditorModel {
-        let model = HostEditorModel(repository: repository, host: nil)
+    @Test func editorOffersThisDevicesSSHKeysByName() async throws {
+        let keys = TestKeys()
+        let work = try await keys.make("work", kind: .secureEnclave)
+        let homelab = try await keys.make("homelab")
+
+        let model = HostEditorModel(repository: repository, keys: keys.store, host: nil)
+
+        #expect(model.offersSSHKeyChoice)
+        #expect(model.sshKeys == [homelab, work])
+        #expect(!HostEditorModel(repository: repository, host: nil).offersSSHKeyChoice)
+    }
+
+    /// The choice is stored in `Host.sshKeyID`, the reference to a key that may be on this device
+    /// only (#20).
+    @Test func chosenSSHKeyIsStoredWithTheHost() async throws {
+        let keys = TestKeys()
+        let homelab = try await keys.make("homelab")
+        let model = filledEditor(keys: keys)
+
+        model.chooseSSHKey(homelab.id)
+
+        #expect(model.sshKeySummary == "homelab")
+        #expect(model.hasChanges)
+        #expect(await model.save())
+        #expect(try await repository.hosts().first?.sshKeyID == homelab.id)
+    }
+
+    @Test func choosingNoneTakesTheSSHKeyOff() async throws {
+        let keys = TestKeys()
+        let homelab = try await keys.make("homelab")
+        let nas = Host(name: "nas", address: "nas.lan", username: "admin", sshKeyID: homelab.id)
+        try await repository.create(nas)
+        let model = HostEditorModel(repository: repository, keys: keys.store, host: nas)
+        #expect(model.sshKeySummary == "homelab")
+
+        model.chooseSSHKey(nil)
+
+        #expect(await model.save())
+        #expect(try await repository.host(id: nas.id)?.sshKeyID == nil)
+    }
+
+    /// A key the host refers to stays, whatever the device holds, until the user chooses another.
+    @Test func sshKeyOfAnotherDeviceStaysUntilTheUserChoosesAnother() async throws {
+        let keys = TestKeys()
+        let elsewhere = UUID()
+        let nas = Host(name: "nas", address: "nas.lan", username: "admin", sshKeyID: elsewhere)
+        try await repository.create(nas)
+        let model = HostEditorModel(repository: repository, keys: keys.store, host: nas)
+
+        model.draft.name = "nas-2"
+        #expect(await model.save())
+
+        #expect(try await repository.host(id: nas.id)?.sshKeyID == elsewhere)
+    }
+
+    /// A key made from the editor's choice of key is chosen at once.
+    @Test func sshKeyMadeFromTheEditorIsChosen() async throws {
+        let keys = TestKeys()
+        let model = filledEditor(keys: keys)
+        let key = try await keys.make("new key")
+
+        model.didCreate(key)
+
+        #expect(model.sshKeys == [key])
+        #expect(model.chosenSSHKey == key)
+        #expect(model.draft.sshKeyID == key.id)
+    }
+
+    /// An editor for a new host whose required fields are filled in, with the SSH keys of `keys`.
+    private func filledEditor(keys: TestKeys? = nil) -> HostEditorModel {
+        let model = HostEditorModel(repository: repository, keys: keys?.store, host: nil)
         model.draft.name = "nas"
         model.draft.address = "nas.lan"
         return model

@@ -4,7 +4,7 @@ import ShelloStorage
 import SwiftUI
 
 /// The new and edit host sheet, with every MVP host field (README section 3). The password goes
-/// into the Keychain.
+/// into the Keychain; the SSH key is chosen among this device's keys.
 struct HostEditorView: View {
     /// The text fields, in the order the keyboard's Next key moves through them.
     private enum FocusField: Hashable {
@@ -49,8 +49,9 @@ struct HostEditorView: View {
     @State private var newGroupName = ""
 
     /// An editor for `host` as the caller last read it, or for a new host.
-    init(repository: HostRepository, secrets: SecretStore?, host: Host?) {
-        _model = State(initialValue: HostEditorModel(repository: repository, secrets: secrets, host: host))
+    init(repository: HostRepository, secrets: SecretStore?, keys: SSHKeyStore?, host: Host?) {
+        _model = State(
+            initialValue: HostEditorModel(repository: repository, secrets: secrets, keys: keys, host: host))
     }
 
     var body: some View {
@@ -190,7 +191,15 @@ struct HostEditorView: View {
                 }
             }
             if model.draft.authMethod == .sshKey {
-                LabeledContent("SSH Key") { ValueText(model.sshKeySummary) }
+                if model.offersSSHKeyChoice {
+                    NavigationLink {
+                        SSHKeyChooser(model: model)
+                    } label: {
+                        LabeledContent("SSH Key") { ValueText(model.sshKeySummary) }
+                    }
+                } else {
+                    LabeledContent("SSH Key") { ValueText(model.sshKeySummary) }
+                }
             }
             if model.offersPassword {
                 FieldRow(label: "Password") {
@@ -247,7 +256,12 @@ struct HostEditorView: View {
     private var authenticationFooter: String? {
         let method: String? =
             switch model.draft.authMethod {
-            case .sshKey: "Choosing an SSH key comes with SSH key management."
+            case .sshKey where model.sshKeyIsMissing:
+                "This host’s SSH key isn’t on this device. Choose one of this device’s keys, or make a new one."
+            case .sshKey where model.chosenSSHKey != nil:
+                "Copy its public key in Settings, under SSH Keys, and add it to the server’s authorized_keys."
+            case .sshKey where model.offersSSHKeyChoice: "Choose an SSH key, or make a new one."
+            case .sshKey: nil
             case .password where model.offersPassword:
                 "Shello keeps the password in the Keychain, on this device only, and never puts it in an export."
             case .password, .keyboardInteractive: nil

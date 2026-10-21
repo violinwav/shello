@@ -13,8 +13,12 @@ struct HostDetailView: View {
     @State private var editsHost: Host?
     @State private var confirmsDelete = false
 
-    init(repository: HostRepository, secrets: SecretStore?, hostID: Host.ID, onGone: @escaping () -> Void) {
-        _model = State(initialValue: HostDetailModel(repository: repository, secrets: secrets, hostID: hostID))
+    init(
+        repository: HostRepository, secrets: SecretStore?, keys: SSHKeyStore?, hostID: Host.ID,
+        onGone: @escaping () -> Void
+    ) {
+        _model = State(
+            initialValue: HostDetailModel(repository: repository, secrets: secrets, keys: keys, hostID: hostID))
         self.onGone = onGone
     }
 
@@ -55,8 +59,9 @@ struct HostDetailView: View {
         .onChange(of: model.isGone) { _, isGone in
             if isGone { onGone() }
         }
-        .sheet(item: $editsHost) { host in
-            HostEditorView(repository: model.repository, secrets: model.secrets, host: host)
+        // The editor can make an SSH key, which the details then name.
+        .sheet(item: $editsHost, onDismiss: { model.loadSSHKeys() }) { host in
+            HostEditorView(repository: model.repository, secrets: model.secrets, keys: model.keys, host: host)
         }
         .confirmationDialog(
             "Delete “\(model.host?.name ?? "")”?", isPresented: $confirmsDelete, titleVisibility: .visible
@@ -105,6 +110,9 @@ struct HostDetailView: View {
                 dataRow("Port", String(host.port))
                 dataRow("User", host.username.isEmpty ? nil : host.username)
                 valueRow("Authentication", host.authMethod.displayName)
+                if host.authMethod == .sshKey {
+                    valueRow("SSH Key", model.sshKeySummary)
+                }
             } header: {
                 SectionHeader("Connection")
             }

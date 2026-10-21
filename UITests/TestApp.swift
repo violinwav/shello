@@ -174,18 +174,83 @@ extension XCUIApplication {
         field.typeText(text)
     }
 
-    /// Scrolls down the screen, a little at a time, until `element` can be tapped. Lists create rows
-    /// only as they scroll into view.
+    /// Scrolls the screen, a little at a time, until the whole of `element` lies where a tap reaches
+    /// it (`TapArea`): `isHittable` alone is not enough. In a CI run, a row whose centre lay 3 points
+    /// above the bottom of the window counted as hittable, and its tap went to the home indicator.
+    /// Lists create rows only as they scroll into view, so an element that is not there yet is looked
+    /// for further down; one that went up under the navigation bar is brought back down.
     @MainActor
-    func reveal(_ element: XCUIElement) {
-        var swiped = false
-        for _ in 0..<8 where !(element.exists && element.isHittable) {
-            swipeUp(velocity: .slow)
-            swiped = true
+    func reveal(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        var scrolled = false
+        var previous: CGRect?
+        for _ in 0..<16 {
+            let area = TapArea(self)
+            // At most this far per drag, so that a drag never carries the element past the area.
+            let step = area.height * 0.4
+            guard element.exists, element.isHittable else {
+                scroll(by: -step)
+                scrolled = true
+                previous = nil
+                continue
+            }
+            let frame = element.frame
+            // An element taller than the area needs only its centre in it.
+            let fits = frame.height <= area.height
+            let top = fits ? frame.minY : frame.midY
+            let bottom = fits ? frame.maxY : frame.midY
+            // The last drag up did not move the element: the list ends there.
+            let isAtTheEnd = previous.map { abs($0.minY - frame.minY) < 1 } ?? false
+            if bottom > area.bottom, !(isAtTheEnd && frame.midY <= area.lowest) {
+                scroll(by: -min(bottom - area.bottom + 20, step))
+            } else if top < area.top {
+                scroll(by: min(area.top - top + 20, step))
+            } else {
+                if scrolled { settle() }
+                return
+            }
+            previous = frame
+            scrolled = true
         }
-        // A list glides on after a swipe, and a tap on a gliding list only stops it.
-        if swiped { settle() }
-        XCTAssertTrue(element.isHittable, "\(element) is not on screen")
+        XCTFail("\(element) does not come wholly into view", file: file, line: line)
+    }
+
+    /// Where a tap reaches the screen's content: below the lowest navigation bar, which is a sheet's
+    /// when one is up, or else below the status bar; and 100 points above the bottom of the window,
+    /// clear of the home indicator, or above the keyboard while it is up.
+    private struct TapArea {
+        let top: CGFloat
+        let bottom: CGFloat
+        /// How far down the centre of a list's last element may lie, when the list cannot scroll it
+        /// higher: still clear of the home indicator.
+        let lowest: CGFloat
+
+        var height: CGFloat { bottom - top }
+
+        @MainActor
+        init(_ app: XCUIApplication) {
+            let window = app.windows.firstMatch.frame
+            top = app.navigationBars.allElementsBoundByIndex.map(\.frame.maxY).max() ?? window.minY + 62
+            let keyboard = app.keyboards.firstMatch
+            if keyboard.exists {
+                bottom = min(window.maxY - 100, keyboard.frame.minY)
+                lowest = bottom
+            } else {
+                bottom = window.maxY - 100
+                lowest = window.maxY - 50
+            }
+        }
+    }
+
+    /// Drags the screen's content `distance` points down, or up when it is negative, from the middle
+    /// of the window. The drag starts at once, since holding first could pick up what it starts on,
+    /// and holds still at its end, so that the list stops there: one that glides on would leave the
+    /// element elsewhere, and a tap on a gliding list only stops it.
+    @MainActor
+    private func scroll(by distance: CGFloat) {
+        let start = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(
+            forDuration: 0, thenDragTo: start.withOffset(CGVector(dx: 0, dy: distance)), withVelocity: .slow,
+            thenHoldForDuration: 0.3)
     }
 
     /// The menu picker labelled `label`: a button that reads the label, then the chosen value, such
@@ -208,11 +273,12 @@ extension XCUIApplication {
         XCTAssertEqual(picker.label, "\(label), \(option)")
     }
 
-    /// Replaces a text field's value with `text`.
+    /// Replaces a text field's value with `text`. The tap goes to the field's end: a field that wraps
+    /// puts the cursor where the tap lands, and the deletes must start after the last character.
     @MainActor
     func replace(with text: String, in field: XCUIElement) {
         XCTAssertTrue(field.waitForExistence(timeout: 5))
-        field.tap()
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.9)).tap()
         let length = (field.value as? String)?.count ?? 0
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: length) + text)
     }

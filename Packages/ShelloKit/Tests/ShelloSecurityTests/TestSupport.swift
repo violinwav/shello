@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import LocalAuthentication
 import Synchronization
@@ -99,6 +100,59 @@ final class RecordingKeychain: Keychain {
     private func record(_ context: LAContext) {
         let read = Read(context: ObjectIdentifier(context), interactionNotAllowed: context.interactionNotAllowed)
         recorded.withLock { $0.append(read) }
+    }
+}
+
+/// `MemoryKeyItems` that notes the context of every read of key data, as `RecordingKeychain` does.
+final class RecordingKeyItems: KeyItems {
+    let items = MemoryKeyItems()
+    private let recorded = Mutex<[RecordingKeychain.Read]>([])
+
+    var reads: [RecordingKeychain.Read] { recorded.withLock { $0 } }
+
+    func add(_ record: KeyRecord, keyData: Secret, requiresUserPresence: Bool) throws {
+        try items.add(record, keyData: keyData, requiresUserPresence: requiresUserPresence)
+    }
+
+    func records() -> [KeyRecord] {
+        items.records()
+    }
+
+    func keyData(of id: UUID, context: LAContext) -> Secret? {
+        let read = RecordingKeychain.Read(
+            context: ObjectIdentifier(context), interactionNotAllowed: context.interactionNotAllowed)
+        recorded.withLock { $0.append(read) }
+        return items.keyData(of: id, context: context)
+    }
+
+    func remove(_ id: UUID) {
+        items.remove(id)
+    }
+}
+
+/// `MemoryEnclave` that notes the context of every signature.
+final class RecordingEnclave: Enclave {
+    let enclave: MemoryEnclave
+    private let recorded = Mutex<[RecordingKeychain.Read]>([])
+
+    init(isAvailable: Bool = true) {
+        enclave = MemoryEnclave(isAvailable: isAvailable)
+    }
+
+    /// The context of each signature, in order.
+    var signatures: [RecordingKeychain.Read] { recorded.withLock { $0 } }
+
+    var isAvailable: Bool { enclave.isAvailable }
+
+    func makeKey() throws -> (blob: Data, publicKey: P256.Signing.PublicKey) {
+        try enclave.makeKey()
+    }
+
+    func signature(for data: Data, blob: Data, context: LAContext) throws -> P256.Signing.ECDSASignature {
+        let signature = RecordingKeychain.Read(
+            context: ObjectIdentifier(context), interactionNotAllowed: context.interactionNotAllowed)
+        recorded.withLock { $0.append(signature) }
+        return try enclave.signature(for: data, blob: blob, context: context)
     }
 }
 

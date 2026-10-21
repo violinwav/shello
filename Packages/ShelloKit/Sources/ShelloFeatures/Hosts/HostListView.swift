@@ -42,7 +42,7 @@ struct HostListView: View {
                 }
             }
             .sheet(item: $editorRoute) { route in
-                HostEditorView(repository: model.repository, secrets: model.secrets, host: route.host)
+                HostEditorView(repository: model.repository, secrets: model.secrets, keys: model.keys, host: route.host)
             }
             .sheet(isPresented: $showsSettings) { SettingsView() }
             .confirmationDialog(

@@ -2,10 +2,11 @@ import Foundation
 import LocalAuthentication
 import Observation
 import ShelloModel
-import ShelloSecurity
 import ShelloStorage
 import Synchronization
 import Testing
+
+@testable import ShelloSecurity
 
 /// Swift Testing declares a `Tag` type too.
 typealias Tag = ShelloModel.Tag
@@ -27,6 +28,34 @@ nonisolated final class TestSecrets: Sendable {
         try store.secret(.password(of: hostID)).map { secret in
             secret.withUnsafeBytes { String(decoding: $0, as: UTF8.self) }
         }
+    }
+}
+
+/// SSH keys in memory, behind an unlock window that is open, as it is while the user manages keys.
+/// With `secureEnclave`, a stand-in makes the Secure Enclave's kind of key.
+nonisolated final class TestKeys: Sendable {
+    private let items = MemoryKeyItems()
+    let window = UnlockWindow(authentication: TestAuthentication())
+    let store: SSHKeyStore
+
+    init(secureEnclave: Bool = true) {
+        store = SSHKeyStore(
+            items: items, enclave: MemoryEnclave(isAvailable: secureEnclave), unlockWindow: window,
+            authentication: TestAuthentication())
+        window.openWithoutAuthentication()
+    }
+
+    /// Makes a key the way the new key sheet does.
+    func make(
+        _ comment: String, kind: SSHKey.Kind = .ed25519, signingPolicy: SigningPolicy = .whileUnlocked
+    ) async throws -> SSHKey {
+        try await store.generate(kind, comment: comment, signingPolicy: signingPolicy)
+    }
+
+    /// The key data of `key`, its private key or its Secure Enclave blob, which nothing outside
+    /// ShelloSecurity can read: for tests that look for it where it must not be.
+    func keyData(of key: SSHKey) -> Data? {
+        items.keyData(of: key.id, context: LAContext()).map { secret in secret.withUnsafeBytes { Data($0) } }
     }
 }
 

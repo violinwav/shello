@@ -14,13 +14,19 @@ struct ShelloApp: App {
     private let services: Result<Services, any Error>
     /// The passwords and passphrases in the Keychain, read inside the unlock window.
     private let secrets: SecretStore
-    /// App lock, which opens and closes the unlock window that `secrets` reads in.
+    /// The SSH keys, which sign inside the unlock window or after a prompt of their own.
+    private let sshKeys: SSHKeyStore
+    /// App lock, which opens and closes the unlock window that `secrets` and `sshKeys` use.
     private let appLock: AppLock
 
     init() {
         DesignSystem.registerFonts()
         let unlockWindow = UnlockWindow()
         secrets = SecretStore(keychain: SystemKeychain(), unlockWindow: unlockWindow)
+        sshKeys =
+            Launch.keepsSSHKeysInMemory
+            ? .inMemory(unlockWindow: unlockWindow, secureEnclave: Launch.standsInForSecureEnclave)
+            : SSHKeyStore(unlockWindow: unlockWindow)
         appLock = AppLock(window: unlockWindow, defaults: Launch.settings, isEnabled: Launch.locksApp)
         services = Result { Services(database: try Self.openDatabase()) }
         if case .failure(let error) = services {
@@ -40,6 +46,7 @@ struct ShelloApp: App {
                             .environment(\.hostRepository, services.hostRepository)
                             .environment(\.exportRepository, services.exportRepository)
                             .environment(\.secretStore, secrets)
+                            .environment(\.sshKeyStore, sshKeys)
                             .environment(\.appLock, appLock)
                     case .failure(let error):
                         DatabaseUnavailableView(error: error)
@@ -97,6 +104,13 @@ private enum Launch {
 
         static var usesEmptyDatabase: Bool { isUITesting }
 
+        /// UI tests start every launch without SSH keys: the keys live in memory, not the Keychain.
+        static var keepsSSHKeysInMemory: Bool { isUITesting }
+
+        /// The simulator cannot make Secure Enclave keys. A UI test about them gets a stand-in, which
+        /// keeps its keys in memory.
+        static var standsInForSecureEnclave: Bool { environment["SHELLO_UI_TESTING_SECURE_ENCLAVE"] == "1" }
+
         /// UI tests run without app lock unless they are about it.
         static var locksApp: Bool {
             environment["SHELLO_UI_TESTING_APP_LOCK"].map { $0 == "1" } ?? !isUITesting
@@ -124,6 +138,8 @@ private enum Launch {
         }()
     #else
         static let usesEmptyDatabase = false
+        static let keepsSSHKeysInMemory = false
+        static let standsInForSecureEnclave = false
         static let locksApp = true
         static let colorScheme: ColorScheme? = nil
         static let showsPrivacyCoverOnly = false

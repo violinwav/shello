@@ -9,12 +9,16 @@ import os
 /// the groups and tags created on the way, which are stored only with the host.
 ///
 /// The host's password goes into the Keychain, never into the host: the Keychain item is found by
-/// the host's identifier (`SecretID.password(of:)`).
+/// the host's identifier (`SecretID.password(of:)`). The host refers to its SSH key by identifier
+/// too, and the key may be on another device (README section 15).
 @Observable
 final class HostEditorModel {
     let repository: HostRepository
     /// The Keychain's secrets. Without it, as in previews, the editor offers no password.
     let secrets: SecretStore?
+    /// The SSH keys on this device. Without it, as in previews, the editor names the host's SSH key
+    /// but offers no choice.
+    let keys: SSHKeyStore?
     var draft: HostDraft
     /// Set when saving or deleting fails; the sheet shows it and clears it.
     var saveError: String?
@@ -25,6 +29,8 @@ final class HostEditorModel {
     private(set) var hasStoredPassword = false
     /// Whether saving removes the stored password, as the user asked.
     private(set) var removesStoredPassword = false
+    /// The SSH keys on this device, by name.
+    private(set) var sshKeys: [SSHKey] = []
 
     /// The host as it was read when the editor opened, or a new host's defaults.
     private let base: Host
@@ -41,9 +47,10 @@ final class HostEditorModel {
     private var leftFields: Set<HostDraft.Field> = []
 
     /// An editor for `host` as the caller last read it, or for a new host.
-    init(repository: HostRepository, secrets: SecretStore? = nil, host: Host?) {
+    init(repository: HostRepository, secrets: SecretStore? = nil, keys: SSHKeyStore? = nil, host: Host?) {
         self.repository = repository
         self.secrets = secrets
+        self.keys = keys
         isEditing = host != nil
         base = host ?? Host(name: "", address: "", username: "")
         original = HostDraft(base)
@@ -55,6 +62,7 @@ final class HostEditorModel {
                 Self.logger.error("Could not look for a host's password: \(error)")
             }
         }
+        loadSSHKeys()
     }
 
     var title: String { isEditing ? "Edit Host" : "New Host" }
@@ -123,10 +131,46 @@ final class HostEditorModel {
         Tag.Color.allCases.first { color in !tags.contains { $0.color == color } } ?? .gray
     }
 
-    /// The host's SSH key. Keys cannot be created or imported yet, so a key a host refers to, for
-    /// example after an import, is on another device (README section 15).
+    /// Whether the editor offers a choice of SSH key: with the SSH keys of this device.
+    var offersSSHKeyChoice: Bool { keys != nil }
+
+    /// The chosen SSH key, if it is on this device.
+    var chosenSSHKey: SSHKey? {
+        draft.sshKeyID.flatMap { id in sshKeys.first { $0.id == id } }
+    }
+
+    /// Whether the host refers to an SSH key that is not on this device: one made on another device,
+    /// as after an import, or one deleted since (README section 15).
+    var sshKeyIsMissing: Bool {
+        draft.sshKeyID != nil && chosenSSHKey == nil
+    }
+
+    /// The host's SSH key, as the editor names it.
     var sshKeySummary: String {
-        base.sshKeyID == nil ? "None" : "Not on this device"
+        if let chosenSSHKey { return chosenSSHKey.comment }
+        return sshKeyIsMissing ? "Not on this device" : "None"
+    }
+
+    /// Chooses the SSH key `id`, or none.
+    func chooseSSHKey(_ id: SSHKey.ID?) {
+        draft.sshKeyID = id
+    }
+
+    /// Chooses `key`, which the user just made from the editor.
+    func didCreate(_ key: SSHKey) {
+        loadSSHKeys()
+        if !sshKeys.contains(key) { sshKeys.append(key) }
+        draft.sshKeyID = key.id
+    }
+
+    /// Reads the SSH keys of this device again.
+    func loadSSHKeys() {
+        guard let keys else { return }
+        do {
+            sshKeys = try keys.keys()
+        } catch {
+            Self.logger.error("Could not read the SSH keys: \(error)")
+        }
     }
 
     /// The problem to show for `field`: once the user has left the field, or has tried to save.

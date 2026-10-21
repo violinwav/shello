@@ -9,7 +9,7 @@ Shello exports all of its non-secret data as one JSON file, and imports such a f
 ## The file
 
 - One JSON object in UTF-8, at most 16 MiB. Shello suggests the name `Shello Export 2026-10-21 14.05.09.json`, and writes the file with sorted keys and indentation, so that the same data always gives the same file.
-- It never holds a secret. Passwords, passphrases and SSH keys live in the Keychain or the Secure Enclave only (README section 13); a host refers to its SSH key by identifier, and the key may not exist on the device that imports the file. A host's password is found by the host's own identifier, so the file holds no reference to it either.
+- It never holds a secret. Passwords, passphrases and SSH keys live in the Keychain or the Secure Enclave only (README section 13); a host refers to its SSH key by identifier, and the key may not exist on the device that imports the file. The host editor then shows the key as not on this device, and keeps the reference until the user chooses another key. A host's password is found by the host's own identifier, so the file holds no reference to it either.
 - Deleted records are left out, and so are a host's references to deleted groups and tags: the file holds what the user sees. Modification times are left out too; they belong to sync (v1).
 - Settings are not in it yet. The only one so far, app lock's timeout (README section 13), is stored on the device, outside the database, and left out; whether a later schema version carries it is open.
 
