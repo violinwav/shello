@@ -108,7 +108,7 @@ extension XCUIApplication {
     /// navigation bar, which the audit reports as low contrast. LaunchTests audits both unscrolled.
     @MainActor
     func openTerminalDemo(file: StaticString = #filePath, line: UInt = #line) {
-        buttons["Settings"].tap()
+        openSettings()
         XCTAssertTrue(navigationBars["Settings"].waitForExistence(timeout: 5), file: file, line: line)
         let escapeKey = picker("Extra Esc Key")
         revealFarDown(escapeKey, file: file, line: line)

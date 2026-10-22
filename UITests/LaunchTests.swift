@@ -21,7 +21,7 @@ final class LaunchTests: XCTestCase {
     func testDiagnosticsShowPostQuantumKeyExchanges() throws {
         let app = XCUIApplication.launchWithEmptyDatabase()
 
-        app.buttons["Settings"].tap()
+        app.openSettings()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         try app.auditAccessibility()
         // Below the terminal's settings, further down than the first screen.

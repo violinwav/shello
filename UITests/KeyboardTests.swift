@@ -13,7 +13,7 @@ final class KeyboardTests: XCTestCase {
     func testShelloKeyboardTypesWithStickyControlOnBothKeyboards() throws {
         let app = XCUIApplication.launchWithEmptyDatabase()
         // QWERTZ, whatever the simulator's own keyboard, on the Shello keyboard's settings screen.
-        app.buttons["Settings"].tap()
+        app.openSettings()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         let keyboardSettings = app.buttons["Shello Keyboard"]
         app.revealFarDown(keyboardSettings)

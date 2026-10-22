@@ -19,7 +19,7 @@ final class ExportImportTests: XCTestCase {
     func testExportThenImportIntoAnEmptyDatabase() throws {
         let original = XCUIApplication.launchWithEmptyDatabase()
         original.addTaggedFavorite()
-        original.buttons["Settings"].tap()
+        original.openSettings()
         XCTAssertTrue(original.navigationBars["Settings"].waitForExistence(timeout: 5))
 
         let file = original.exportData()
@@ -30,7 +30,7 @@ final class ExportImportTests: XCTestCase {
 
         let app = XCUIApplication.launchWithEmptyDatabase()
         XCTAssertTrue(app.staticTexts["No Hosts"].waitForExistence(timeout: 10))
-        app.buttons["Settings"].tap()
+        app.openSettings()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
 
         app.importData(named: file)
@@ -61,7 +61,7 @@ final class ExportImportTests: XCTestCase {
     func testCancellingTheImportChangesNothing() throws {
         let app = XCUIApplication.launchWithEmptyDatabase()
         app.addHost(name: "prod-api-01", address: "10.0.4.21", user: "deploy")
-        app.buttons["Settings"].tap()
+        app.openSettings()
         let file = app.exportData()
         app.navigationBars["Settings"].buttons["Close"].tap()
         app.buttons["prod-api-01"].firstMatch.swipeLeft()
@@ -69,7 +69,7 @@ final class ExportImportTests: XCTestCase {
         app.buttons["Delete Host"].tap()
         XCTAssertTrue(app.staticTexts["No Hosts"].waitForExistence(timeout: 5))
 
-        app.buttons["Settings"].tap()
+        app.openSettings()
         app.importData(named: file)
         let confirmation = app.alerts["Import 1 host?"]
         XCTAssertTrue(confirmation.waitForExistence(timeout: 10))
@@ -83,7 +83,7 @@ final class ExportImportTests: XCTestCase {
     @MainActor
     func testImportingAFileWithoutHostsSaysThereIsNothingToImport() throws {
         let app = XCUIApplication.launchWithEmptyDatabase()
-        app.buttons["Settings"].tap()
+        app.openSettings()
         let file = app.exportData()
         XCTAssertTrue(app.staticTexts["Exported no hosts, groups or tags to “\(file)”."].exists)
 
@@ -109,7 +109,7 @@ final class ExportImportTests: XCTestCase {
     /// Audits Settings before and after an export, with the result showing, and an alert of the import.
     @MainActor
     private func auditExportAndImport(_ app: XCUIApplication, appearance: XCUIDevice.Appearance = .light) throws {
-        app.buttons["Settings"].tap()
+        app.openSettings()
         XCTAssertTrue(app.buttons["Export Data…"].waitForExistence(timeout: 5))
         app.assertAppearance(appearance)
         try app.auditAccessibility()

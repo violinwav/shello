@@ -70,7 +70,7 @@ final class AppLockTests: XCTestCase {
         app.settle(for: 2)
         XCTAssertFalse(app.lockedScreen.exists)
 
-        app.buttons["Settings"].tap()
+        app.openSettings()
         let requireUnlock = app.picker("Require Unlock")
         XCTAssertTrue(requireUnlock.waitForExistence(timeout: 5))
         XCTAssertEqual(requireUnlock.label, "Require Unlock, After 1 Minute")

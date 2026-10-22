@@ -14,7 +14,7 @@ final class SSHKeyTests: XCTestCase {
     @MainActor
     func testCreateAKeyAndCopyAndShareItsPublicKey() throws {
         let app = XCUIApplication.launchWithEmptyDatabase()
-        app.buttons["Settings"].tap()
+        app.openSettings()
         let sshKeys = app.buttons["SSH Keys"]
         app.reveal(sshKeys)
         sshKeys.tap()
@@ -104,7 +104,7 @@ final class SSHKeyTests: XCTestCase {
         let app = XCUIApplication.launchWithEmptyDatabase(
             arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"],
             environment: ["SHELLO_UI_TESTING_SECURE_ENCLAVE": "1"])
-        app.buttons["Settings"].tap()
+        app.openSettings()
         let sshKeys = app.buttons["SSH Keys"]
         app.reveal(sshKeys)
         sshKeys.tap()

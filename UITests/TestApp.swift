@@ -210,6 +210,22 @@ extension XCUIApplication {
         XCTAssertTrue(navigationBars["Hosts"].waitForExistence(timeout: 5))
     }
 
+    /// Opens the Settings sheet from the host list. On a slow CI runner the tap on Settings, just
+    /// after the app came back to the foreground, took 13.5 seconds to arrive, and a 5-second wait
+    /// for the sheet ran out. This waits longer, and taps again while the sheet is not up, at most
+    /// three times.
+    @MainActor
+    func openSettings(file: StaticString = #filePath, line: UInt = #line) {
+        let sheet = navigationBars["Settings"]
+        for _ in 0..<3 {
+            buttons["Settings"].tap()
+            if sheet.waitForExistence(timeout: 15) {
+                return
+            }
+        }
+        XCTFail("The Settings sheet does not open", file: file, line: line)
+    }
+
     @MainActor
     func enter(_ text: String, into field: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(field.waitForExistence(timeout: 5), file: file, line: line)
@@ -465,7 +481,7 @@ extension XCUIApplication {
     @MainActor
     static func prepareFilesForPicking() {
         var app = launchWithEmptyDatabase()
-        app.buttons["Settings"].tap()
+        app.openSettings()
         let name = app.exportData()
         for _ in 0..<12 {
             app.showImporterOnMyIPhone()
@@ -479,7 +495,7 @@ extension XCUIApplication {
             app.terminate()
             _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Files indexes On My iPhone")], timeout: 30)
             app = launchWithEmptyDatabase()
-            app.buttons["Settings"].tap()
+            app.openSettings()
         }
         XCTFail("The file importer never picks \(name)")
     }
