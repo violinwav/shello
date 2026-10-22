@@ -54,6 +54,18 @@ _Avoid_: Session, window, terminal
 The live SSH or Mosh link behind a tab. Connections drop and are replaced while the tab stays.
 _Avoid_: Session, link
 
+**Key exchange**:
+How a connection and the server agree, as it starts, on the keys that encrypt it, using an algorithm both offer, such as `mlkem768x25519-sha256`. Shello offers the algorithms of its algorithm policy in order, and the connection uses the first one that the server also offers.
+_Avoid_: Handshake, kex, key agreement
+
+**Post-quantum key exchange**:
+A key exchange built to resist a quantum computer, so that traffic recorded today cannot be decrypted by one later: the hybrids `mlkem768x25519-sha256` and `sntrup761x25519-sha512`. Any other key exchange, such as `curve25519-sha256`, is classical.
+_Avoid_: Quantum-safe, quantum-proof, PQC
+
+**Algorithm policy**:
+The algorithms Shello offers a server, most preferred first, and which of them are post-quantum. It is data that ships with the app and carries a version, not code (README section 14).
+_Avoid_: Crypto settings, cipher suite
+
 **tmux session**:
 A session of the tmux program on the server, which keeps running when connections drop. Always written in full.
 _Avoid_: Session (on its own)

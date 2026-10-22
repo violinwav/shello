@@ -51,9 +51,10 @@ enum TestServer {
         get async { await probe.value }
     }
 
-    private static let probe = Task { await hasSSHBanner() }
+    private static let probe = Task { await hasSSHBanner(port: port) }
 
-    private static func hasSSHBanner() async -> Bool {
+    /// Whether an SSH server greets on `port` of this device within two seconds.
+    static func hasSSHBanner(port: UInt16) async -> Bool {
         await withCheckedContinuation { continuation in
             let queue = DispatchQueue(label: "ch.shello.tests.probe")
             let connection = NWConnection(

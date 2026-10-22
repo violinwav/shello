@@ -211,7 +211,7 @@ struct ConnectionTests {
         var connects: [Duration] = []
         var signIns: [Duration] = []
         var commands: [Duration] = []
-        var keyExchange: String?
+        var keyExchange: KeyExchange?
         for _ in 0..<10 {
             let connection = TestServer.connection()
             let start = clock.now
@@ -229,7 +229,7 @@ struct ConnectionTests {
         }
         print(
             """
-            Spike timings over 10 connections to \(TestServer.server), key exchange \(keyExchange ?? "?"):
+            Spike timings over 10 connections to \(TestServer.server), key exchange \(keyExchange?.name ?? "?"):
               connect and key exchange: \(Self.summary(connects))
               sign in with the Ed25519 key: \(Self.summary(signIns))
               uname -a on a new channel: \(Self.summary(commands))

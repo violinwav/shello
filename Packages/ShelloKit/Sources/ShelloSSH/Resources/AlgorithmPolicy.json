@@ -1,0 +1,16 @@
+{
+    "version": 1,
+    "keyExchanges": [
+        "mlkem768x25519-sha256",
+        "sntrup761x25519-sha512",
+        "sntrup761x25519-sha512@openssh.com",
+        "curve25519-sha256"
+    ],
+    "postQuantumKeyExchanges": [
+        "mlkem768x25519-sha256",
+        "mlkem768nistp256-sha256",
+        "mlkem1024nistp384-sha384",
+        "sntrup761x25519-sha512",
+        "sntrup761x25519-sha512@openssh.com"
+    ]
+}

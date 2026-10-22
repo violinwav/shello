@@ -119,11 +119,13 @@ jobs:
               DidShowContinuousPathIntroduction -bool true
           done
 
-      # The test server of the SSH integration tests and ConnectionTests (TestServers/README.md):
-      # macOS runners have no Docker, so it is this runner's own sshd, unprivileged on
-      # 127.0.0.1:2222, which lets the runner's user in with the fixture key only. xcodebuild hands
-      # the user to the tests, whose password sign-ins then skip.
-      - name: Start the test SSH server
+      # The test servers of the SSH integration tests and ConnectionTests (TestServers/README.md):
+      # macOS runners have no Docker, so they are this runner's own sshd (OpenSSH 10), unprivileged
+      # on 127.0.0.1:2222 and, with post-quantum key exchange off, on 2224. KeyExchangeTests check
+      # the key exchange on both; their OpenSSH 9 server needs Docker. The servers let the runner's
+      # user in with the fixture key only: xcodebuild hands the user to the tests, whose password
+      # sign-ins then skip.
+      - name: Start the test SSH servers
         if: matrix.suite == 'checks' || matrix.suite == 'ui-tests'
         run: |
           TestServers/local-sshd.sh

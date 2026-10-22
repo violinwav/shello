@@ -1,10 +1,11 @@
 import Darwin
 import XCTest
 
-/// Connecting to a host (README sections 3 and 4) against the test server of TestServers/README.md:
+/// Connecting to a host (README sections 3 and 4) against the test servers of TestServers/README.md:
 /// the trust sheet on the first connection, the block on a changed host key, and a password sign-in
-/// that opens the shell, each screen audited. Skipped when the server is not running; the sign-in
-/// also when the server takes keys only, as CI's does.
+/// that opens the shell, with its key exchange marked post-quantum or classical (README section 14),
+/// each screen audited. Skipped when the server is not running; the sign-ins also when the server
+/// takes keys only, as CI's does.
 final class ConnectionTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -77,8 +78,10 @@ final class ConnectionTests: XCTestCase {
         XCTAssertFalse(app.navigationBars[TestServer.hostName].buttons["Close"].exists)
     }
 
-    /// The whole way, with the password: trust, sign in, and the shell in the terminal. What the
-    /// keyboard types runs on the server: `uname` prints the server's kernel.
+    /// The whole way, with the password: trust, sign in, and the shell in the terminal. OpenSSH 10
+    /// negotiates mlkem768x25519-sha256, which the Connection button and its sheet mark post-quantum.
+    /// What the keyboard types runs on the server: `uname` prints the server's kernel, and `exit`
+    /// ends the connection.
     @MainActor
     func testPasswordSignInOpensTheShell() throws {
         try XCTSkipUnless(TestServer.isRunning, TestServer.notRunning)
@@ -95,6 +98,17 @@ final class ConnectionTests: XCTestCase {
         XCTAssertTrue(app.waitForTerminalText("Shello test server"))
         try app.auditAccessibility()
 
+        app.openConnectionSheet(marked: "Post-Quantum Key Exchange")
+        XCTAssertEqual(app.keyExchangeAlgorithm.value as? String, "mlkem768x25519-sha256")
+        try app.auditAccessibility()
+        // Command-W closes the sheet, not the terminal behind it. The simulator drops the first key
+        // from a hardware keyboard after the on-screen keyboard typed, here the search: Shift goes
+        // first (TerminalTests).
+        app.typeKey(XCUIKeyboardKey.shift.rawValue, modifierFlags: [])
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(app.navigationBars["Connection"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars[TestServer.hostName].exists)
+
         app.terminal.tap()
         XCTAssertTrue(app.keys["u"].waitForExistence(timeout: 10))
         for key in ["u", "n", "a", "m", "e", "Return"] {
@@ -102,6 +116,39 @@ final class ConnectionTests: XCTestCase {
         }
         XCTAssertTrue(app.waitForTerminalText("Linux"))
 
+        // The connection ends with the shell, and the Connection button goes with it.
+        app.terminal.tap()
+        XCTAssertTrue(app.keys["e"].waitForExistence(timeout: 10))
+        for key in ["e", "x", "i", "t", "Return"] {
+            app.keys[key].tap()
+        }
+        XCTAssertTrue(app.connectionStatus(containing: "Connection closed").waitForExistence(timeout: 10))
+        XCTAssertFalse(app.navigationBars[TestServer.hostName].buttons["Connection"].exists)
+
+        app.navigationBars[TestServer.hostName].buttons["Close"].tap()
+        XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
+    }
+
+    /// The test server without post-quantum key exchange negotiates curve25519-sha256, which the
+    /// Connection button and its sheet, opened with Command-I, mark classical. The sheet's audit is
+    /// the one above.
+    @MainActor
+    func testClassicalKeyExchangeIsMarkedClassical() throws {
+        try XCTSkipUnless(TestServer.isClassicalRunning, TestServer.classicalNotRunning)
+        guard let password = TestServer.password else { throw XCTSkip("The test server takes keys only.") }
+        let app = XCUIApplication.launchWithEmptyDatabase()
+        app.addPasswordHost(password: password, port: TestServer.classicalPort)
+
+        app.buttons["Connect"].tap()
+        let trustSheet = app.navigationBars["Trust This Server?"]
+        XCTAssertTrue(trustSheet.waitForExistence(timeout: 15))
+        trustSheet.buttons["Trust"].tap()
+        XCTAssertTrue(app.connectionStatus(containing: "Connecting").waitForNonExistence(timeout: 15))
+
+        app.openConnectionSheet(marked: "Classical Key Exchange", withShortcut: true)
+        XCTAssertEqual(app.keyExchangeAlgorithm.value as? String, "curve25519-sha256")
+        app.navigationBars["Connection"].buttons["Close"].tap()
+        XCTAssertTrue(app.navigationBars["Connection"].waitForNonExistence(timeout: 5))
         app.navigationBars[TestServer.hostName].buttons["Close"].tap()
         XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
     }
@@ -110,12 +157,14 @@ final class ConnectionTests: XCTestCase {
 /// The test server of TestServers/README.md on localhost port 2222: in Docker, user `shello` with a
 /// password; or this Mac's own sshd, as in CI, keys only, as the user `SHELLO_TEST_SERVER_USER`
 /// names, which xcodebuild passes on from `TEST_RUNNER_SHELLO_TEST_SERVER_USER`. Both serve host
-/// key a; every credential is a public test fixture.
+/// key a; every credential is a public test fixture. Port 2224 has the same server with post-quantum
+/// key exchange off.
 enum TestServer {
     static let hostName = "test-server"
     /// Connecting by name, as Shello does.
     static let address = "localhost"
     static let port = 2222
+    static let classicalPort = 2224
 
     private static let localUser = ProcessInfo.processInfo.environment["SHELLO_TEST_SERVER_USER"]
         .flatMap { $0.isEmpty ? nil : $0 }
@@ -125,6 +174,8 @@ enum TestServer {
 
     static let notRunning =
         "The test server is not running on localhost:2222. Start it with TestServers/ssh-server.sh (TestServers/README.md)."
+    static let classicalNotRunning =
+        "The test server without post-quantum key exchange is not running on localhost:2224. Start it with TestServers/ssh-server.sh (TestServers/README.md)."
 
     struct Key {
         let algorithm: String
@@ -150,8 +201,11 @@ enum TestServer {
         algorithm: "ssh-ed25519", base64: "AAAAC3NzaC1lZDI1NTE5AAAAIIJJGCfEG93QAyNvR5/qMneE615D5dVdNz8eF8nfUV2G",
         fingerprint: "SHA256:vRTlNPuThVvvrnjbeKgZ/H5Ud52Nq2MKVToLDK4pofI")
 
-    /// Whether an SSH server greets on 127.0.0.1:2222 within two seconds.
-    static let isRunning: Bool = {
+    static let isRunning = hasSSHBanner(port: port)
+    static let isClassicalRunning = hasSSHBanner(port: classicalPort)
+
+    /// Whether an SSH server greets on `port` of 127.0.0.1 within two seconds.
+    private static func hasSSHBanner(port: Int) -> Bool {
         let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
         guard socket >= 0 else { return false }
         defer { close(socket) }
@@ -170,22 +224,22 @@ enum TestServer {
         var banner = [UInt8](repeating: 0, count: 8)
         return recv(socket, &banner, banner.count, MSG_WAITALL) == banner.count
             && String(decoding: banner, as: UTF8.self) == "SSH-2.0-"
-    }()
+    }
 }
 
 extension XCUIApplication {
-    /// Adds the host `test-server` for the test server, signing in with `password`, and opens its
-    /// details. The method and the password go first: while the keyboard is up, a tap on the picker
-    /// only ends the typing (HostTests).
+    /// Adds the host `test-server` for the test server on `port`, signing in with `password`, and
+    /// opens its details. The method and the password go first: while the keyboard is up, a tap on
+    /// the picker only ends the typing (HostTests).
     @MainActor
-    func addPasswordHost(password: String) {
+    func addPasswordHost(password: String, port: Int = TestServer.port) {
         buttons["Add Host"].firstMatch.tap()
         choose("Password", in: "Method")
         enter(password + "\n", into: secureTextFields["Password"])
         XCTAssertTrue(keyboards.firstMatch.waitForNonExistence(timeout: 10))
         enter(TestServer.hostName, into: textFields["Name"])
         enter(TestServer.address, into: textFields["Address"])
-        replace(with: String(TestServer.port), in: textFields["Port"])
+        replace(with: String(port), in: textFields["Port"])
         enter(TestServer.user, into: textFields["User"])
         navigationBars["New Host"].buttons["Save"].tap()
         let row = buttons[TestServer.hostName].firstMatch
@@ -204,6 +258,33 @@ extension XCUIApplication {
     @MainActor
     func connectionStatus(containing text: String) -> XCUIElement {
         descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+    }
+
+    /// Opens the connection sheet with the terminal's Connection button, or its shortcut Command-I.
+    /// The button tells VoiceOver that the key exchange is `marking`, as the sheet then says.
+    @MainActor
+    func openConnectionSheet(
+        marked marking: String, withShortcut: Bool = false, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let button = navigationBars[TestServer.hostName].buttons["Connection"]
+        XCTAssertTrue(button.waitForExistence(timeout: 15), file: file, line: line)
+        XCTAssertEqual(button.value as? String, marking, file: file, line: line)
+        if withShortcut {
+            // The simulator drops the first key from a hardware keyboard after the on-screen
+            // keyboard typed: Shift goes first (TerminalTests).
+            typeKey(XCUIKeyboardKey.shift.rawValue, modifierFlags: [])
+            typeKey("i", modifierFlags: .command)
+        } else {
+            button.tap()
+        }
+        XCTAssertTrue(navigationBars["Connection"].waitForExistence(timeout: 5), file: file, line: line)
+        XCTAssertTrue(staticTexts[marking].exists, file: file, line: line)
+    }
+
+    /// The key exchange's name on the connection sheet.
+    @MainActor
+    var keyExchangeAlgorithm: XCUIElement {
+        descendants(matching: .any).matching(identifier: "key-exchange").firstMatch
     }
 
     /// Searches the terminal for `text`, once a second until it is there once, for up to `timeout`:

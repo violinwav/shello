@@ -28,6 +28,11 @@ public actor SSHConnection {
     /// How long `connect()` waits for the server, from opening the connection to the end of the key
     /// exchange.
     public nonisolated let connectTimeout: Duration
+    /// The algorithms the connection offers the server, in their order (README section 14).
+    public nonisolated let algorithms: AlgorithmPolicy
+    /// The key exchange the connection negotiated with the server, once `connect()` has: the first
+    /// of `algorithms`' key exchanges that the server supports too.
+    public private(set) var keyExchange: KeyExchange?
 
     private let queue: DispatchSerialQueue
 
@@ -84,11 +89,16 @@ public actor SSHConnection {
     private static let logger = Logger(subsystem: "ch.shello.Shello", category: "SSH")
     private static let signposter = OSSignposter(logger: logger)
 
-    /// A connection to `server` as `username`, not yet open. `connectTimeout` bounds `connect()`.
-    public init(server: Server, username: String, connectTimeout: Duration = Host.defaultConnectTimeout) {
+    /// A connection to `server` as `username`, not yet open, which offers the server `algorithms`.
+    /// `connectTimeout` bounds `connect()`.
+    public init(
+        server: Server, username: String, connectTimeout: Duration = Host.defaultConnectTimeout,
+        algorithms: AlgorithmPolicy = .standard
+    ) {
         self.server = server
         self.username = username
         self.connectTimeout = connectTimeout
+        self.algorithms = algorithms
         queue = DispatchSerialQueue(label: "ch.shello.ssh.connection", qos: .userInitiated)
         queue.setSpecific(key: Self.queueKey, value: ObjectIdentifier(queue))
     }
@@ -145,7 +155,11 @@ public actor SSHConnection {
         }
         connectDeadline?.cancel()
         connectDeadline = nil
-        Self.logger.info("Key exchange: \(self.keyExchange ?? "unknown", privacy: .public)")
+        keyExchange = negotiatedKeyExchange(session).map(algorithms.keyExchange(named:))
+        if let keyExchange {
+            let summary = "\(keyExchange.name), \(keyExchange.isPostQuantum ? "post-quantum" : "classical")"
+            Self.logger.info("Key exchange: \(summary, privacy: .public); algorithm policy \(self.algorithms.version)")
+        }
 
         var key: OpaquePointer?
         guard unsafe ssh_get_server_publickey(session.pointer, &key) == SSH_OK, let key = unsafe key else {
@@ -155,10 +169,16 @@ public actor SSHConnection {
         return try unsafe HostKey(libssh: key)
     }
 
-    /// The key exchange the connection negotiated, such as `mlkem768x25519-sha256`.
-    var keyExchange: String? {
-        guard let session, let name = unsafe ssh_get_kex_algo(session.pointer) else { return nil }
+    /// The name of the key exchange libssh negotiated, as libssh reports it.
+    private func negotiatedKeyExchange(_ session: Handle) -> String? {
+        guard let name = unsafe ssh_get_kex_algo(session.pointer) else { return nil }
         return unsafe String(cString: name)
+    }
+
+    /// How the server identified itself once connected, such as `SSH-2.0-OpenSSH_10.3`.
+    var serverBanner: String? {
+        guard let session, let banner = unsafe ssh_get_serverbanner(session.pointer) else { return nil }
+        return unsafe String(cString: banner)
     }
 
     /// Whether the socket libssh talks on is its end of the socketpair, a Unix socket: libssh opened
@@ -172,12 +192,14 @@ public actor SSHConnection {
 
     /// Sets libssh up for the bridge: non-blocking, on its end of the socketpair, and reading no
     /// configuration or `known_hosts` file. Shello keeps its own trust store (STACK section 7.2), and
-    /// a configuration file on the device is not the user's.
+    /// a configuration file on the device is not the user's. It offers the key exchanges of the
+    /// algorithm policy, in its order, and no others.
     private func configure(_ session: Handle, socket: Int32) throws(SSHError) {
         unsafe ssh_set_blocking(session.pointer, 0)
         var socket = socket
         var processConfig = false
         var port = UInt32(server.port)
+        let keyExchanges = algorithms.keyExchanges.joined(separator: ",")
         let results = unsafe [
             ssh_options_set(session.pointer, SSH_OPTIONS_FD, &socket),
             ssh_options_set(session.pointer, SSH_OPTIONS_PROCESS_CONFIG, &processConfig),
@@ -185,6 +207,7 @@ public actor SSHConnection {
             ssh_options_set(session.pointer, SSH_OPTIONS_GLOBAL_KNOWNHOSTS, "/dev/null"),
             ssh_options_set(session.pointer, SSH_OPTIONS_USER, username),
             ssh_options_set(session.pointer, SSH_OPTIONS_PORT, &port),
+            ssh_options_set(session.pointer, SSH_OPTIONS_KEY_EXCHANGE, keyExchanges),
         ]
         guard results.allSatisfy({ $0 == SSH_OK }) else { throw libsshError(session) }
         // Only for libssh's messages: it never connects by itself. libssh refuses some addresses

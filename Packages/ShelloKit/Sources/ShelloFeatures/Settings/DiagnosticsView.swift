@@ -1,8 +1,9 @@
 import ShelloSSH
 import SwiftUI
 
-/// Shows that libssh links and runs inside the app: its version and the key exchanges it offers.
-/// The terminal demo tries the terminal without a server.
+/// Shows that libssh links and runs inside the app: its version and the key exchanges it supports.
+/// Connections offer those of the algorithm policy (`AlgorithmPolicy`). The terminal demo tries the
+/// terminal without a server.
 struct DiagnosticsView: View {
     private let libSSHVersion = LibSSH.version
     private let keyExchanges = LibSSH.keyExchanges

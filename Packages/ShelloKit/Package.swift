@@ -56,10 +56,12 @@ let package = Package(
         // Keychain, Secure Enclave, unlock window, SSH agent, security log.
         .target(name: "ShelloSecurity", dependencies: ["ShelloModel"], swiftSettings: core),
         // libssh wrapper: connection actor, channels, SFTP, forwards, algorithm policy.
-        // The only target that reaches libssh and OpenSSL. zlib is the iOS SDK's.
+        // The only target that reaches libssh and OpenSSL. zlib is the iOS SDK's. The algorithm
+        // policy is data that ships with it (README section 14).
         .target(
             name: "ShelloSSH",
             dependencies: ["ShelloModel", "libssh", "libcrypto"],
+            resources: [.copy("Resources/AlgorithmPolicy.json")],
             swiftSettings: core,
             linkerSettings: [.linkedLibrary("z")]
         ),
@@ -131,7 +133,7 @@ let package = Package(
             name: "ShelloFeaturesTests",
             dependencies: [
                 "ShelloFeatures", "ShelloStorage", "ShelloSecurity", "ShelloModel", "ShelloTerminalUI", "ShelloCore",
-                .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
+                "ShelloSSH", .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
             ],
             exclude: ["__Snapshots__"],
             swiftSettings: ui

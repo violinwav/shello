@@ -1,42 +1,55 @@
 #!/usr/bin/env bash
-# Shello's disposable OpenSSH 10 test server, in Docker: TestServers/README.md.
+# Shello's disposable OpenSSH test servers, in Docker: TestServers/README.md.
 #
 # Usage: TestServers/ssh-server.sh [start] [--host-key a|b]
 #        TestServers/ssh-server.sh stop | status
 #
-# start (the default) builds the image and runs the server on 127.0.0.1:2222, replacing a server
-# that runs already. --host-key b starts it with the other host key, so that a client that trusted
-# key a sees a changed host key. The server listens on this Mac's loopback only: its password and
-# keys are public.
+# start (the default) builds the images and runs three servers, replacing those that run already:
+#   127.0.0.1:2222  OpenSSH 10.3, whose default key exchange is mlkem768x25519-sha256
+#   127.0.0.1:2223  OpenSSH 9.6, which has sntrup761x25519-sha512@openssh.com and no ML-KEM
+#   127.0.0.1:2224  OpenSSH 10.3 with post-quantum key exchange off
+# --host-key b starts them with the other host key, so that a client that trusted key a sees a
+# changed host key. The servers listen on this Mac's loopback only: their password and keys are
+# public.
 set -euo pipefail
 
-NAME=shello-test-openssh
-IMAGE=shello-test-openssh
-PORT=2222
 DIR=$(cd "$(dirname "$0")" && pwd)
+
+# Each server: its container, its port, its image, and whether it offers post-quantum key exchange.
+SERVERS=(
+    "shello-test-openssh 2222 shello-test-openssh on"
+    "shello-test-openssh9 2223 shello-test-openssh9 on"
+    "shello-test-openssh-classical 2224 shello-test-openssh off"
+)
 
 die() {
     printf 'error: %s\n' "$*" >&2
     exit 1
 }
 
-# Waits until the server greets with its SSH banner, and prints it.
+# Waits until the server on port $1, container $2, greets with its SSH banner, and prints it.
 wait_for_banner() {
-    local banner attempt
+    local port=$1 name=$2 banner attempt
     for attempt in $(seq 1 50); do
-        if banner=$(exec 3<>"/dev/tcp/127.0.0.1/$PORT" && read -r -t 2 line <&3 && printf '%s' "$line") &&
+        if banner=$(exec 3<>"/dev/tcp/127.0.0.1/$port" && read -r -t 2 line <&3 && printf '%s' "$line") &&
             [[ $banner == SSH-2.0-* ]]; then
             printf '%s\n' "${banner%$'\r'}"
             return
         fi
         sleep 0.2
     done
-    docker logs "$NAME" >&2 || true
-    die "the server did not answer on 127.0.0.1:$PORT"
+    docker logs "$name" >&2 || true
+    die "the server did not answer on 127.0.0.1:$port"
+}
+
+# What a server is, after its address: its host key $1, and $2 when post-quantum key exchange is off.
+describe() {
+    printf 'host key %s' "$1"
+    [[ $2 == on ]] || printf ', post-quantum key exchange off'
 }
 
 start() {
-    local host_key=a
+    local host_key=a server name port image post_quantum
     while [[ $# -gt 0 ]]; do
         case $1 in
         --host-key)
@@ -49,26 +62,47 @@ start() {
     [[ $host_key == a || $host_key == b ]] || die "--host-key must be a or b"
     command -v docker >/dev/null || die "docker not found: install Docker Desktop, or use TestServers/local-sshd.sh"
 
-    docker build --quiet --tag "$IMAGE" --file "$DIR/openssh/Dockerfile" "$DIR" >/dev/null
-    docker rm --force "$NAME" >/dev/null 2>&1 || true
-    docker run --detach --name "$NAME" --hostname shello-test --env "HOST_KEY=$host_key" \
-        --publish "127.0.0.1:$PORT:22" "$IMAGE" >/dev/null
-    printf 'Test server on 127.0.0.1:%s, host key %s: %s\n' "$PORT" "$host_key" "$(wait_for_banner)"
+    docker build --quiet --tag shello-test-openssh --file "$DIR/openssh/Dockerfile" "$DIR" >/dev/null
+    docker build --quiet --tag shello-test-openssh9 --file "$DIR/openssh9/Dockerfile" "$DIR" >/dev/null
+    for server in "${SERVERS[@]}"; do
+        read -r name port image post_quantum <<<"$server"
+        docker rm --force "$name" >/dev/null 2>&1 || true
+        docker run --detach --name "$name" --hostname shello-test --env "HOST_KEY=$host_key" \
+            --env "POST_QUANTUM_KEX=$post_quantum" --publish "127.0.0.1:$port:22" "$image" >/dev/null
+    done
+    for server in "${SERVERS[@]}"; do
+        read -r name port image post_quantum <<<"$server"
+        printf 'Test server on 127.0.0.1:%s, %s: %s\n' "$port" "$(describe "$host_key" "$post_quantum")" \
+            "$(wait_for_banner "$port" "$name")"
+    done
     printf 'Sign in as shello, password shello-test-password, or with TestServers/keys/client_ed25519.\n'
 }
 
 stop() {
-    docker rm --force "$NAME" >/dev/null 2>&1 || true
-    printf 'Test server stopped.\n'
+    local server name port image post_quantum
+    for server in "${SERVERS[@]}"; do
+        read -r name port image post_quantum <<<"$server"
+        docker rm --force "$name" >/dev/null 2>&1 || true
+    done
+    printf 'Test servers stopped.\n'
 }
 
 status() {
-    if [[ $(docker inspect --format '{{.State.Running}}' "$NAME" 2>/dev/null) == true ]]; then
-        printf 'Running on 127.0.0.1:%s, host key %s: %s\n' "$PORT" \
-            "$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$NAME" | sed -n 's/^HOST_KEY=//p')" \
-            "$(wait_for_banner)"
-    else
-        printf 'Not running. Start it with %s.\n' "$0"
+    local server name port image post_quantum host_key stopped=0
+    for server in "${SERVERS[@]}"; do
+        read -r name port image post_quantum <<<"$server"
+        if [[ $(docker inspect --format '{{.State.Running}}' "$name" 2>/dev/null) == true ]]; then
+            host_key=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$name" |
+                sed -n 's/^HOST_KEY=//p')
+            printf 'Running on 127.0.0.1:%s, %s: %s\n' "$port" "$(describe "$host_key" "$post_quantum")" \
+                "$(wait_for_banner "$port" "$name")"
+        else
+            printf 'Not running on 127.0.0.1:%s.\n' "$port"
+            stopped=1
+        fi
+    done
+    if [[ $stopped == 1 ]]; then
+        printf 'Start the test servers with %s.\n' "$0"
         exit 1
     fi
 }

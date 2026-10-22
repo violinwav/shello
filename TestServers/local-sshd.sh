@@ -4,12 +4,17 @@
 #
 # Usage: TestServers/local-sshd.sh [start] | stop
 #
-# It runs as the current user, unprivileged, on 127.0.0.1:2222 with host key a, and lets that user in
-# with the fixture key TestServers/keys/client_ed25519 only: an unprivileged sshd cannot check
-# passwords. Its files live in a directory of their own under $TMPDIR.
+# It runs two sshd as the current user, unprivileged, with host key a, on the ports of the Docker
+# servers they stand in for: 127.0.0.1:2222 with OpenSSH's default key exchanges, and 127.0.0.1:2224
+# with post-quantum key exchange off. Both let that user in with the fixture key
+# TestServers/keys/client_ed25519 only: an unprivileged sshd cannot check passwords. Their files live
+# in a directory of their own under $TMPDIR.
 set -euo pipefail
 
 PORT=2222
+CLASSICAL_PORT=2224
+# OpenSSH's default key exchanges without the post-quantum ones, as in openssh/entrypoint.sh.
+CLASSICAL_KEX=curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256
 DIR=$(cd "$(dirname "$0")" && pwd)
 STATE="${TMPDIR:-/tmp}/shello-test-sshd"
 
@@ -18,18 +23,39 @@ die() {
     exit 1
 }
 
+# Waits until the sshd on port $1, whose files are named after $2, greets, and prints its banner.
 wait_for_banner() {
-    local banner attempt
+    local port=$1 name=$2 banner attempt
     for attempt in $(seq 1 50); do
-        if banner=$(exec 3<>"/dev/tcp/127.0.0.1/$PORT" && read -r -t 2 line <&3 && printf '%s' "$line") &&
+        if banner=$(exec 3<>"/dev/tcp/127.0.0.1/$port" && read -r -t 2 line <&3 && printf '%s' "$line") &&
             [[ $banner == SSH-2.0-* ]]; then
             printf '%s\n' "${banner%$'\r'}"
             return
         fi
         sleep 0.2
     done
-    cat "$STATE/sshd.log" >&2 || true
-    die "sshd did not answer on 127.0.0.1:$PORT"
+    cat "$STATE/$name.log" >&2 || true
+    die "sshd did not answer on 127.0.0.1:$port"
+}
+
+# sshd's settings for port $1, with its files named after $2, then the further lines given.
+write_config() {
+    local port=$1 name=$2
+    shift 2
+    cat <<EOF
+ListenAddress 127.0.0.1
+Port $port
+HostKey $STATE/ssh_host_ed25519_key
+PidFile $STATE/$name.pid
+AuthorizedKeysFile $STATE/authorized_keys
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+UsePAM no
+StrictModes no
+MaxStartups 100
+EOF
+    [[ $# -eq 0 ]] || printf '%s\n' "$@"
 }
 
 start() {
@@ -39,30 +65,25 @@ start() {
     # sshd refuses a host key that others can read; git does not keep the mode.
     install -m 600 "$DIR/keys/ssh_host_ed25519_key_a" "$STATE/ssh_host_ed25519_key"
     install -m 600 "$DIR/keys/client_ed25519.pub" "$STATE/authorized_keys"
-    cat >"$STATE/sshd_config" <<EOF
-ListenAddress 127.0.0.1
-Port $PORT
-HostKey $STATE/ssh_host_ed25519_key
-PidFile $STATE/sshd.pid
-AuthorizedKeysFile $STATE/authorized_keys
-PubkeyAuthentication yes
-PasswordAuthentication no
-KbdInteractiveAuthentication no
-UsePAM no
-StrictModes no
-MaxStartups 100
-EOF
+    write_config "$PORT" sshd >"$STATE/sshd_config"
+    write_config "$CLASSICAL_PORT" sshd-classical "KexAlgorithms $CLASSICAL_KEX" >"$STATE/sshd-classical_config"
     /usr/sbin/sshd -f "$STATE/sshd_config" -E "$STATE/sshd.log"
-    printf 'Test server on 127.0.0.1:%s, host key a: %s\n' "$PORT" "$(wait_for_banner)"
+    /usr/sbin/sshd -f "$STATE/sshd-classical_config" -E "$STATE/sshd-classical.log"
+    printf 'Test server on 127.0.0.1:%s, host key a: %s\n' "$PORT" "$(wait_for_banner "$PORT" sshd)"
+    printf 'Test server on 127.0.0.1:%s, host key a, post-quantum key exchange off: %s\n' "$CLASSICAL_PORT" \
+        "$(wait_for_banner "$CLASSICAL_PORT" sshd-classical)"
     printf 'Sign in as %s with TestServers/keys/client_ed25519.\n' "$(id -un)"
 }
 
 stop() {
-    if [[ -f $STATE/sshd.pid ]]; then
-        kill "$(cat "$STATE/sshd.pid")" 2>/dev/null || true
-        rm -f "$STATE/sshd.pid"
-    fi
-    printf 'Test server stopped.\n'
+    local name
+    for name in sshd sshd-classical; do
+        if [[ -f $STATE/$name.pid ]]; then
+            kill "$(cat "$STATE/$name.pid")" 2>/dev/null || true
+            rm -f "$STATE/$name.pid"
+        fi
+    done
+    printf 'Test servers stopped.\n'
 }
 
 case ${1:-start} in

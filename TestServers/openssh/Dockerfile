@@ -1,4 +1,5 @@
 # A disposable OpenSSH 10 server for Shello's integration and UI tests (TestServers/README.md).
+# ssh-server.sh runs it twice: as it is, and with post-quantum key exchange off (entrypoint.sh).
 # Test credentials only: the user, the password and every key in TestServers/keys are public.
 # Build context: TestServers/.
 

@@ -9,8 +9,9 @@ import os
 
 /// A host's terminal and the connection behind it (README sections 3 to 5): connects when the screen
 /// appears, asks the user to trust a new host key, blocks a changed one, signs in, and attaches the
-/// terminal to the login shell. One terminal at a time, until tabs come (#28): when the connection
-/// ends, the terminal says so and keeps what it shows.
+/// terminal to the login shell. It keeps the key exchange the connection negotiated (README section
+/// 14). One terminal at a time, until tabs come (#28): when the connection ends, the terminal says
+/// so and keeps what it shows.
 @Observable
 final class HostTerminalModel {
     let host: Host
@@ -20,6 +21,9 @@ final class HostTerminalModel {
     private(set) var trustQuestion: TrustQuestion?
     /// The changed host key the block sheet shows.
     var hostKeyChange: HostKeyChange?
+    /// The key exchange the connection negotiated, once it is signed in: the Connection button shows
+    /// it, post-quantum or classical (README section 14).
+    private(set) var keyExchange: KeyExchange?
 
     @ObservationIgnored private let connector: HostConnector?
     @ObservationIgnored private var connection: SSHConnection?
@@ -109,6 +113,7 @@ final class HostTerminalModel {
                 await self?.askToTrust(server, key) ?? false
             }
             self.connection = connection
+            keyExchange = await connection.keyExchange
             let shell = try await connection.openShell(terminalType: host.terminalType, size: controller.size)
             try Task.checkCancellation()
             controller.attach(shell)

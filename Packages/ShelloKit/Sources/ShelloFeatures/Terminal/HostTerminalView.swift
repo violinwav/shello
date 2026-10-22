@@ -7,7 +7,9 @@ import UIKit
 /// A host's terminal, full screen: the host's Connect button opens it (README sections 4 and 5). It
 /// connects as it appears, with the trust sheet for a new host key and the block sheet for a changed
 /// one, and shows above the terminal what the connection is doing until it works, and how it ended.
-/// Close ends the connection. One terminal at a time, until tabs come (#28).
+/// While the connection is open, the Connection button shows whether its key exchange is
+/// post-quantum or classical by its symbol, and opens the connection sheet, also with Command-I
+/// (README section 14). Close ends the connection. One terminal at a time, until tabs come (#28).
 struct HostTerminalView: View {
     let host: Host
     @Environment(\.hostConnector) private var connector
@@ -15,6 +17,7 @@ struct HostTerminalView: View {
     @Environment(\.dismiss) private var dismiss
     /// Made once the screen appears: making a terminal makes its UIKit view.
     @State private var model: HostTerminalModel?
+    @State private var isShowingConnection = false
 
     var body: some View {
         NavigationStack {
@@ -31,9 +34,17 @@ struct HostTerminalView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close", systemImage: "xmark", role: .close) { close() }
-                        // Esc is the program's, and a program never gets Command-W.
-                        .keyboardShortcut("w")
+                    // Command-W closes what is in front: the connection sheet while it is up, which
+                    // nothing else can then reach, or the terminal. Esc is the program's, and a
+                    // program never gets Command-W.
+                    Button("Close", systemImage: "xmark", role: .close) {
+                        if isShowingConnection {
+                            isShowingConnection = false
+                        } else {
+                            close()
+                        }
+                    }
+                    .keyboardShortcut("w")
                 }
             }
         }
@@ -79,6 +90,27 @@ struct HostTerminalView: View {
             .sheet(item: Binding(get: { model.hostKeyChange }, set: { model.hostKeyChange = $0 }), onDismiss: close) {
                 change in
                 HostKeyChangedSheet(change: change) { model.hostKeyChange = nil }
+            }
+            .toolbar {
+                // While the connection is open: once it ends, the status bar says so.
+                if let keyExchange = model.keyExchange, model.status == .connected {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Connection", systemImage: keyExchange.systemImage) { isShowingConnection = true }
+                            .accessibilityValue(keyExchange.title)
+                            .keyboardShortcut("i")
+                    }
+                }
+            }
+            .sheet(isPresented: $isShowingConnection) {
+                if let keyExchange = model.keyExchange {
+                    ConnectionSheet(keyExchange: keyExchange) { isShowingConnection = false }
+                }
+            }
+            .onChange(of: model.status) { _, status in
+                // The sheet is about the open connection.
+                if status != .connected {
+                    isShowingConnection = false
+                }
             }
     }
 

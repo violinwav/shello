@@ -203,9 +203,9 @@ Consequences:
 - **iOS support:** iOS is a [community-tier](https://openssl-library.org/policies/general-supplemental/platforms/index.html) OpenSSL platform. Shello builds with the upstream `ios64-xcrun` and `iossimulator-arm64-xcrun` targets and adds arm64e.
 - **mbedTLS** is not a real fallback anymore. libssh 0.12 does not support mbedTLS 4.x, and mbedTLS 3.6 LTS ends in March 2027 (section 15).
 
-**Algorithm policy as data** (README section 14). The preferred lists for key exchange, ciphers, MACs and host keys ship as a bundled, versioned resource. They are applied through `ssh_options_set` (`SSH_OPTIONS_KEY_EXCHANGE`, `SSH_OPTIONS_CIPHERS_C_S`, `SSH_OPTIONS_HMAC_C_S`, `SSH_OPTIONS_HOSTKEYS` …) and can be overridden per host. MVP default order:
+**Algorithm policy as data** (README section 14). The preferred lists for key exchange, ciphers, MACs and host keys ship as a bundled, versioned resource. They are applied through `ssh_options_set` (`SSH_OPTIONS_KEY_EXCHANGE`, `SSH_OPTIONS_CIPHERS_C_S`, `SSH_OPTIONS_HMAC_C_S`, `SSH_OPTIONS_HOSTKEYS` …) and can be overridden per host. The key exchange list is in place, in `Packages/ShelloKit/Sources/ShelloSSH/Resources/AlgorithmPolicy.json`, with the names of the post-quantum key exchanges that mark a connection post-quantum or classical. MVP default order:
 
-- Key exchange: `mlkem768x25519-sha256`, `sntrup761x25519-sha512`, `curve25519-sha256`.
+- Key exchange: `mlkem768x25519-sha256`, `sntrup761x25519-sha512`, `curve25519-sha256`. sntrup is offered under its vendor name `sntrup761x25519-sha512@openssh.com` too, the only one OpenSSH before 9.9 knows.
 - Ciphers: `chacha20-poly1305`, AES-GCM, AES-CTR.
 - MACs: HMAC-SHA2 encrypt-then-MAC.
 - Off: SHA-1, CBC and DSA.
@@ -513,7 +513,7 @@ Development and CI only:
 | MVP | Alpine 3.15 (8.8), Ubuntu 22.04 (8.9), Debian 12 (9.2), Ubuntu 24.04 (9.6), RHEL 10 (9.9), Debian 13 (10.0), Alpine 3.24 (10.3), Alpine edge (10.6, the latest upstream) |
 | v1 additions | RHEL 9 (8.7), Dropbear, several tmux versions, mosh-server |
 
-The post-quantum tests (spike item 4) run against 10.x, where `mlkem768x25519-sha256` is OpenSSH's default. RHEL 9.0–9.7 ships OpenSSH 8.7, below the MVP floor, which is why it waits for v1.
+The post-quantum tests (spike item 4) run against 10.x, where `mlkem768x25519-sha256` is OpenSSH's default, against Ubuntu 24.04's 9.6, which knows only `sntrup761x25519-sha512@openssh.com`, and against 10.x with post-quantum key exchange off (`TestServers/README.md`). RHEL 9.0–9.7 ships OpenSSH 8.7, below the MVP floor, which is why it waits for v1.
 
 **Why the core builds on Linux.** GitHub's macOS runners have no Docker. Building `ShelloSSH`, `ShelloTmux` and `ShelloModel` for Linux, with a POSIX socket transport used only in tests, lets every pull request run against the whole OpenSSH matrix. The Network.framework bridge is covered by the end-to-end tests on macOS and by device tests. If the Linux build costs more than it saves, the fallback is running the matrix locally with Docker before each merge.
 
