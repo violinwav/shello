@@ -211,10 +211,28 @@ extension XCUIApplication {
     }
 
     @MainActor
-    func enter(_ text: String, into field: XCUIElement) {
-        XCTAssertTrue(field.waitForExistence(timeout: 5))
-        field.tap()
+    func enter(_ text: String, into field: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(field.waitForExistence(timeout: 5), file: file, line: line)
+        focus(field, file: file, line: line) { field.tap() }
         field.typeText(text)
+    }
+
+    /// Taps a text field until it has the keyboard focus, at most three times: XCUITest types only
+    /// into a field that has it, and a tap does not always leave it there. In one CI run the app's
+    /// main thread stalled for 8 seconds just after a tap gave a field the focus, while the
+    /// simulator's keyboard service looked up language data. SpringBoard dropped the app's keyboard
+    /// connection meanwhile, and once the app ran again UIKit took the focus away from the field.
+    @MainActor
+    private func focus(_ field: XCUIElement, file: StaticString, line: UInt, by tap: () -> Void) {
+        let focused = NSPredicate(format: "hasKeyboardFocus == true")
+        for _ in 0..<3 {
+            tap()
+            let expectation = XCTNSPredicateExpectation(predicate: focused, object: field)
+            if XCTWaiter.wait(for: [expectation], timeout: 5) == .completed {
+                return
+            }
+        }
+        XCTFail("\(field) does not take the keyboard focus", file: file, line: line)
     }
 
     /// Scrolls the screen, a little at a time, until the whole of `element` lies where a tap reaches
@@ -334,9 +352,11 @@ extension XCUIApplication {
     /// Replaces a text field's value with `text`. The tap goes to the field's end: a field that wraps
     /// puts the cursor where the tap lands, and the deletes must start after the last character.
     @MainActor
-    func replace(with text: String, in field: XCUIElement) {
-        XCTAssertTrue(field.waitForExistence(timeout: 5))
-        field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.9)).tap()
+    func replace(with text: String, in field: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(field.waitForExistence(timeout: 5), file: file, line: line)
+        focus(field, file: file, line: line) {
+            field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.9)).tap()
+        }
         let length = (field.value as? String)?.count ?? 0
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: length) + text)
     }

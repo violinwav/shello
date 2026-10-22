@@ -181,8 +181,7 @@ final class HostTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Enter a port from 1 to 65535."].exists)
         XCTAssertTrue(app.navigationBars["New Host"].exists)
         // Return in the last field puts the keyboard away, so that the audit sees the whole sheet.
-        app.textFields["User"].tap()
-        app.textFields["User"].typeText("\n")
+        app.enter("\n", into: app.textFields["User"])
         try app.auditAccessibility()
     }
 
@@ -200,8 +199,7 @@ final class HostTests: XCTestCase {
         XCTAssertTrue(app.buttons["prod-api-01"].waitForExistence(timeout: 5))
 
         let search = app.searchFields.firstMatch
-        search.tap()
-        search.typeText("10.0.4")
+        app.enter("10.0.4", into: search)
         XCTAssertTrue(app.buttons["prod-api-01"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["nas"].exists)
 
