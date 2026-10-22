@@ -66,7 +66,8 @@ struct KeyExchangeTests {
         with server: Server, algorithms: AlgorithmPolicy = .standard
     ) async throws -> (banner: String, keyExchange: KeyExchange?) {
         let connection = SSHConnection(
-            server: server, username: TestServer.user, connectTimeout: .seconds(10), algorithms: algorithms)
+            server: server, username: TestServer.user, connectTimeout: TestServer.connectTimeout,
+            algorithms: algorithms)
         _ = try await connection.connect()
         let banner = await connection.serverBanner ?? ""
         let keyExchange = await connection.keyExchange

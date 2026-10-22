@@ -93,11 +93,13 @@ final class TestConnector: Sendable {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    /// A password host for the test server, with `password` saved for it.
+    /// A password host for the test server, with `password` saved for it. It waits up to 30 seconds
+    /// for the server: a CI runner's simulator once stalled Network.framework for about five seconds
+    /// at a time, as ShelloSSHTests' TestServer says.
     func host(password: String?) throws -> Host {
         let host = Host(
             name: "test server", address: TestServer.address, port: TestServer.port, username: TestServer.user,
-            authMethod: .password)
+            authMethod: .password, connectTimeout: .seconds(30))
         if let password {
             keychain.store(Secret(utf8: password), as: .password(of: host.id))
         }

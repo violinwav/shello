@@ -100,9 +100,14 @@ final class AppLockTests: XCTestCase {
             forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.7)))
         XCTAssertTrue(cover.waitForExistence(timeout: 5))
 
-        XCUIDevice.shared.press(.home)
-        app.activate()
-        XCTAssertTrue(cover.waitForNonExistence(timeout: 5))
+        // Notification Center goes back up, as the user pushes it, and Shello is active again. Home
+        // with Notification Center down is unpredictable: here it only closes Notification Center,
+        // and on a slow CI runner it did so nine seconds late and then went on to the Home Screen,
+        // after the test had brought Shello back.
+        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.99)).press(
+            forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)))
+        XCTAssertTrue(cover.waitForNonExistence(timeout: 20))
+        XCTAssertEqual(app.state, .runningForeground)
         XCTAssertTrue(app.navigationBars["New Host"].exists)
     }
 

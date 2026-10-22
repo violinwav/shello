@@ -31,8 +31,13 @@ enum TestServer {
         "The test server is not running on localhost:2222. Start it with TestServers/ssh-server.sh (TestServers/README.md)."
     static let noPasswords: Comment = "The test server takes keys only."
 
+    /// How long a test waits for a connection. A connection to this device takes a few hundredths
+    /// of a second, but a CI runner's simulator once stalled Network.framework for about five seconds
+    /// at a time, and a connection that met two stalls ran out of a 10-second deadline.
+    static let connectTimeout = Duration.seconds(30)
+
     /// A new connection to the server as the test user.
-    static func connection(connectTimeout: Duration = .seconds(10)) -> SSHConnection {
+    static func connection(connectTimeout: Duration = connectTimeout) -> SSHConnection {
         SSHConnection(server: server, username: user, connectTimeout: connectTimeout)
     }
 
