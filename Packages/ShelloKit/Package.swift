@@ -35,7 +35,11 @@ let package = Package(
     ],
     // Pinned exactly; docs/spec/STACK.md section 8 lists every dependency and why.
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift", exact: "7.11.1")
+        .package(url: "https://github.com/groue/GRDB.swift", exact: "7.11.1"),
+        // The preview of SwiftTerm 2.0 and its API; 2.0.0 replaces it once released (STACK section 7.4).
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm", exact: "1.99.0"),
+        // Tests only: the terminal's snapshot tests.
+        .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", exact: "1.19.6"),
     ],
     targets: [
         // Domain types: host, group, tag, snippet, preset.
@@ -65,7 +69,11 @@ let package = Package(
             swiftSettings: core
         ),
         // UIKit: SwiftTerm host view, Shello keyboard, extra keys row, pads.
-        .target(name: "ShelloTerminalUI", dependencies: ["ShelloModel"], swiftSettings: ui),
+        .target(
+            name: "ShelloTerminalUI",
+            dependencies: ["ShelloModel", .product(name: "SwiftTerm", package: "SwiftTerm")],
+            swiftSettings: ui
+        ),
         // SwiftUI screens, with the design system's colours and fonts. Each font family folder is
         // copied whole, so that its licence ships next to its files; Resources/Fonts/README.md
         // records where they come from.
@@ -101,11 +109,21 @@ let package = Package(
         .testTarget(name: "ShelloSSHTests", dependencies: ["ShelloSSH"], swiftSettings: core),
         .testTarget(name: "ShelloTmuxTests", dependencies: ["ShelloTmux"], swiftSettings: core),
         .testTarget(name: "ShelloCoreTests", dependencies: ["ShelloCore"], swiftSettings: core),
-        .testTarget(name: "ShelloTerminalUITests", dependencies: ["ShelloTerminalUI"], swiftSettings: ui),
+        .testTarget(
+            name: "ShelloTerminalUITests",
+            dependencies: ["ShelloTerminalUI", "ShelloModel", .product(name: "SwiftTerm", package: "SwiftTerm")],
+            swiftSettings: ui
+        ),
         // The view models run against a real database in a temporary directory, and a Keychain in memory.
+        // The terminal's snapshot tests and its performance test run here too, with the app's fonts and
+        // colours; __Snapshots__ holds their reference images.
         .testTarget(
             name: "ShelloFeaturesTests",
-            dependencies: ["ShelloFeatures", "ShelloStorage", "ShelloSecurity", "ShelloModel"],
+            dependencies: [
+                "ShelloFeatures", "ShelloStorage", "ShelloSecurity", "ShelloModel", "ShelloTerminalUI",
+                .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
+            ],
+            exclude: ["__Snapshots__"],
             swiftSettings: ui
         ),
     ],

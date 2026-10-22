@@ -2,6 +2,7 @@ import ShelloSSH
 import SwiftUI
 
 /// Shows that libssh links and runs inside the app: its version and the key exchanges it offers.
+/// The terminal demo tries the terminal without a server.
 struct DiagnosticsView: View {
     private let libSSHVersion = LibSSH.version
     private let keyExchanges = LibSSH.keyExchanges
@@ -25,6 +26,22 @@ struct DiagnosticsView: View {
                 }
             } header: {
                 SectionHeader("Key Exchanges")
+            }
+            .listRowBackground(Palette.cell)
+
+            Section {
+                NavigationLink {
+                    TerminalDemoView()
+                } label: {
+                    Label("Terminal Demo", systemImage: "apple.terminal")
+                        .labelStyle(.row)
+                }
+            } header: {
+                SectionHeader("Terminal")
+            } footer: {
+                FooterText(
+                    "A terminal attached to a stand-in for a server on this device: try colors, Unicode, the bell "
+                        + "and 10 MB of output without connecting.")
             }
             .listRowBackground(Palette.cell)
         }

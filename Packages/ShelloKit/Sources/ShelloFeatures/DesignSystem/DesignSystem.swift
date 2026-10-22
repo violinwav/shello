@@ -1,5 +1,6 @@
 import CoreText
 import Foundation
+import ShelloTerminalUI
 import os
 
 /// The design system from the UI design (docs/ui/ui_v1/README.md, STACK section 7.13): the colour
@@ -13,6 +14,10 @@ public enum DesignSystem {
     public static func registerFonts() {
         _ = fontRegistration
     }
+
+    /// JetBrains Mono for terminals, with the semibold face for bold text.
+    static let terminalTypeface = TerminalTypeface(
+        regular: FontFace.jetBrainsMonoRegular.postScriptName, bold: FontFace.jetBrainsMonoSemiBold.postScriptName)
 
     private static let fontRegistration: Void = {
         for face in FontFace.allCases {

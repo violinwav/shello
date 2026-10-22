@@ -1,10 +1,11 @@
 import Foundation
 import ShelloSecurity
 import ShelloStorage
+import ShelloTerminalUI
 import SwiftUI
 
-/// The settings sheet: export and import of the user's data, app lock, the SSH keys, and About with
-/// the diagnostics of the SSH library.
+/// The settings sheet: export and import of the user's data, app lock, the SSH keys, the terminal
+/// and hardware keyboards, and About with the diagnostics of the SSH library and the terminal demo.
 struct SettingsView: View {
     @Environment(\.exportRepository) private var exportRepository
     @Environment(\.appLock) private var appLock
@@ -16,10 +17,12 @@ struct SettingsView: View {
 }
 
 /// The settings, with export and import when the environment has the export repository, app lock
-/// when it has app lock, and the SSH keys when it has their store.
+/// when it has app lock, the SSH keys when it has their store, and the terminal when it has its
+/// settings.
 private struct SettingsList: View {
     let appLock: AppLock?
     let sshKeys: SSHKeyStore?
+    @Environment(\.terminalSettings) private var terminalSettings
     @Environment(\.dismiss) private var dismiss
     @State private var exportImport: ExportImportModel?
 
@@ -50,6 +53,10 @@ private struct SettingsList: View {
                         FooterText("SSH keys that Shello makes never leave this device.")
                     }
                     .listRowBackground(Palette.cell)
+                }
+                if let terminalSettings {
+                    TerminalSection(settings: terminalSettings)
+                    HardwareKeyboardSection(settings: terminalSettings)
                 }
                 Section {
                     LabeledContent("Version") { ValueText(Self.version) }
@@ -152,6 +159,63 @@ private struct AppLockSection: View {
         }
         return "Shello asks for \(appLock.biometry.inSentence) when it opens, and when you return after it has "
             + "been in the background this long. Until then, your hosts stay hidden."
+    }
+}
+
+/// The terminal's text size, the scrollback's length and whether VoiceOver reads new output
+/// (README sections 5 and 16). The text size is here for those who cannot pinch.
+private struct TerminalSection: View {
+    @Bindable var settings: TerminalSettings
+
+    var body: some View {
+        Section {
+            Stepper(value: $settings.fontSize, in: TerminalPreferences.fontSizes, step: 1) {
+                LabeledContent("Text Size") { ValueText("\(Int(settings.fontSize)) pt") }
+            }
+            .accessibilityLabel("Text Size")
+            .accessibilityValue("\(Int(settings.fontSize)) points")
+            Picker("Scrollback", selection: $settings.scrollbackLines) {
+                ForEach(TerminalPreferences.scrollbackChoices, id: \.self) { lines in
+                    Text("\(lines.formatted()) Lines").tag(lines)
+                }
+            }
+            Toggle("Read New Output Aloud", isOn: $settings.announcesOutput)
+        } header: {
+            SectionHeader("Terminal")
+        } footer: {
+            FooterText(
+                "Pinching a terminal changes its text size too. Scrollback is what a terminal keeps to scroll "
+                    + "back to and search. With VoiceOver, new output is read aloud.")
+        }
+        .listRowBackground(Palette.cell)
+    }
+}
+
+/// Option as Meta and a key that sends Esc, for hardware keyboards (README section 5).
+private struct HardwareKeyboardSection: View {
+    @Bindable var settings: TerminalSettings
+
+    var body: some View {
+        Section {
+            Toggle("Option Key as Meta", isOn: $settings.optionAsMeta)
+            Picker("Extra Esc Key", selection: $settings.escapeKey) {
+                ForEach(EscapeKey.allCases) { key in
+                    Text(key.displayName).tag(key)
+                }
+            }
+        } header: {
+            SectionHeader("Hardware Keyboard")
+        } footer: {
+            FooterText(Self.footer(controlBracket: "Control-["))
+                // VoiceOver can leave the bracket out.
+                .accessibilityLabel(Self.footer(controlBracket: "Control-left bracket"))
+        }
+        .listRowBackground(Palette.cell)
+    }
+
+    private static func footer(controlBracket: String) -> String {
+        "As Meta, Option and a key send Esc and the key, as Emacs expects. The extra Esc key is for keyboards "
+            + "without one; \(controlBracket) always sends Esc. The Settings app can make Caps Lock an Esc key."
     }
 }
 

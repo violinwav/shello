@@ -18,6 +18,8 @@ struct ShelloApp: App {
     private let sshKeys: SSHKeyStore
     /// App lock, which opens and closes the unlock window that `secrets` and `sshKeys` use.
     private let appLock: AppLock
+    /// The terminal settings of this device.
+    private let terminalSettings: TerminalSettings
 
     init() {
         DesignSystem.registerFonts()
@@ -28,6 +30,7 @@ struct ShelloApp: App {
             ? .inMemory(unlockWindow: unlockWindow, secureEnclave: Launch.standsInForSecureEnclave)
             : SSHKeyStore(unlockWindow: unlockWindow)
         appLock = AppLock(window: unlockWindow, defaults: Launch.settings, isEnabled: Launch.locksApp)
+        terminalSettings = TerminalSettings(defaults: Launch.settings)
         services = Result { Services(database: try Self.openDatabase()) }
         if case .failure(let error) = services {
             Logger(subsystem: "ch.shello.Shello", category: "Storage").error("Could not open the database: \(error)")
@@ -48,6 +51,7 @@ struct ShelloApp: App {
                             .environment(\.secretStore, secrets)
                             .environment(\.sshKeyStore, sshKeys)
                             .environment(\.appLock, appLock)
+                            .environment(\.terminalSettings, terminalSettings)
                     case .failure(let error):
                         DatabaseUnavailableView(error: error)
                     }
@@ -55,6 +59,9 @@ struct ShelloApp: App {
             }
             .preferredColorScheme(Launch.colorScheme)
             .appLock(appLock, preferredColorScheme: Launch.colorScheme)
+        }
+        .commands {
+            TerminalCommands()
         }
         .onChange(of: scenePhase) { _, phase in
             // A suspended app must not hold locks on files in its App Group container (STACK

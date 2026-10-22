@@ -21,4 +21,8 @@ extension EnvironmentValues {
 
     /// App lock. Without it, Settings leaves app lock out.
     @Entry public var appLock: AppLock? = nil
+
+    /// The terminal settings of this device. Without them, Settings leaves them out, and terminals
+    /// use the defaults.
+    @Entry public var terminalSettings: TerminalSettings? = nil
 }

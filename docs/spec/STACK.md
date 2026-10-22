@@ -156,8 +156,9 @@ Consequences:
 - libssh output is read in chunks and handed to the terminal in batches, coalesced to the display refresh.
 - When the terminal falls behind, Shello stops reading the channel. The SSH window then fills and the server slows down. Nothing is dropped and memory stays bounded.
 - Input is never queued behind output.
+- The terminal is attached to a connection through a byte stream (`TerminalByteStream` in `ShelloModel`). It parses the stream's output off the main actor, 4 KiB at a time: SwiftTerm's terminal lock is fair, so the main thread waits for at most one slice when it registers a key or prepares a frame.
 
-**Rendering.** SwiftTerm draws with CoreText by default and has an optional Metal renderer (`setUseMetal(true)`). The spike measures both against the 120 Hz and 10 MB targets and picks one.
+**Rendering.** SwiftTerm draws with CoreText by default and has an optional Metal renderer (`setUseMetal(true)`). Shello uses CoreText (`TerminalRenderer.standard`). In the 10 MB test (`TerminalPerformanceTests`, iPhone 17 simulator, debug build) both printed the 10 MB equally fast, but typing stayed responsive only with CoreText: keystroke latency median 9 ms and p95 30 ms, against 113 ms and 502 ms with Metal. The measurement on devices (below) confirms or reverses the choice; switching is one line.
 
 **Memory** (budget: 10 tabs with full scrollback under 200 MB). Ten tabs of 10,000 lines at 80 or more columns is 8 million cells or more. At SwiftTerm's per-cell size this is close to the budget, so it is measured in the spike. If it is over, older scrollback is compacted.
 
@@ -406,7 +407,7 @@ How the database works:
 - **VoiceOver:**
   - SwiftUI accessibility modifiers on every control. UIKit `UIAccessibility` on the terminal, keyboard and VNC view.
   - New terminal output is announced with `UIAccessibility.post(notification: .announcement, …)`, throttled.
-  - A custom rotor reads the current line.
+  - Custom actions, in VoiceOver's Actions rotor, read the line the cursor is on, copy it or the screen, and change the text size.
 - **Dynamic Type, Reduce Motion, colour:**
   - Dynamic Type for every app screen. The terminal font size is separate.
   - Reduce Motion stops the cursor blink.

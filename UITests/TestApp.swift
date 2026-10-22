@@ -98,23 +98,34 @@ extension XCUIApplication {
         XCUIApplication(bundleIdentifier: "com.apple.springboard")
     }
 
-    /// `performAccessibilityAudit()`, less one false positive of its Dynamic Type check. The check
-    /// reports some SwiftUI text whose font does scale as "partially unsupported", seemingly at random,
-    /// because it looks for UIKit's `adjustsFontForContentSizeCategory`, which SwiftUI text does not
-    /// expose (https://developer.apple.com/forums/thread/828525). Only static text is let through:
-    /// controls, and text in a font that does not scale, which is reported as "unsupported", still
-    /// fail. `testTextGrowsWithDynamicType` checks the scaling directly. Each ignored issue is
-    /// attached to the test's results.
+    /// `performAccessibilityAudit()`, less two false positives:
+    /// - Its Dynamic Type check reports some SwiftUI text whose font does scale as "partially
+    ///   unsupported", seemingly at random, because it looks for UIKit's
+    ///   `adjustsFontForContentSizeCategory`, which SwiftUI text does not expose
+    ///   (https://developer.apple.com/forums/thread/828525). Only static text is let through:
+    ///   controls, and text in a font that does not scale, which is reported as "unsupported",
+    ///   still fail. `testTextGrowsWithDynamicType` checks the scaling directly.
+    /// - Its contrast check reads an element that is mostly below the screen, such as the footer
+    ///   of a list one screen long, which the list makes ready before it scrolls into view, as
+    ///   black on black. Only that check, and only for an element less than half of which is on
+    ///   screen, is let through.
+    ///
+    /// Each ignored issue is attached to the test's results.
     @MainActor
     func auditAccessibility() throws {
         var ignored: [String] = []
+        let screen = frame
         try audit(XCUIAccessibilityAuditType.all) { issue in
-            let isFalsePositive =
+            let isPartiallyUnsupported =
                 issue.auditType == .dynamicType
                 && issue.compactDescription == "Dynamic Type font sizes are partially unsupported"
                 && issue.element?.elementType == .staticText
+            let isOffScreen =
+                issue.auditType == .contrast && issue.element.map { Self.isMostlyOffScreen($0.frame, screen) } == true
+            let isFalsePositive = isPartiallyUnsupported || isOffScreen
             if isFalsePositive {
-                ignored.append("\(issue.compactDescription): \(issue.element?.label ?? "?")")
+                ignored.append(
+                    "\(issue.compactDescription): \(issue.element?.label ?? "?") \(issue.element?.frame ?? .zero)")
             }
             return isFalsePositive
         }
@@ -123,6 +134,14 @@ extension XCUIApplication {
                 activity.add(XCTAttachment(string: ignored.joined(separator: "\n")))
             }
         }
+    }
+
+    /// Whether less than half of `element` is on `screen`.
+    private static func isMostlyOffScreen(_ element: CGRect, _ screen: CGRect) -> Bool {
+        guard element.width > 0, element.height > 0 else { return false }
+        let visible = element.intersection(screen)
+        guard !visible.isNull else { return true }
+        return visible.width * visible.height < element.width * element.height / 2
     }
 
     /// `performAccessibilityAudit()` while a system alert shows, without two checks that misreport

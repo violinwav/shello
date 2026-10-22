@@ -24,7 +24,10 @@ final class LaunchTests: XCTestCase {
         app.buttons["Settings"].tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         try app.auditAccessibility()
-        app.buttons["Diagnostics"].tap()
+        // Below the terminal's settings, further down than the first screen.
+        let diagnostics = app.buttons["Diagnostics"]
+        app.reveal(diagnostics)
+        diagnostics.tap()
 
         XCTAssertTrue(app.staticTexts["mlkem768x25519-sha256"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["sntrup761x25519-sha512"].exists)

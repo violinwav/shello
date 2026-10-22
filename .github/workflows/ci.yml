@@ -6,6 +6,9 @@ name: CI
 # package dependencies, which Xcode builds with warnings suppressed, and the compiler rejects
 # -warnings-as-errors together with -suppress-warnings.
 # No signing: simulator builds sign to run locally, the device build is unsigned.
+# -skipPackagePluginValidation: SwiftTerm runs a build plugin, which Xcode asks a person to trust
+# once; xcodebuild cannot ask, and fails without it. SwiftTerm is pinned exactly in Package.resolved,
+# so the plugin only changes with the pin.
 
 on:
   pull_request:
@@ -120,6 +123,7 @@ jobs:
           xcodebuild test -quiet
           -project Shello.xcodeproj -scheme Shello
           -destination "$SIMULATOR"
+          -skipPackagePluginValidation
           -skip-testing:ShelloUITests
           -resultBundlePath TestResults.xcresult
 
@@ -129,6 +133,7 @@ jobs:
           xcodebuild test -quiet
           -project Shello.xcodeproj -scheme Shello
           -destination "$SIMULATOR"
+          -skipPackagePluginValidation
           ${{ matrix.tests }}
           -resultBundlePath TestResults.xcresult
 
@@ -149,5 +154,5 @@ jobs:
           xcodebuild build -quiet \
             -project Shello.xcodeproj -scheme Shello -configuration Release \
             -destination generic/platform=iOS -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO
+            -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO
           lipo build/Build/Products/Release-iphoneos/Shello.app/Shello -verify_arch arm64 arm64e

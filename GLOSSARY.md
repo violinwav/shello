@@ -82,6 +82,18 @@ _Avoid_: Relaunch restore, recover
 The program in the foreground of a tab's terminal, or of the active tmux pane in it.
 _Avoid_: Current process, running app
 
+**Terminal**:
+The screen inside a tab that draws what the server sends and sends what the user types, as xterm does. A tab keeps its terminal, and the terminal its scrollback, while connections come and go.
+_Avoid_: Console, shell (the shell is the program on the server), tab
+
+**Scrollback**:
+The lines that have scrolled off the top of a terminal, which it keeps to scroll back to and to search: 10,000 by default.
+_Avoid_: History (that is the shell's), buffer
+
+**Terminal demo**:
+A terminal attached to a stand-in for a server that runs on the device, under Settings, Diagnostics, to try the terminal without connecting. It is not a shell: Shello has no local shell.
+_Avoid_: Local shell, sandbox, playground
+
 ## Keyboard
 
 **Key**:

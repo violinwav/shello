@@ -27,11 +27,11 @@ When two of these disagree, do not silently pick one. Say so in the issue or pul
 
 First build libssh and OpenSSL from verified source with `Vendor/build.sh` (needs `brew install cmake gnupg`). The output is not in git. Rerun the script after `Vendor/` changes; it does nothing when the libraries are current. See `Vendor/README.md`.
 
-Open `Shello.xcodeproj` in Xcode 26.6 and use the `Shello` scheme: it runs the app and, with Product → Test, every `ShelloKit` unit test plus the UI tests. From the command line, the same checks CI runs (`.github/workflows/ci.yml`):
+Open `Shello.xcodeproj` in Xcode 26.6 and use the `Shello` scheme: it runs the app and, with Product → Test, every `ShelloKit` unit test plus the UI tests. The first build asks you to trust SwiftTerm's build plugin, which writes its version information and its terminfo table into SwiftTerm's sources; SwiftTerm is pinned exactly, so the plugin only changes with the pin. From the command line, the same checks CI runs (`.github/workflows/ci.yml`), where `-skipPackagePluginValidation` stands in for that prompt:
 
 ```sh
 xcrun swift-format lint --strict --recursive --parallel App AppTests UITests Packages/ShelloKit
-xcodebuild test -project Shello.xcodeproj -scheme Shello -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'
+xcodebuild test -project Shello.xcodeproj -scheme Shello -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' -skipPackagePluginValidation
 ```
 
 Build settings live in `Configurations/*.xcconfig`, not in the Xcode project. Set them there so both developers see the change in review.
