@@ -38,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [checks, ui-tests, ui-files, ui-security]
+        suite: [checks, ui-tests, ui-files, ui-extra]
         include:
           - suite: ui-tests
             tests: >-
@@ -46,12 +46,14 @@ jobs:
               -skip-testing:ShelloUITests/ExportImportTests
               -skip-testing:ShelloUITests/AppLockTests
               -skip-testing:ShelloUITests/SSHKeyTests
+              -skip-testing:ShelloUITests/TerminalTests
           - suite: ui-files
             tests: -only-testing:ShelloUITests/ExportImportTests
-          - suite: ui-security
+          - suite: ui-extra
             tests: >-
               -only-testing:ShelloUITests/AppLockTests
               -only-testing:ShelloUITests/SSHKeyTests
+              -only-testing:ShelloUITests/TerminalTests
     # A cold vendor build adds about 10 minutes.
     timeout-minutes: ${{ matrix.suite == 'checks' && 40 || 60 }}
     permissions:
