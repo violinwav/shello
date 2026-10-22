@@ -17,9 +17,10 @@ import os
 ///   operation suspends until libssh has read something new, and then calls again.
 ///
 /// The steps follow README section 4: `connect()`, which ends with the server's host key for the
-/// caller to check before anything about the user is sent; then `authenticate(password:)` or
-/// `authenticate(privateKey:passphrase:)`; then `run(_:)` on hidden channels, and `openShell` for a
-/// terminal. `close()` ends it all.
+/// caller to check before anything about the user is sent; then one or more of
+/// `authenticate(password:)`, `authenticate(keyboardInteractive:)`,
+/// `authenticate(privateKey:passphrase:)` and `authenticate(agentSocket:)`; then `run(_:)` on hidden
+/// channels, and `openShell` for a terminal. `close()` ends it all.
 public actor SSHConnection {
     /// The server the connection is to.
     public nonisolated let server: Server
@@ -35,9 +36,10 @@ public actor SSHConnection {
     public private(set) var keyExchange: KeyExchange?
 
     private let queue: DispatchSerialQueue
+    private let executor: QueueExecutor
 
     public nonisolated var unownedExecutor: UnownedSerialExecutor {
-        unsafe queue.asUnownedSerialExecutor()
+        unsafe executor.asUnownedSerialExecutor()
     }
 
     // MARK: libssh
@@ -48,6 +50,9 @@ public actor SSHConnection {
     private var event: Handle?
     /// Whether `ssh_connect` has taken over libssh's end of the socketpair.
     private var libsshHasSocket = false
+    /// The SSH agent's socket that libssh talks to, once `authenticate(agentSocket:)` gave it one.
+    /// libssh closes it when the session is freed.
+    private var agentSocket: Int32?
     /// The open channels, by identifier. libssh frees every channel when the session ends, so they
     /// are only reached through this table, which `close()` empties first.
     private var channels: [Int: Handle] = [:]
@@ -60,6 +65,9 @@ public actor SSHConnection {
     private var sockets: SocketPair?
     private var network: NWConnection?
     private var isNetworkReady = false
+    /// Whether iOS holds the connection back until the user allows Local Network access (TN3179),
+    /// as it does while its question is on screen and after the user said no.
+    private var isWaitingForLocalNetwork = false
     /// Whether a receive on the `NWConnection` is outstanding.
     private var isReceiving = false
     /// Whether the server closed its side of the TCP connection.
@@ -100,6 +108,7 @@ public actor SSHConnection {
         self.connectTimeout = connectTimeout
         self.algorithms = algorithms
         queue = DispatchSerialQueue(label: "ch.shello.ssh.connection", qos: .userInitiated)
+        executor = QueueExecutor(queue: queue)
         queue.setSpecific(key: Self.queueKey, value: ObjectIdentifier(queue))
     }
 
@@ -157,7 +166,9 @@ public actor SSHConnection {
         connectDeadline = nil
         keyExchange = negotiatedKeyExchange(session).map(algorithms.keyExchange(named:))
         if let keyExchange {
-            let summary = "\(keyExchange.name), \(keyExchange.isPostQuantum ? "post-quantum" : "classical")"
+            let summary =
+                "\(keyExchange.name), \(keyExchange.isPostQuantum ? "post-quantum" : "classical"); "
+                + "cipher \(negotiatedCipher ?? "?"), MAC \(negotiatedMAC ?? "?")"
             Self.logger.info("Key exchange: \(summary, privacy: .public); algorithm policy \(self.algorithms.version)")
         }
 
@@ -172,6 +183,21 @@ public actor SSHConnection {
     /// The name of the key exchange libssh negotiated, as libssh reports it.
     private func negotiatedKeyExchange(_ session: Handle) -> String? {
         guard let name = unsafe ssh_get_kex_algo(session.pointer) else { return nil }
+        return unsafe String(cString: name)
+    }
+
+    /// The cipher libssh negotiated for what it sends, once connected, such as
+    /// `chacha20-poly1305@openssh.com`.
+    var negotiatedCipher: String? {
+        guard let session, let name = unsafe ssh_get_cipher_out(session.pointer) else { return nil }
+        return unsafe String(cString: name)
+    }
+
+    /// The MAC libssh negotiated for what it sends, once connected, such as
+    /// `hmac-sha2-256-etm@openssh.com`, or `aead-poly1305` and `aead-gcm` for a cipher that
+    /// authenticates itself.
+    var negotiatedMAC: String? {
+        guard let session, let name = unsafe ssh_get_hmac_out(session.pointer) else { return nil }
         return unsafe String(cString: name)
     }
 
@@ -192,14 +218,13 @@ public actor SSHConnection {
 
     /// Sets libssh up for the bridge: non-blocking, on its end of the socketpair, and reading no
     /// configuration or `known_hosts` file. Shello keeps its own trust store (STACK section 7.2), and
-    /// a configuration file on the device is not the user's. It offers the key exchanges of the
+    /// a configuration file on the device is not the user's. It offers the algorithms of the
     /// algorithm policy, in its order, and no others.
     private func configure(_ session: Handle, socket: Int32) throws(SSHError) {
         unsafe ssh_set_blocking(session.pointer, 0)
         var socket = socket
         var processConfig = false
         var port = UInt32(server.port)
-        let keyExchanges = algorithms.keyExchanges.joined(separator: ",")
         let results = unsafe [
             ssh_options_set(session.pointer, SSH_OPTIONS_FD, &socket),
             ssh_options_set(session.pointer, SSH_OPTIONS_PROCESS_CONFIG, &processConfig),
@@ -207,13 +232,33 @@ public actor SSHConnection {
             ssh_options_set(session.pointer, SSH_OPTIONS_GLOBAL_KNOWNHOSTS, "/dev/null"),
             ssh_options_set(session.pointer, SSH_OPTIONS_USER, username),
             ssh_options_set(session.pointer, SSH_OPTIONS_PORT, &port),
-            ssh_options_set(session.pointer, SSH_OPTIONS_KEY_EXCHANGE, keyExchanges),
         ]
         guard results.allSatisfy({ $0 == SSH_OK }) else { throw libsshError(session) }
+        try offer(algorithms, on: session)
         // Only for libssh's messages: it never connects by itself. libssh refuses some addresses
         // that Network.framework takes, such as an IPv6 address with a zone.
         if unsafe ssh_options_set(session.pointer, SSH_OPTIONS_HOST, server.address) != SSH_OK {
             Self.logger.debug("libssh did not take the server's address")
+        }
+    }
+
+    /// Has libssh offer each list of `policy`, in its order: the key exchanges, the ciphers and MACs
+    /// in both directions, the host key algorithms, and the algorithms an SSH key may sign in with.
+    /// libssh leaves out the names it does not know, which AlgorithmPolicyTests rule out for the
+    /// standard policy, and refuses a list of which it knows none.
+    private func offer(_ policy: AlgorithmPolicy, on session: Handle) throws(SSHError) {
+        let lists: [(option: ssh_options_e, names: [String])] = [
+            (SSH_OPTIONS_KEY_EXCHANGE, policy.keyExchanges),
+            (SSH_OPTIONS_CIPHERS_C_S, policy.ciphers),
+            (SSH_OPTIONS_CIPHERS_S_C, policy.ciphers),
+            (SSH_OPTIONS_HMAC_C_S, policy.macs),
+            (SSH_OPTIONS_HMAC_S_C, policy.macs),
+            (SSH_OPTIONS_HOSTKEYS, policy.hostKeyAlgorithms),
+            (SSH_OPTIONS_PUBLICKEY_ACCEPTED_TYPES, policy.sshKeyAlgorithms),
+        ]
+        for list in lists {
+            guard unsafe ssh_options_set(session.pointer, list.option, list.names.joined(separator: ",")) == SSH_OK
+            else { throw libsshError(session) }
         }
     }
 
@@ -233,11 +278,13 @@ public actor SSHConnection {
         }
     }
 
+    /// Ends `connect()` once the connect timeout has passed: as timed out, or as refused Local
+    /// Network access if iOS was holding the connection back for it all along.
     private func startDeadline() {
         let deadline = DispatchWorkItem { [weak self] in
             self?.assumeIsolated { connection in
                 if connection.connectDeadline != nil {
-                    connection.fail(.timedOut)
+                    connection.fail(connection.isWaitingForLocalNetwork ? .localNetworkDenied : .timedOut)
                 }
             }
         }
@@ -249,9 +296,13 @@ public actor SSHConnection {
 
     // MARK: - Signing in
 
+    // Each way of signing in throws `SSHError.partiallyAuthenticated` when the server accepts it but
+    // needs a further method as well, as a server with two-factor sign-in does: the caller then
+    // signs in again with one of the methods it names, on the same connection.
+
     /// Signs in with `password`, which libssh reads in place (README section 13).
-    /// - Throws: `SSHError.authenticationFailed` if the server refuses it, another `SSHError`, or
-    ///   `CancellationError`.
+    /// - Throws: `SSHError.authenticationFailed` if the server refuses it, `.partiallyAuthenticated`,
+    ///   another `SSHError`, or `CancellationError`.
     public func authenticate(password: some SecretBytes) async throws {
         let interval = Self.signposter.beginInterval("Authenticate")
         defer { Self.signposter.endInterval("Authenticate", interval) }
@@ -267,7 +318,7 @@ public actor SSHConnection {
     /// format, and its passphrase if it is encrypted. libssh reads the key on the connection's queue
     /// and frees it once the server has answered.
     /// - Throws: `SSHError.invalidKey` if the key cannot be read, `SSHError.authenticationFailed` if
-    ///   the server refuses it, another `SSHError`, or `CancellationError`.
+    ///   the server refuses it, `.partiallyAuthenticated`, another `SSHError`, or `CancellationError`.
     public func authenticate(privateKey: some SecretBytes, passphrase: (any SecretBytes)? = nil) async throws {
         let interval = Self.signposter.beginInterval("Authenticate")
         defer { Self.signposter.endInterval("Authenticate", interval) }
@@ -275,16 +326,138 @@ public actor SSHConnection {
         try await authenticate { session in unsafe ssh_userauth_publickey(session.pointer, nil, key.key.pointer) }
     }
 
+    /// Signs in with keyboard-interactive (RFC 4256, README section 4): the server asks questions,
+    /// such as a password or a one-time code, round after round, and `answer` returns the user's
+    /// answers to a round, one for each question, in their order. libssh copies each answer and
+    /// overwrites its copy once it is sent. A round without questions, which servers send to end
+    /// the sign-in, is answered without asking.
+    /// - Throws: `SSHError.authenticationFailed` if the server refuses the answers,
+    ///   `.partiallyAuthenticated`, another `SSHError`, what `answer` throws, or `CancellationError`.
+    public func authenticate(
+        keyboardInteractive answer: @Sendable (KeyboardInteractiveChallenge) async throws -> [any SecretBytes]
+    ) async throws {
+        let interval = Self.signposter.beginInterval("Authenticate")
+        defer { Self.signposter.endInterval("Authenticate", interval) }
+        while true {
+            let result = try await perform { session -> Int32? in
+                let result = unsafe ssh_userauth_kbdint(session.pointer, nil, nil)
+                return result == SSH_AUTH_AGAIN.rawValue ? nil : result
+            }
+            guard let session else { throw failure ?? SSHError.closed }
+            switch result {
+            case SSH_AUTH_SUCCESS.rawValue:
+                return
+            case SSH_AUTH_INFO.rawValue:
+                let challenge = challenge(session)
+                guard !challenge.prompts.isEmpty else { continue }
+                let answers = try await answer(challenge)
+                try setAnswers(answers, to: challenge)
+            case SSH_AUTH_DENIED.rawValue:
+                throw SSHError.authenticationFailed
+            case SSH_AUTH_PARTIAL.rawValue:
+                throw SSHError.partiallyAuthenticated(remainingMethods(session))
+            default:
+                throw failure ?? libsshError(session)
+            }
+        }
+    }
+
+    /// The round of questions libssh received.
+    private func challenge(_ session: Handle) -> KeyboardInteractiveChallenge {
+        let count = max(0, unsafe ssh_userauth_kbdint_getnprompts(session.pointer))
+        let prompts = (0..<count).map { index in
+            var echo: CChar = 0
+            let text = unsafe ssh_userauth_kbdint_getprompt(session.pointer, UInt32(index), &echo)
+            return KeyboardInteractivePrompt(text: unsafe Self.text(text), showsAnswer: echo != 0)
+        }
+        return KeyboardInteractiveChallenge(
+            name: unsafe Self.text(ssh_userauth_kbdint_getname(session.pointer)),
+            instruction: unsafe Self.text(ssh_userauth_kbdint_getinstruction(session.pointer)), prompts: prompts)
+    }
+
+    /// Gives libssh the answers to `challenge`, after the user took their time: the connection may
+    /// have ended meanwhile.
+    private func setAnswers(_ answers: [any SecretBytes], to challenge: KeyboardInteractiveChallenge) throws {
+        guard let session, failure == nil else { throw failure ?? SSHError.closed }
+        guard answers.count == challenge.prompts.count else {
+            throw SSHError.protocolError("\(answers.count) answers to \(challenge.prompts.count) questions")
+        }
+        for (index, answer) in answers.enumerated() {
+            // The answer's bytes are followed by a zero byte (`SecretBytes`).
+            let result = unsafe answer.withUnsafeBytes { bytes in
+                guard let text = unsafe bytes.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                    return unsafe ssh_userauth_kbdint_setanswer(session.pointer, UInt32(index), "")
+                }
+                return unsafe ssh_userauth_kbdint_setanswer(session.pointer, UInt32(index), text)
+            }
+            guard result >= 0 else { throw libsshError(session) }
+        }
+    }
+
+    /// A string from libssh as text, its invalid UTF-8 repaired; empty for none.
+    private static func text(_ string: UnsafePointer<CChar>?) -> String {
+        guard let string = unsafe string else { return "" }
+        return unsafe String(cString: string)
+    }
+
+    /// Signs in with a key that an SSH agent holds and signs with (STACK section 7.3): Shello's own,
+    /// which answers on `agentSocket`, an end of a connected pair of Unix stream sockets. The
+    /// connection owns the socket from now on, and libssh closes it once the connection is closed.
+    ///
+    /// libssh asks the agent for its keys, offers them to the server one by one, and has the agent
+    /// sign for the one the server takes. It waits for each of the agent's answers on the
+    /// connection's queue, so the agent answers from another queue, and must answer.
+    /// - Throws: `SSHError.authenticationFailed` if the server takes none of the agent's keys,
+    ///   `.signingFailed` if the agent did not sign, `.partiallyAuthenticated`, another `SSHError`, or
+    ///   `CancellationError`.
+    public func authenticate(agentSocket: Int32) async throws {
+        let interval = Self.signposter.beginInterval("Authenticate")
+        defer { Self.signposter.endInterval("Authenticate", interval) }
+        guard let session, failure == nil else {
+            Darwin.close(agentSocket)
+            throw failure ?? SSHError.closed
+        }
+        // libssh forgets an agent's socket that it is given another one for, without closing it.
+        if let previous = self.agentSocket {
+            Darwin.close(previous)
+            self.agentSocket = nil
+        }
+        guard unsafe ssh_set_agent_socket(session.pointer, agentSocket) == SSH_OK else {
+            Darwin.close(agentSocket)
+            throw libsshError(session)
+        }
+        self.agentSocket = agentSocket
+        try await perform { session in
+            switch unsafe ssh_userauth_agent(session.pointer, nil) {
+            case SSH_AUTH_SUCCESS.rawValue: return ()
+            case SSH_AUTH_AGAIN.rawValue: return nil
+            case SSH_AUTH_DENIED.rawValue: throw SSHError.authenticationFailed
+            case SSH_AUTH_PARTIAL.rawValue: throw SSHError.partiallyAuthenticated(remainingMethods(session))
+            default:
+                if let failure { throw failure }
+                // libssh reports an agent that did not sign as an error of its own, while the
+                // connection is still up.
+                throw unsafe ssh_is_connected(session.pointer) != 0 ? SSHError.signingFailed : libsshError(session)
+            }
+        }
+    }
+
     private func authenticate(_ attempt: (Handle) -> Int32) async throws {
         try await perform { session in
             switch attempt(session) {
             case SSH_AUTH_SUCCESS.rawValue: return ()
             case SSH_AUTH_AGAIN.rawValue: return nil
-            // A partial success asks for another method as well: keyboard-interactive comes in #27.
-            case SSH_AUTH_DENIED.rawValue, SSH_AUTH_PARTIAL.rawValue: throw SSHError.authenticationFailed
+            case SSH_AUTH_DENIED.rawValue: throw SSHError.authenticationFailed
+            case SSH_AUTH_PARTIAL.rawValue: throw SSHError.partiallyAuthenticated(remainingMethods(session))
             default: throw failure ?? libsshError(session)
             }
         }
+    }
+
+    /// The methods the server lists as able to continue, after it refused a sign-in or accepted it
+    /// only partly.
+    private func remainingMethods(_ session: Handle) -> SSHAuthenticationMethods {
+        SSHAuthenticationMethods(rawValue: UInt32(bitPattern: unsafe ssh_userauth_list(session.pointer, nil)))
     }
 
     // MARK: - Commands
@@ -385,6 +558,7 @@ public actor SSHConnection {
     /// Writes what the shell's terminal sent and reports a new size, as far as the server's window
     /// lets it. What is left waits until libssh reads more, such as the server's window adjustment.
     func flushShell(_ id: Int) {
+        dispatchPrecondition(condition: .onQueue(queue))
         guard var shell = shells[id], let channel = channels[id] else { return }
         let (bytes, size) = shell.input.take()
         shell.backlog += bytes
@@ -532,8 +706,10 @@ public actor SSHConnection {
             }
             unsafe ssh_disconnect(session.pointer)
             _ = sendLibsshOutput()
+            // Closes the SSH agent's socket too, if it has one.
             unsafe ssh_free(session.pointer)
             self.session = nil
+            agentSocket = nil
         }
         if let sockets {
             if closesLibsshSocket {
@@ -559,6 +735,8 @@ public actor SSHConnection {
     /// each call the bridge moves what libssh wrote; when the call has to wait for the server, the
     /// operation waits until libssh has read something new.
     private func perform<Result>(_ attempt: (Handle) throws -> Result?) async throws -> Result {
+        // libssh is never touched from two threads (ADR 0002): every call runs on this queue.
+        dispatchPrecondition(condition: .onQueue(queue))
         while true {
             guard let session else { throw failure ?? SSHError.closed }
             let seen = progress
@@ -639,22 +817,63 @@ public actor SSHConnection {
     }
 
     private func networkStateChanged(_ state: NWConnection.State) {
-        switch state {
+        let change = Self.change(
+            for: state, unsatisfiedReason: network?.currentPath?.unsatisfiedReason, isReady: isNetworkReady)
+        switch change {
         case .ready:
             isNetworkReady = true
+            isWaitingForLocalNetwork = false
             progress += 1
             wakeWaiters()
             pump()
-        case .waiting(let error):
-            // Refused, no route or no network. Waiting for a better path belongs to reconnecting
-            // (#28); a first connection fails at once.
-            if !isNetworkReady { fail(.network(error, ready: false)) }
+        case .waitingForLocalNetwork:
+            if !isWaitingForLocalNetwork {
+                Self.logger.notice("Waiting for Local Network access")
+            }
+            isWaitingForLocalNetwork = true
         case .failed(let error):
-            fail(.network(error, ready: isNetworkReady))
-        case .cancelled:
-            fail(.closed)
-        default:
+            fail(error)
+        case .none:
             break
+        }
+    }
+
+    /// What a state of the `NWConnection` means for the connection.
+    enum NetworkChange: Equatable {
+        /// The TCP connection to the server is up.
+        case ready
+        /// iOS holds the connection back until the user allows Local Network access (TN3179). It
+        /// does so while its question is on screen, and goes on once the user allows access, then
+        /// or later in Settings. The connect timeout still applies.
+        case waitingForLocalNetwork
+        /// The connection failed, or never came about.
+        case failed(SSHError)
+        /// Nothing to do.
+        case none
+    }
+
+    /// What `state` means, with the reason the connection's path gives when it cannot be used, and
+    /// whether the connection was ready before. A first connection that waits for another reason,
+    /// such as a refused connection or no route, fails at once: waiting for a better path belongs
+    /// to reconnecting (#28).
+    static func change(
+        for state: NWConnection.State, unsatisfiedReason: NWPath.UnsatisfiedReason?, isReady: Bool
+    ) -> NetworkChange {
+        switch state {
+        case .ready:
+            .ready
+        case .waiting(let error):
+            if unsatisfiedReason == .localNetworkDenied {
+                .waitingForLocalNetwork
+            } else {
+                isReady ? .none : .failed(.network(error, ready: false))
+            }
+        case .failed(let error):
+            .failed(.network(error, ready: isReady))
+        case .cancelled:
+            .failed(.closed)
+        default:
+            .none
         }
     }
 
@@ -731,6 +950,7 @@ public actor SSHConnection {
     /// operation, so that a channel nobody reads never holds up the others. Returns whether libssh
     /// read anything.
     private func runLibssh() -> Bool {
+        dispatchPrecondition(condition: .onQueue(queue))
         guard let session, let event, let sockets else { return false }
         var read = false
         for _ in 0..<64 {

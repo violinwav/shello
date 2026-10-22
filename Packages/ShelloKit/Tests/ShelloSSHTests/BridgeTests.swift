@@ -103,6 +103,44 @@ struct BridgeTests {
     }
 }
 
+/// What the connection makes of Network.framework's states (TN3179): a first connection that
+/// waits fails at once, except while iOS holds it back for Local Network access, which the user may
+/// be granting right then. The iOS Simulator has no Local Network access to grant, so the states
+/// are given here as a device would report them.
+struct NetworkStateTests {
+    @Test func waitingForLocalNetworkAccessKeepsWaiting() {
+        let change = SSHConnection.change(
+            for: .waiting(.posix(.ENETUNREACH)), unsatisfiedReason: .localNetworkDenied, isReady: false)
+
+        #expect(change == .waitingForLocalNetwork)
+    }
+
+    /// Refused, no route, no network: waiting for a better path belongs to reconnecting (#28).
+    @Test(arguments: [NWPath.UnsatisfiedReason.notAvailable, .cellularDenied, .wifiDenied, nil])
+    func waitingForAnythingElseFailsAFirstConnection(_ reason: NWPath.UnsatisfiedReason?) {
+        let change = SSHConnection.change(
+            for: .waiting(.posix(.ECONNREFUSED)), unsatisfiedReason: reason, isReady: false)
+
+        #expect(change == .failed(.unreachable("connection refused")))
+    }
+
+    @Test func readyConnectionIsReady() {
+        #expect(SSHConnection.change(for: .ready, unsatisfiedReason: nil, isReady: false) == .ready)
+    }
+
+    @Test func connectionThatFailsAfterBeingReadyIsLost() {
+        let change = SSHConnection.change(for: .failed(.posix(.ECONNRESET)), unsatisfiedReason: nil, isReady: true)
+
+        #expect(change == .failed(.connectionLost("connection reset by peer")))
+    }
+
+    /// Once iOS gave up waiting for the user, the connection says why it did not connect.
+    @Test func deniedLocalNetworkAccessSaysSo() {
+        #expect(SSHError.localNetworkDenied.description.contains("Local Network"))
+        #expect(SSHError.localNetworkDenied.description.contains("Privacy & Security"))
+    }
+}
+
 /// A TCP listener on this device's loopback that hands each client to `accept`.
 final class FakeServer: Sendable {
     let port: UInt16

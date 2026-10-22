@@ -119,12 +119,44 @@ struct HostConnectorPreflightTests {
         }
     }
 
-    @Test(arguments: [AuthMethod.sshKey, .keyboardInteractive])
-    func methodsThatComeLaterFail(_ method: AuthMethod) async throws {
-        var host = Self.unreachable(try test.host(password: "unused"))
-        host.authMethod = method
+    @Test func sshKeyHostWithoutAKeyFails() async throws {
+        var host = Self.unreachable(try test.host(password: nil))
+        host.authMethod = .sshKey
 
-        await #expect(throws: ConnectError.unsupportedAuthMethod(method)) {
+        await #expect(throws: ConnectError.noSSHKey) {
+            try await test.connector.connect(to: host) { _, _ in true }
+        }
+    }
+
+    /// A key made on another device, or deleted since.
+    @Test func sshKeyHostWhoseKeyIsNotOnThisDeviceFails() async throws {
+        var host = Self.unreachable(try test.host(password: nil))
+        host.authMethod = .sshKey
+        host.sshKeyID = UUID()
+
+        await #expect(throws: ConnectError.sshKeyNotOnDevice) {
+            try await test.connector.connect(to: host) { _, _ in true }
+        }
+    }
+
+    /// A key that signs while Shello is unlocked cannot sign while app lock is engaged.
+    @Test func sshKeyHostFailsWhileShelloIsLocked() async throws {
+        var host = Self.unreachable(try test.host(password: nil))
+        host.authMethod = .sshKey
+        host.sshKeyID = try test.clientKey().id
+        test.unlockWindow.close()
+
+        await #expect(throws: UnlockWindowClosed.self) {
+            try await test.connector.connect(to: host) { _, _ in true }
+        }
+    }
+
+    /// Keyboard-interactive needs nothing saved: it gets as far as connecting.
+    @Test func keyboardInteractiveHostGetsAsFarAsConnecting() async throws {
+        var host = Self.unreachable(try test.host(password: nil))
+        host.authMethod = .keyboardInteractive
+
+        await #expect(throws: SSHError.self) {
             try await test.connector.connect(to: host) { _, _ in true }
         }
     }

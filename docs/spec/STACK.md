@@ -147,7 +147,7 @@ Consequences:
 
 ## 6. Concurrency and performance model
 
-**Connections.** Each connection is an `actor` whose executor is its own `DispatchSerialQueue` (`nonisolated var unownedExecutor { queue.asUnownedSerialExecutor() }`, [SE-0392](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0392-custom-actor-executors.md); `DispatchSerialQueue` conforms to `SerialExecutor` from iOS 17). The same queue runs the `NWConnection` callbacks, the socketpair pump and every libssh call. libssh is therefore never touched from two threads (ADR 0002), and the compiler rejects code that tries.
+**Connections.** Each connection is an `actor` whose executor is its own `DispatchSerialQueue` ([SE-0392](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0392-custom-actor-executors.md)). The same queue runs the `NWConnection` callbacks, the socketpair pump and every libssh call. libssh is therefore never touched from two threads (ADR 0002), and the compiler rejects code that tries; every libssh operation also checks that it runs on the queue (`dispatchPrecondition`). The executor (`QueueExecutor`) puts each of the actor's jobs on the queue as a block, as Network.framework puts its callbacks. `DispatchSerialQueue`'s own executor (`queue.asUnownedSerialExecutor()`) hands jobs to libdispatch past the functions Thread Sanitizer watches: with it, Thread Sanitizer reported every variable the jobs and the callbacks share as a race (39 reports in the ShelloSSH and ShelloCore tests, none with `QueueExecutor`).
 
 **Input path** (budget: keystroke to network send under 10 ms). Key event on the main actor, one hop to the connection actor, `ssh_channel_write`, then the socketpair and `NWConnection.send`. No allocation-heavy work and no main-thread round trip on the way. A key of the Shello keyboard reaches the terminal's stream before the keyboard draws or gives feedback: in the simulator, with no output, its keys took 0.1 ms (median) and 7.4 ms (95th percentile) from the moment the touch was queued on the main thread (`TerminalPerformanceTests`). The keyboard's own part, from the touch reaching it to the stream, is the signpost interval "Key".
 
@@ -174,8 +174,8 @@ Consequences:
 - **Network changes:** `NWPathMonitor` plus the connection's viability and better-path handlers drive the "reconnecting" state and backoff.
 - **Reachability probes (v1):** a TCP connect with a short timeout through `NWConnection`, at most once per minute per host, and only while the host list is visible.
 - **Local Network privacy:**
-  - `NSLocalNetworkUsageDescription` is set, and Shello explains the prompt before the first local connect ([TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy)).
-  - Denial shows up as `.waiting` with `unsatisfiedReason == .localNetworkDenied`.
+  - `NSLocalNetworkUsageDescription` is set, and Shello explains the prompt before the first local connect ([TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy)). Whether a server is local is a guess from its address (`Server.isOnLocalNetwork`): private and link-local addresses, `.local` and the suffixes home networks use, and names of one label.
+  - Denial shows up as `.waiting` with `unsatisfiedReason == .localNetworkDenied`, and so does the time while the prompt is up. The connection keeps waiting then, since iOS retries it once access is granted; at the connect timeout it fails with `SSHError.localNetworkDenied`, which says where to allow access. A `.waiting` for any other reason fails a first connection at once.
   - The Simulator does not enforce this, so it is tested on a device.
 - **Port forwarding (v1):**
   - Local and dynamic forwards listen through `NWListener` bound to `127.0.0.1` only, never to all interfaces.
@@ -203,18 +203,21 @@ Consequences:
 - **iOS support:** iOS is a [community-tier](https://openssl-library.org/policies/general-supplemental/platforms/index.html) OpenSSL platform. Shello builds with the upstream `ios64-xcrun` and `iossimulator-arm64-xcrun` targets and adds arm64e.
 - **mbedTLS** is not a real fallback anymore. libssh 0.12 does not support mbedTLS 4.x, and mbedTLS 3.6 LTS ends in March 2027 (section 15).
 
-**Algorithm policy as data** (README section 14). The preferred lists for key exchange, ciphers, MACs and host keys ship as a bundled, versioned resource. They are applied through `ssh_options_set` (`SSH_OPTIONS_KEY_EXCHANGE`, `SSH_OPTIONS_CIPHERS_C_S`, `SSH_OPTIONS_HMAC_C_S`, `SSH_OPTIONS_HOSTKEYS` …) and can be overridden per host. The key exchange list is in place, in `Packages/ShelloKit/Sources/ShelloSSH/Resources/AlgorithmPolicy.json`, with the names of the post-quantum key exchanges that mark a connection post-quantum or classical. MVP default order:
+**Algorithm policy as data** (README section 14). The preferred lists for key exchange, ciphers, MACs, host keys and the SSH keys' signatures ship as a bundled, versioned resource, `Packages/ShelloKit/Sources/ShelloSSH/Resources/AlgorithmPolicy.json` (version 2), with the names of the post-quantum key exchanges that mark a connection post-quantum or classical. They are applied through `ssh_options_set` (`SSH_OPTIONS_KEY_EXCHANGE`, `SSH_OPTIONS_CIPHERS_C_S` and `_S_C`, `SSH_OPTIONS_HMAC_C_S` and `_S_C`, `SSH_OPTIONS_HOSTKEYS`, `SSH_OPTIONS_PUBLICKEY_ACCEPTED_TYPES`). A host's own lists (`AlgorithmOverrides`) replace the policy's; their screen and their storage come with v1. The host key algorithms of the server's trusted host key go first, as OpenSSH orders them for a server in `known_hosts`, so that a server with several host keys presents the trusted one. Settings, Diagnostics shows what the policy offers. MVP default order:
 
-- Key exchange: `mlkem768x25519-sha256`, `sntrup761x25519-sha512`, `curve25519-sha256`. sntrup is offered under its vendor name `sntrup761x25519-sha512@openssh.com` too, the only one OpenSSH before 9.9 knows.
-- Ciphers: `chacha20-poly1305`, AES-GCM, AES-CTR.
-- MACs: HMAC-SHA2 encrypt-then-MAC.
-- Off: SHA-1, CBC and DSA.
+- Key exchange: `mlkem768x25519-sha256`, `sntrup761x25519-sha512`, `curve25519-sha256`, then the classical ones without SHA-1 that a server without curve25519, such as one in FIPS mode, may have: `ecdh-sha2-nistp256`, `ecdh-sha2-nistp384`, `ecdh-sha2-nistp521`, `diffie-hellman-group16-sha512`, `diffie-hellman-group18-sha512`, `diffie-hellman-group14-sha256`. sntrup is offered under its vendor name `sntrup761x25519-sha512@openssh.com` too, the only one OpenSSH before 9.9 knows.
+- Ciphers: `chacha20-poly1305@openssh.com`, `aes256-gcm@openssh.com`, `aes128-gcm@openssh.com`, `aes256-ctr`, `aes192-ctr`, `aes128-ctr`.
+- MACs: `hmac-sha2-256-etm@openssh.com`, `hmac-sha2-512-etm@openssh.com`. Only AES-CTR uses them; the other ciphers authenticate themselves.
+- Host keys and SSH keys: `ssh-ed25519`, `ecdsa-sha2-nistp256`, `ecdsa-sha2-nistp384`, `ecdsa-sha2-nistp521`, `rsa-sha2-512`, `rsa-sha2-256`.
+- Off: SHA-1, CBC and DSA. libssh 0.12 has no DSA at all.
 
 **Host keys.**
 
 - Shello keeps its own trust store in the database, keyed by server (address and port), not libssh's `known_hosts` file.
 - The fingerprint shown is SHA-256, computed with `ssh_get_publickey_hash(SSH_PUBLICKEY_HASH_SHA256)`.
-- Replacing a stored host key requires a LocalAuthentication check.
+- Replacing a stored host key requires a LocalAuthentication check: a fresh `LAContext` and `deviceOwnerAuthentication` each time, whether or not the unlock window is open, after the user confirmed the replacement. On a device without a passcode, which cannot ask anyone, the confirmation is enough, as with app lock.
+
+**Keyboard-interactive** (`ssh_userauth_kbdint`): each round of the server's questions goes to the user in one sign-in sheet, which shows or hides each answer as the server asks. The questions are the server's text, so control characters and bidirectional overrides are removed before they are shown. The answers go to libssh as secrets, which libssh overwrites once sent. After a partial success, as on a server with two-factor sign-in, Shello continues with keyboard-interactive, or the host's password or SSH key, whichever the server takes.
 
 ### 7.3 SSH keys, secrets and the SSH agent (README section 13)
 
@@ -224,8 +227,8 @@ Consequences:
 | Generated Ed25519 key | CryptoKit `Curve25519.Signing.PrivateKey`, raw representation in the Keychain, `…WhenUnlockedThisDeviceOnly` with access control. |
 | Imported key | Parsed by libssh (`ssh_pki_import_privkey_base64`: OpenSSH and PEM, with passphrase). The private key is stored in the Keychain; the passphrase is not kept. Synced only on opt-in (`kSecAttrSynchronizable`, v1). |
 | Unlock window | One `LAContext` evaluated at app lock and passed to every Keychain read (`kSecUseAuthenticationContext`) and Secure Enclave signature (`authenticationContext:`). Invalidated when app lock re-engages. "Every use" keys get a fresh context per signature. |
-| Signing for libssh | All SSH keys sign through Shello's SSH agent, connected to libssh with `ssh_set_agent_socket` or `ssh_set_agent_channel` and used through `ssh_userauth_agent` (spike item 3). Secure Enclave keys can never be handed to libssh as private keys, and one signing path gives one place for confirmations and the security log. |
-| SSH agent protocol | Written in-house in Swift ([draft-ietf-sshm-ssh-agent](https://datatracker.ietf.org/doc/draft-ietf-sshm-ssh-agent/)), using [Secretive's `SSHProtocolKit`](https://github.com/maxgoedjen/Secretive) (MIT) as a reference. Fuzzed. |
+| Signing for libssh | All SSH keys sign through Shello's SSH agent (`SSHAgent`), connected to libssh with `ssh_set_agent_socket` and used through `ssh_userauth_agent` (spike item 3). The agent serves one end of a pair of Unix sockets on a queue of its own, because libssh waits for each answer on the connection's queue. For a sign-in it offers the host's key only, and signs through `SSHKeyStore`. Secure Enclave keys can never be handed to libssh as private keys, and one signing path gives one place for confirmations and the security log. |
+| SSH agent protocol | Written in-house in Swift ([draft-ietf-sshm-ssh-agent](https://datatracker.ietf.org/doc/draft-ietf-sshm-ssh-agent/)), using [Secretive's `SSHProtocolKit`](https://github.com/maxgoedjen/Secretive) (MIT) as a reference, with the standard library only. Fuzzed by `Fuzz/SSHAgentProtocol`, built with the swift.org toolchain in Docker (`Fuzz/README.md`). |
 | Public key formats, QR | OpenSSH public-key encoding written in-house; QR codes via Core Image `CIQRCodeGenerator` (v1). |
 | Passwords, passphrases, sudo passwords | Keychain generic passwords, `…WhenUnlockedThisDeviceOnly` unless the user opts into sync. Sudo passwords also carry a biometric access control (README section 9). |
 | Secrets in memory | Kept as byte buffers, never `String`, and overwritten after use. Passed to libssh as C buffers. |
@@ -513,7 +516,7 @@ Development and CI only:
 | MVP | Alpine 3.15 (8.8), Ubuntu 22.04 (8.9), Debian 12 (9.2), Ubuntu 24.04 (9.6), RHEL 10 (9.9), Debian 13 (10.0), Alpine 3.24 (10.3), Alpine edge (10.6, the latest upstream) |
 | v1 additions | RHEL 9 (8.7), Dropbear, several tmux versions, mosh-server |
 
-The post-quantum tests (spike item 4) run against 10.x, where `mlkem768x25519-sha256` is OpenSSH's default, against Ubuntu 24.04's 9.6, which knows only `sntrup761x25519-sha512@openssh.com`, and against 10.x with post-quantum key exchange off (`TestServers/README.md`). RHEL 9.0–9.7 ships OpenSSH 8.7, below the MVP floor, which is why it waits for v1.
+The post-quantum tests (spike item 4) run against 10.x, where `mlkem768x25519-sha256` is OpenSSH's default, against Ubuntu 24.04's 9.6, which knows only `sntrup761x25519-sha512@openssh.com`, and against 10.x with post-quantum key exchange off (`TestServers/README.md`). Alpine 3.15's 8.8, the floor, and 10.x limited to the NIST curves and Diffie-Hellman groups, as in FIPS mode, run as Docker test servers too, the floor with sign-in by password, key and keyboard-interactive. RHEL 9.0–9.7 ships OpenSSH 8.7, below the MVP floor, which is why it waits for v1.
 
 **Why the core builds on Linux.** GitHub's macOS runners have no Docker. Building `ShelloSSH`, `ShelloTmux` and `ShelloModel` for Linux, with a POSIX socket transport used only in tests, lets every pull request run against the whole OpenSSH matrix. The Network.framework bridge is covered by the end-to-end tests on macOS and by device tests. If the Linux build costs more than it saves, the fallback is running the matrix locally with Docker before each merge.
 

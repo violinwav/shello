@@ -15,10 +15,11 @@ final class LaunchTests: XCTestCase {
         try app.auditAccessibility()
     }
 
-    /// libssh and OpenSSL are linked and run inside the app: Settings, Diagnostics lists the
-    /// post-quantum key exchanges.
+    /// libssh and OpenSSL are linked and run inside the app: Settings, Diagnostics shows libssh's
+    /// version and what the algorithm policy offers, the post-quantum key exchanges first and marked
+    /// in words (README section 14), then the ciphers.
     @MainActor
-    func testDiagnosticsShowPostQuantumKeyExchanges() throws {
+    func testDiagnosticsShowTheAlgorithmPolicy() throws {
         let app = XCUIApplication.launchWithEmptyDatabase()
 
         app.openSettings()
@@ -29,9 +30,14 @@ final class LaunchTests: XCTestCase {
         app.reveal(diagnostics)
         diagnostics.tap()
 
-        XCTAssertTrue(app.staticTexts["mlkem768x25519-sha256"].waitForExistence(timeout: 10))
+        let mlkem = app.staticTexts["mlkem768x25519-sha256"]
+        XCTAssertTrue(mlkem.waitForExistence(timeout: 10))
+        XCTAssertEqual(mlkem.value as? String, "Post-quantum")
         XCTAssertTrue(app.staticTexts["sntrup761x25519-sha512"].exists)
         try app.auditAccessibility()
+        let chacha = app.staticTexts["chacha20-poly1305 at openssh.com"]
+        app.reveal(chacha)
+        XCTAssertTrue(chacha.exists)
     }
 
     /// The app opens its database in the App Group container when no test asks for an empty one.

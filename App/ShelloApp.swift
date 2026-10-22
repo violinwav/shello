@@ -22,6 +22,8 @@ struct ShelloApp: App {
     private let appLock: AppLock
     /// The terminal settings of this device.
     private let terminalSettings: TerminalSettings
+    /// Whether iOS's Local Network question has been explained on this device.
+    private let localNetworkNotice: LocalNetworkNotice
     /// Whether the data a UI test asked for is in the database. Debug builds only.
     @State private var hasTestData = !Launch.addsTestData
 
@@ -32,12 +34,16 @@ struct ShelloApp: App {
         secrets = SecretStore(keychain: SystemKeychain(), unlockWindow: unlockWindow)
         sshKeys =
             Launch.keepsSSHKeysInMemory
-            ? .inMemory(unlockWindow: unlockWindow, secureEnclave: Launch.standsInForSecureEnclave)
+            ? .inMemory(
+                unlockWindow: unlockWindow, secureEnclave: Launch.standsInForSecureEnclave,
+                fixtureKeys: Launch.fixtureSSHKeys)
             : SSHKeyStore(unlockWindow: unlockWindow)
         appLock = AppLock(window: unlockWindow, defaults: Launch.settings, isEnabled: Launch.locksApp)
         terminalSettings = TerminalSettings(defaults: Launch.settings, cursorBlinks: Launch.blinksCursor)
+        localNetworkNotice = LocalNetworkNotice(defaults: Launch.settings)
         let secrets = secrets
-        services = Result { Services(database: try Self.openDatabase(), secrets: secrets) }
+        let sshKeys = sshKeys
+        services = Result { Services(database: try Self.openDatabase(), secrets: secrets, keys: sshKeys) }
         if case .failure(let error) = services {
             Logger(subsystem: "ch.shello.Shello", category: "Storage").error("Could not open the database: \(error)")
         }
@@ -59,6 +65,7 @@ struct ShelloApp: App {
                             .environment(\.appLock, appLock)
                             .environment(\.terminalSettings, terminalSettings)
                             .environment(\.hostConnector, services.hostConnector)
+                            .environment(\.localNetworkNotice, localNetworkNotice)
                     case .success(let services):
                         Color.clear.task {
                             await Launch.addTestData(to: services.hostKeyRepository)
@@ -109,11 +116,11 @@ private struct Services {
     let hostKeyRepository: HostKeyRepository
     let hostConnector: HostConnector
 
-    init(database: AppDatabase, secrets: SecretStore) {
+    init(database: AppDatabase, secrets: SecretStore, keys: SSHKeyStore) {
         hostRepository = HostRepository(database)
         exportRepository = ExportRepository(database)
         hostKeyRepository = HostKeyRepository(database)
-        hostConnector = HostConnector(hostKeys: hostKeyRepository, secrets: secrets)
+        hostConnector = HostConnector(hostKeys: hostKeyRepository, secrets: secrets, keys: keys)
     }
 }
 
@@ -133,6 +140,14 @@ private enum Launch {
         /// The simulator cannot make Secure Enclave keys. A UI test about them gets a stand-in, which
         /// keeps its keys in memory.
         static var standsInForSecureEnclave: Bool { environment["SHELLO_UI_TESTING_SECURE_ENCLAVE"] == "1" }
+
+        /// A UI test that signs in with an SSH key starts with the test server's client key among the
+        /// keys in memory: "private-key-in-base64 name", for TestServers/keys/client_ed25519.
+        static var fixtureSSHKeys: [SSHKeyStore.FixtureKey] {
+            let fields = environment["SHELLO_UI_TESTING_SSH_KEY"]?.split(separator: " ", maxSplits: 1).map(String.init)
+            guard let fields, fields.count == 2, let privateKey = Data(base64Encoded: fields[0]) else { return [] }
+            return [SSHKeyStore.FixtureKey(privateKey: privateKey, comment: fields[1])]
+        }
 
         /// UI tests run without app lock unless they are about it.
         static var locksApp: Bool {
@@ -192,6 +207,7 @@ private enum Launch {
         static let usesEmptyDatabase = false
         static let keepsSSHKeysInMemory = false
         static let standsInForSecureEnclave = false
+        static let fixtureSSHKeys: [SSHKeyStore.FixtureKey] = []
         static let locksApp = true
         static let blinksCursor = true
         static let colorScheme: ColorScheme? = nil

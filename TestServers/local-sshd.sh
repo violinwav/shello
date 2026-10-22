@@ -4,17 +4,21 @@
 #
 # Usage: TestServers/local-sshd.sh [start] | stop
 #
-# It runs two sshd as the current user, unprivileged, with host key a, on the ports of the Docker
-# servers they stand in for: 127.0.0.1:2222 with OpenSSH's default key exchanges, and 127.0.0.1:2224
-# with post-quantum key exchange off. Both let that user in with the fixture key
-# TestServers/keys/client_ed25519 only: an unprivileged sshd cannot check passwords. Their files live
+# It runs three sshd as the current user, unprivileged, with host key a, on the ports of the Docker
+# servers they stand in for: 127.0.0.1:2222 with OpenSSH's default key exchanges, 127.0.0.1:2224
+# with post-quantum key exchange off, and 127.0.0.1:2226 with the NIST curves and Diffie-Hellman
+# groups only. All let that user in with the fixture key TestServers/keys/client_ed25519 only: an
+# unprivileged sshd cannot check passwords, nor ask keyboard-interactive questions. Their files live
 # in a directory of their own under $TMPDIR.
 set -euo pipefail
 
 PORT=2222
 CLASSICAL_PORT=2224
-# OpenSSH's default key exchanges without the post-quantum ones, as in openssh/entrypoint.sh.
+NIST_PORT=2226
+# OpenSSH's default key exchanges without the post-quantum ones, and those without curve25519 too,
+# as in openssh/entrypoint.sh.
 CLASSICAL_KEX=curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256
+NIST_KEX=ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256
 DIR=$(cd "$(dirname "$0")" && pwd)
 STATE="${TMPDIR:-/tmp}/shello-test-sshd"
 
@@ -54,6 +58,9 @@ KbdInteractiveAuthentication no
 UsePAM no
 StrictModes no
 MaxStartups 100
+# Every test connects from 127.0.0.1, and many fail to sign in on purpose: OpenSSH's penalties for
+# that would refuse every connection for a while.
+PerSourcePenalties no
 EOF
     [[ $# -eq 0 ]] || printf '%s\n' "$@"
 }
@@ -67,17 +74,21 @@ start() {
     install -m 600 "$DIR/keys/client_ed25519.pub" "$STATE/authorized_keys"
     write_config "$PORT" sshd >"$STATE/sshd_config"
     write_config "$CLASSICAL_PORT" sshd-classical "KexAlgorithms $CLASSICAL_KEX" >"$STATE/sshd-classical_config"
+    write_config "$NIST_PORT" sshd-nist "KexAlgorithms $NIST_KEX" >"$STATE/sshd-nist_config"
     /usr/sbin/sshd -f "$STATE/sshd_config" -E "$STATE/sshd.log"
     /usr/sbin/sshd -f "$STATE/sshd-classical_config" -E "$STATE/sshd-classical.log"
+    /usr/sbin/sshd -f "$STATE/sshd-nist_config" -E "$STATE/sshd-nist.log"
     printf 'Test server on 127.0.0.1:%s, host key a: %s\n' "$PORT" "$(wait_for_banner "$PORT" sshd)"
     printf 'Test server on 127.0.0.1:%s, host key a, post-quantum key exchange off: %s\n' "$CLASSICAL_PORT" \
         "$(wait_for_banner "$CLASSICAL_PORT" sshd-classical)"
+    printf 'Test server on 127.0.0.1:%s, host key a, NIST curves and Diffie-Hellman groups only: %s\n' \
+        "$NIST_PORT" "$(wait_for_banner "$NIST_PORT" sshd-nist)"
     printf 'Sign in as %s with TestServers/keys/client_ed25519.\n' "$(id -un)"
 }
 
 stop() {
     local name
-    for name in sshd sshd-classical; do
+    for name in sshd sshd-classical sshd-nist; do
         if [[ -f $STATE/$name.pid ]]; then
             kill "$(cat "$STATE/$name.pid")" 2>/dev/null || true
             rm -f "$STATE/$name.pid"

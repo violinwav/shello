@@ -1,11 +1,13 @@
+import CryptoKit
 import Darwin
 import XCTest
 
 /// Connecting to a host (README sections 3 and 4) against the test servers of TestServers/README.md:
-/// the trust sheet on the first connection, the block on a changed host key, and a password sign-in
-/// that opens the shell, with its key exchange marked post-quantum or classical (README section 14),
-/// each screen audited. Skipped when the server is not running; the sign-ins also when the server
-/// takes keys only, as CI's does.
+/// the trust sheet on the first connection, the block on a changed host key and its replacement,
+/// sign-in with a password, an SSH key or keyboard-interactive that opens the shell, with its key
+/// exchange marked post-quantum or classical (README section 14), and the Local Network explanation,
+/// each screen audited. Skipped when the server is not running; the password and keyboard-interactive
+/// sign-ins also when the server takes keys only, as CI's does.
 final class ConnectionTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -51,10 +53,14 @@ final class ConnectionTests: XCTestCase {
     }
 
     /// Another key is trusted for the server than the one it presents: the connection is blocked,
-    /// and the sheet shows both keys. Closing it closes the terminal too.
+    /// and the sheet shows both keys. Closing it closes the terminal too. Replacing the trusted key
+    /// (README section 3) takes a confirmation, then Face ID, and connects again: past the host key
+    /// now, the password, never sent before, is refused.
     @MainActor
-    func testChangedHostKeyBlocksTheConnection() throws {
+    func testChangedHostKeyBlocksTheConnectionUntilItIsReplaced() throws {
         try XCTSkipUnless(TestServer.isRunning, TestServer.notRunning)
+        SimulatedFaceID.enroll()
+        addTeardownBlock { SimulatedFaceID.unenroll() }
         let keyB = TestServer.hostKeyB
         let app = XCUIApplication.launchWithEmptyDatabase(
             appearance: .dark,
@@ -76,6 +82,115 @@ final class ConnectionTests: XCTestCase {
         blockSheet.buttons["Close"].tap()
         XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.navigationBars[TestServer.hostName].buttons["Close"].exists)
+
+        app.buttons["Connect"].tap()
+        XCTAssertTrue(blockSheet.waitForExistence(timeout: 15))
+        let replace = app.buttons["Replace Trusted Key…"]
+        app.reveal(replace)
+        replace.tap()
+        let confirm = app.buttons["Replace Key"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        try app.auditAlertAccessibility()
+        confirm.tap()
+        app.confirmWithFaceID(until: blockSheet)
+
+        XCTAssertTrue(app.connectionStatus(containing: "didn’t accept").waitForExistence(timeout: 15))
+        app.navigationBars[TestServer.hostName].buttons["Close"].tap()
+        XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
+    }
+
+    /// Signing in with an SSH key through Shello's SSH agent (STACK section 7.3): the host editor
+    /// chooses the test server's client key, which this launch keeps in memory, and Connect signs in
+    /// with it. CI's sshd takes the key, so this runs there too.
+    @MainActor
+    func testSSHKeySignInOpensTheShell() throws {
+        try XCTSkipUnless(TestServer.isRunning, TestServer.notRunning)
+        let app = XCUIApplication.launchWithEmptyDatabase(
+            environment: ["SHELLO_UI_TESTING_SSH_KEY": TestServer.clientKeyLaunchValue])
+        app.addKeyHost()
+
+        app.buttons["Connect"].tap()
+        let trustSheet = app.navigationBars["Trust This Server?"]
+        XCTAssertTrue(trustSheet.waitForExistence(timeout: 15))
+        trustSheet.buttons["Trust"].tap()
+        XCTAssertTrue(app.connectionStatus(containing: "Connecting").waitForNonExistence(timeout: 15))
+        XCTAssertFalse(app.connectionStatus(containing: "didn’t").exists)
+        // The Connection button shows once the shell is attached.
+        app.openConnectionSheet(marked: "Post-Quantum Key Exchange")
+        app.navigationBars["Connection"].buttons["Close"].tap()
+
+        app.navigationBars[TestServer.hostName].buttons["Close"].tap()
+        XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
+    }
+
+    /// Keyboard-interactive sign-in (README section 4): the Docker server asks `shello-otp` for its
+    /// password, an answer it hides, then for a one-time code, which it shows, each in a round of
+    /// its own in the one sign-in sheet. Both rounds are audited. CI's sshd asks no questions.
+    @MainActor
+    func testKeyboardInteractiveAsksThePasswordThenTheOneTimeCode() throws {
+        try XCTSkipUnless(TestServer.isRunning, TestServer.notRunning)
+        guard let password = TestServer.password else { throw XCTSkip("The test server asks no questions.") }
+        let app = XCUIApplication.launchWithEmptyDatabase()
+        app.addKeyboardInteractiveHost(user: "shello-otp")
+
+        app.buttons["Connect"].tap()
+        let trustSheet = app.navigationBars["Trust This Server?"]
+        XCTAssertTrue(trustSheet.waitForExistence(timeout: 15))
+        trustSheet.buttons["Trust"].tap()
+
+        let signIn = app.navigationBars["Sign In"]
+        let passwordField = app.secureTextFields["Password"]
+        XCTAssertTrue(passwordField.waitForExistence(timeout: 15))
+        XCTAssertTrue(signIn.exists)
+        app.putKeyboardAway()
+        try app.auditAccessibility()
+        app.enter(password, into: passwordField)
+        signIn.buttons["Sign In"].tap()
+
+        // The answer shows as it is typed: an ordinary text field.
+        let codeField = app.textFields["Verification code"]
+        XCTAssertTrue(codeField.waitForExistence(timeout: 15))
+        app.putKeyboardAway()
+        try app.auditAccessibility()
+        // Return in the last field signs in.
+        app.enter(TestServer.oneTimeCode() + "\n", into: codeField)
+
+        XCTAssertTrue(signIn.waitForNonExistence(timeout: 15))
+        XCTAssertTrue(app.waitForTerminalText("Shello test server"))
+        app.navigationBars[TestServer.hostName].buttons["Close"].tap()
+        XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
+    }
+
+    /// Before the first connection to a server on the local network, Shello explains iOS's Local
+    /// Network question (README section 3, TN3179). Not Now goes back, and the next Connect explains
+    /// again; once the user continues, the terminal opens, and later connections explain nothing.
+    /// The simulator has no Local Network question of its own, so the server need not exist.
+    @MainActor
+    func testLocalNetworkIsExplainedBeforeTheFirstLocalConnection() throws {
+        let app = XCUIApplication.launchWithEmptyDatabase()
+        app.addPasswordHost(password: "never-sent", address: "192.168.255.254", port: 22)
+
+        app.buttons["Connect"].tap()
+        let explanation = app.navigationBars["Local Network"]
+        XCTAssertTrue(explanation.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["192.168.255.254 is on your local network."].exists)
+        try app.auditAccessibility()
+        explanation.buttons["Not Now"].tap()
+        XCTAssertTrue(explanation.waitForNonExistence(timeout: 5))
+
+        app.buttons["Connect"].tap()
+        XCTAssertTrue(explanation.waitForExistence(timeout: 10))
+        explanation.buttons["Continue"].tap()
+        let terminal = app.navigationBars[TestServer.hostName]
+        XCTAssertTrue(terminal.waitForExistence(timeout: 10))
+        terminal.buttons["Close"].tap()
+
+        XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
+        app.buttons["Connect"].tap()
+        XCTAssertTrue(terminal.waitForExistence(timeout: 10))
+        XCTAssertFalse(explanation.exists)
+        terminal.buttons["Close"].tap()
+        XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
     }
 
     /// The whole way, with the password: trust, sign in, and the shell in the terminal. OpenSSH 10
@@ -204,6 +319,25 @@ enum TestServer {
     static let isRunning = hasSSHBanner(port: port)
     static let isClassicalRunning = hasSSHBanner(port: classicalPort)
 
+    /// TestServers/keys/client_ed25519, which both servers let the test user in with, for the
+    /// launch option that keeps it among the SSH keys in memory: its private key's 32 bytes in
+    /// base64, then its name. A public test fixture.
+    static let clientKeyLaunchValue = "ofQMdaZY6428Z0L+p1ROfYPD5L/UDl+PviWmLJf/bNY= shello-test-client"
+
+    /// The Docker server's one-time code for `shello-otp` now (TestServers/openssh/google_authenticator):
+    /// TOTP (RFC 6238), six digits, a new one every 30 seconds, from the fixture secret
+    /// SHELLOTESTSECRET. SHA-1 is TOTP's, not SSH's.
+    static func oneTimeCode() -> String {
+        let secret = SymmetricKey(data: [145, 200, 181, 186, 100, 148, 228, 65, 68, 147] as [UInt8])
+        let step = UInt64(Date.now.timeIntervalSince1970 / 30)
+        let counter = Data((0..<8).reversed().map { UInt8(truncatingIfNeeded: step >> ($0 * 8)) })
+        let mac = Array(HMAC<Insecure.SHA1>.authenticationCode(for: counter, using: secret))
+        let offset = Int(mac[19] & 0x0f)
+        let number = mac[offset..<offset + 4].reduce(UInt32(0)) { $0 << 8 | UInt32($1) } & 0x7fff_ffff
+        let digits = String(number % 1_000_000)
+        return String(repeating: "0", count: 6 - digits.count) + digits
+    }
+
     /// Whether an SSH server greets on `port` of 127.0.0.1 within two seconds.
     private static func hasSSHBanner(port: Int) -> Bool {
         let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
@@ -232,20 +366,79 @@ extension XCUIApplication {
     /// opens its details. The method and the password go first: while the keyboard is up, a tap on
     /// the picker only ends the typing (HostTests).
     @MainActor
-    func addPasswordHost(password: String, port: Int = TestServer.port) {
+    func addPasswordHost(password: String, address: String = TestServer.address, port: Int = TestServer.port) {
         buttons["Add Host"].firstMatch.tap()
         choose("Password", in: "Method")
         enter(password + "\n", into: secureTextFields["Password"])
         XCTAssertTrue(keyboards.firstMatch.waitForNonExistence(timeout: 10))
+        saveAndOpenTestServerHost(address: address, port: port, user: TestServer.user)
+    }
+
+    /// Adds the host `test-server` for the test server, signing in with the SSH key
+    /// `shello-test-client`, which the launch option `SHELLO_UI_TESTING_SSH_KEY` keeps in memory, and
+    /// opens its details. SSH Key is a new host's method; the key goes first, before the keyboard is
+    /// up.
+    @MainActor
+    func addKeyHost() {
+        buttons["Add Host"].firstMatch.tap()
+        let sshKey = picker("SSH Key")
+        reveal(sshKey)
+        sshKey.tap()
+        XCTAssertTrue(navigationBars["SSH Key"].waitForExistence(timeout: 5))
+        buttons["shello-test-client"].tap()
+        XCTAssertTrue(navigationBars["New Host"].waitForExistence(timeout: 5))
+        XCTAssertEqual(picker("SSH Key").label, "SSH Key, shello-test-client")
+        saveAndOpenTestServerHost(address: TestServer.address, port: TestServer.port, user: TestServer.user)
+    }
+
+    /// Adds the host `test-server` for the test server as `user`, signing in with keyboard-interactive,
+    /// and opens its details.
+    @MainActor
+    func addKeyboardInteractiveHost(user: String) {
+        buttons["Add Host"].firstMatch.tap()
+        choose("Keyboard-Interactive", in: "Method")
+        saveAndOpenTestServerHost(address: TestServer.address, port: TestServer.port, user: user)
+    }
+
+    /// Fills in the open host editor's name `test-server`, `address`, `port` and `user`, saves, and
+    /// opens the host's details.
+    @MainActor
+    private func saveAndOpenTestServerHost(address: String, port: Int, user: String) {
         enter(TestServer.hostName, into: textFields["Name"])
-        enter(TestServer.address, into: textFields["Address"])
+        enter(address, into: textFields["Address"])
         replace(with: String(port), in: textFields["Port"])
-        enter(TestServer.user, into: textFields["User"])
+        enter(user, into: textFields["User"])
         navigationBars["New Host"].buttons["Save"].tap()
         let row = buttons[TestServer.hostName].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         row.tap()
         XCTAssertTrue(navigationBars[TestServer.hostName].waitForExistence(timeout: 5))
+    }
+
+    /// Puts the keyboard away by dragging the sheet's list down, as a user does, and waits until it
+    /// has gone and the screen has come to rest: an accessibility audit misreads a screen while the
+    /// keyboard is up.
+    @MainActor
+    func putKeyboardAway(file: StaticString = #filePath, line: UInt = #line) {
+        let start = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+        start.press(
+            forDuration: 0, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 120)), withVelocity: .slow,
+            thenHoldForDuration: 0.3)
+        XCTAssertTrue(
+            keyboards.firstMatch.waitForNonExistence(timeout: 10), "The keyboard stays up", file: file, line: line)
+        settle()
+    }
+
+    /// Shows the enrolled face to the Face ID prompt until `element` goes, as the confirmation
+    /// makes it: the face only counts while the prompt looks for one, so it is shown every second.
+    @MainActor
+    func confirmWithFaceID(until element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let deadline = Date.now.addingTimeInterval(30)
+        while element.exists, Date.now < deadline {
+            SimulatedFaceID.match()
+            _ = element.waitForNonExistence(timeout: 1)
+        }
+        XCTAssertFalse(element.exists, "Face ID does not confirm", file: file, line: line)
     }
 
     /// The host key fingerprints on a sheet, in their order.

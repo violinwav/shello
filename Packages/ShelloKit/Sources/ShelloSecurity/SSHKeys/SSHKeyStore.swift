@@ -42,13 +42,40 @@ public struct SSHKeyStore: Sendable {
     /// SSH keys in memory, for tests, SwiftUI previews and UI tests: they go when the store goes.
     /// Without `secureEnclave`, the store makes Ed25519 keys only, as in the iOS Simulator. With it,
     /// a stand-in makes the Secure Enclave's kind of key, as an ordinary P-256 key in memory.
+    /// `fixtureKeys` are there from the start, so that a test can sign in to a test server that
+    /// knows them; one that is not an Ed25519 private key is left out.
     public static func inMemory(
         unlockWindow: UnlockWindow, authentication: some Authentication = LocalAuthentication(),
-        secureEnclave: Bool = false
+        secureEnclave: Bool = false, fixtureKeys: [FixtureKey] = []
     ) -> SSHKeyStore {
-        SSHKeyStore(
-            items: MemoryKeyItems(), enclave: MemoryEnclave(isAvailable: secureEnclave), unlockWindow: unlockWindow,
+        let items = MemoryKeyItems()
+        for fixture in fixtureKeys {
+            guard let privateKey = try? Curve25519.Signing.PrivateKey(rawRepresentation: fixture.privateKey) else {
+                continue
+            }
+            let key = SSHKey(
+                id: UUID(), comment: fixture.comment, kind: .ed25519, signingPolicy: fixture.signingPolicy,
+                publicKey: SSHPublicKey(privateKey.publicKey), createdAt: Date())
+            try? items.add(KeyRecord(key), keyData: Secret(copying: fixture.privateKey), requiresUserPresence: true)
+        }
+        return SSHKeyStore(
+            items: items, enclave: MemoryEnclave(isAvailable: secureEnclave), unlockWindow: unlockWindow,
             authentication: authentication)
+    }
+
+    /// An Ed25519 key that a store in memory starts with (`inMemory(…)`): a test fixture whose
+    /// public key a test server lets in, such as TestServers/keys/client_ed25519.
+    public struct FixtureKey: Sendable {
+        /// The private key's 32 bytes (`Curve25519.Signing.PrivateKey.rawRepresentation`).
+        public let privateKey: Data
+        public let comment: String
+        public let signingPolicy: SigningPolicy
+
+        public init(privateKey: Data, comment: String, signingPolicy: SigningPolicy = .standard) {
+            self.privateKey = privateKey
+            self.comment = comment
+            self.signingPolicy = signingPolicy
+        }
     }
 
     init(items: some KeyItems, enclave: some Enclave, unlockWindow: UnlockWindow, authentication: some Authentication) {
@@ -84,6 +111,18 @@ public struct SSHKeyStore: Sendable {
     /// - Throws: `KeychainError`.
     public func key(id: SSHKey.ID) throws -> SSHKey? {
         try items.records().first { $0.id == id }?.key
+    }
+
+    /// The SSH key `id`, if it could sign now: it is on this device, and it signs on every use, or
+    /// Shello is unlocked. A connection checks this before it goes over the network.
+    /// - Throws: `SSHKeyError.keyNotFound` for a key that is not on this device; `UnlockWindowClosed`
+    ///   while app lock is engaged, for a key that signs while Shello is unlocked; `KeychainError`.
+    public func signingKey(id: SSHKey.ID) throws -> SSHKey {
+        guard let key = try key(id: id) else { throw SSHKeyError.keyNotFound(id) }
+        if key.signingPolicy == .whileUnlocked, !unlockWindow.isOpen {
+            throw UnlockWindowClosed()
+        }
+        return key
     }
 
     /// Makes a new SSH key of `kind`, named `comment`, that signs as `signingPolicy` says.

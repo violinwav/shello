@@ -63,6 +63,36 @@ struct HostKeyRepositoryTests {
         #expect(try await database.hostKeys.trustedKey(of: server) == trusted)
     }
 
+    /// The explicit action (README section 3): the trusted key gives way to the one the server
+    /// presents now, trusted from now on.
+    @Test func replacingTheTrustedKeyTrustsTheNewOne() async throws {
+        try await database.hostKeys.trust(Self.keyA, of: server)
+        let later = Date(timeIntervalSinceReferenceDate: 800_100_000)
+        database.clock.set(later)
+
+        try await database.hostKeys.replace(Self.keyA, with: Self.keyB, of: server)
+
+        #expect(try await database.hostKeys.trustedKey(of: server) == TrustedHostKey(key: Self.keyB, trustedAt: later))
+    }
+
+    /// The user agreed to replace the key they saw: if another one was trusted meanwhile, it stays.
+    @Test func replacingAKeyThatIsNotTrustedAnyMoreFails() async throws {
+        try await database.hostKeys.trust(Self.keyB, of: server)
+        let trusted = try #require(try await database.hostKeys.trustedKey(of: server))
+
+        await #expect(throws: HostKeyRepositoryError.otherKeyTrusted(server, trusted: trusted)) {
+            try await database.hostKeys.replace(Self.keyA, with: Self.keyB, of: server)
+        }
+        #expect(try await database.hostKeys.trustedKey(of: server) == trusted)
+    }
+
+    @Test func replacingWhenNoKeyIsTrustedFails() async throws {
+        await #expect(throws: HostKeyRepositoryError.noKeyTrusted(server)) {
+            try await database.hostKeys.replace(Self.keyA, with: Self.keyB, of: server)
+        }
+        #expect(try await database.hostKeys.trustedKey(of: server) == nil)
+    }
+
     /// The host keys of TestServers/keys: host key a and host key b.
     static let keyA = HostKey(
         algorithm: "ssh-ed25519",

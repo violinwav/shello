@@ -121,10 +121,11 @@ jobs:
 
       # The test servers of the SSH integration tests and ConnectionTests (TestServers/README.md):
       # macOS runners have no Docker, so they are this runner's own sshd (OpenSSH 10), unprivileged
-      # on 127.0.0.1:2222 and, with post-quantum key exchange off, on 2224. KeyExchangeTests check
-      # the key exchange on both; their OpenSSH 9 server needs Docker. The servers let the runner's
-      # user in with the fixture key only: xcodebuild hands the user to the tests, whose password
-      # sign-ins then skip.
+      # on 127.0.0.1:2222, with post-quantum key exchange off on 2224, and with the NIST curves and
+      # Diffie-Hellman groups only on 2226. KeyExchangeTests check the key exchange on all three;
+      # their OpenSSH 9 and 8.8 servers need Docker. The servers let the runner's user in with the
+      # fixture key only: xcodebuild hands the user to the tests, whose password and
+      # keyboard-interactive sign-ins then skip.
       - name: Start the test SSH servers
         if: matrix.suite == 'checks' || matrix.suite == 'ui-tests'
         run: |

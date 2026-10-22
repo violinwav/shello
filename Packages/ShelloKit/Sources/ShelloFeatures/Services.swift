@@ -27,7 +27,11 @@ extension EnvironmentValues {
     /// use the defaults.
     @Entry public var terminalSettings: TerminalSettings? = nil
 
-    /// Connects to a host's server, with the trusted host keys and the passwords. Without it, a host's
-    /// Connect button is disabled.
+    /// Connects to a host's server, with the trusted host keys, the passwords and the SSH keys.
+    /// Without it, a host's Connect button is disabled.
     @Entry public var hostConnector: HostConnector? = nil
+
+    /// Whether iOS's Local Network question has been explained. Without it, Connect explains
+    /// nothing.
+    @Entry public var localNetworkNotice: LocalNetworkNotice? = nil
 }

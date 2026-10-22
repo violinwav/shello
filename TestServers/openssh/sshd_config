@@ -1,5 +1,6 @@
-# The test server's sshd: OpenSSH's defaults, with password sign-in on for the test user.
-# The host key is chosen on the command line (entrypoint.sh).
+# The test servers' sshd: OpenSSH's defaults, with password sign-in on for the test users.
+# The host key is chosen on the command line, and so are the key exchanges and keyboard-interactive
+# sign-in through PAM, on the servers that have it (entrypoint.sh).
 Port 22
 # Tests connect many times at once; the default (10:30:100) drops some of them at random.
 MaxStartups 100
@@ -8,6 +9,6 @@ PubkeyAuthentication yes
 PasswordAuthentication yes
 KbdInteractiveAuthentication no
 PermitRootLogin no
-AllowUsers shello
+AllowUsers shello shello-otp shello-2fa
 PrintMotd yes
 Subsystem sftp internal-sftp

@@ -47,10 +47,18 @@ struct HostKeyTrustSheet: View {
 }
 
 /// A server that identified itself with another host key than the one the user trusted: Shello did
-/// not connect (README section 3). Replacing the trusted key comes with #27.
+/// not connect (README section 3). Once the server's administrator confirms the new key, the user
+/// can replace the trusted key with it: an explicit action, which asks for confirmation, then Face
+/// ID, Touch ID or the passcode (STACK section 7.2). Shello then connects again.
 struct HostKeyChangedSheet: View {
     let change: HostTerminalModel.HostKeyChange
+    /// Whether the user is being asked to authenticate for the replacement.
+    let isReplacing: Bool
+    /// Why the last replacement did not happen.
+    let problem: String?
+    let replace: () -> Void
     let close: () -> Void
+    @State private var confirmsReplacement = false
 
     var body: some View {
         NavigationStack {
@@ -85,9 +93,25 @@ struct HostKeyChangedSheet: View {
                 } header: {
                     SectionHeader("Key Presented Now")
                 } footer: {
+                    FooterText("Ask the server’s administrator whether its host key changed, and for its fingerprint.")
+                }
+                .listRowBackground(Palette.cell)
+
+                Section {
+                    Button("Replace Trusted Key…", systemImage: "key.horizontal") { confirmsReplacement = true }
+                        .labelStyle(.row)
+                        .destructiveStyle()
+                        .disabled(isReplacing)
+                    if let problem {
+                        // In a list, a long problem would wrap under its icon.
+                        ProblemText(problem: problem)
+                            .labelStyle(.row)
+                    }
+                } footer: {
                     FooterText(
-                        "Ask the server’s administrator whether its host key changed. Shello can’t replace a "
-                            + "trusted host key yet.")
+                        "Replace it only if the administrator confirms that the fingerprint above is the server’s. "
+                            + "Shello then trusts it for every host on \(change.server.description), and asks you "
+                            + "to confirm that it’s you first.")
                 }
                 .listRowBackground(Palette.cell)
             }
@@ -101,6 +125,16 @@ struct HostKeyChangedSheet: View {
                     Button("Close", systemImage: "xmark", role: .close, action: close)
                         .keyboardShortcut(.cancelAction)
                 }
+            }
+            .confirmationDialog(
+                "Replace the trusted host key of \(change.server.description)?", isPresented: $confirmsReplacement,
+                titleVisibility: .visible
+            ) {
+                Button("Replace Key", role: .destructive, action: replace)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                // The fingerprint is on the sheet, where VoiceOver spells it out; a dialog cannot.
+                Text("Shello will trust the \(change.presented.typeName) key presented now in its place.")
             }
         }
     }

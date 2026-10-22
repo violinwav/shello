@@ -14,7 +14,12 @@ struct HostDetailView: View {
     @State private var confirmsDelete = false
     /// The host whose terminal is open.
     @State private var connectsHost: Host?
+    /// The host whose first connection to the local network the Local Network sheet explains.
+    @State private var explainsLocalNetwork: Host?
+    /// The host to connect to once the Local Network sheet has gone.
+    @State private var connectsAfterExplanation: Host?
     @Environment(\.hostConnector) private var connector
+    @Environment(\.localNetworkNotice) private var localNetworkNotice
 
     init(
         repository: HostRepository, secrets: SecretStore?, keys: SSHKeyStore?, hostID: Host.ID,
@@ -69,6 +74,22 @@ struct HostDetailView: View {
         .fullScreenCover(item: $connectsHost) { host in
             HostTerminalView(host: host)
         }
+        // The terminal opens once the sheet has gone: one presentation at a time.
+        .sheet(
+            item: $explainsLocalNetwork,
+            onDismiss: {
+                connectsHost = connectsAfterExplanation
+                connectsAfterExplanation = nil
+            }
+        ) { host in
+            LocalNetworkSheet(host: host) {
+                localNetworkNotice?.markExplained()
+                connectsAfterExplanation = host
+                explainsLocalNetwork = nil
+            } cancel: {
+                explainsLocalNetwork = nil
+            }
+        }
         .confirmationDialog(
             "Delete “\(model.host?.name ?? "")”?", isPresented: $confirmsDelete, titleVisibility: .visible
         ) {
@@ -96,7 +117,13 @@ struct HostDetailView: View {
         List {
             Section {
                 Button {
-                    connectsHost = host
+                    // iOS asks for Local Network access on the first connection to a server on the
+                    // local network: Shello explains why first (README section 3).
+                    if localNetworkNotice?.explainsBeforeConnecting(to: host) == true {
+                        explainsLocalNetwork = host
+                    } else {
+                        connectsHost = host
+                    }
                 } label: {
                     Label("Connect", systemImage: "play.fill")
                         .font(Typography.rowTitle)

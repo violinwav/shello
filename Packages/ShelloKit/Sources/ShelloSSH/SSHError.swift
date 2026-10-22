@@ -9,13 +9,21 @@ public enum SSHError: Error, Equatable, Sendable, CustomStringConvertible {
     case unreachable(String)
     /// The server did not complete the connection and the key exchange within the connect timeout.
     case timedOut
+    /// iOS did not let Shello reach the server, which is on the local network: the user has not
+    /// allowed Local Network access, or has not answered the system's question yet (TN3179).
+    case localNetworkDenied
     /// The connection ended without Shello closing it: the server closed it, or the network dropped
     /// it.
     case connectionLost(String)
     /// Shello closed the connection.
     case closed
-    /// The server did not accept the password or the key.
+    /// The server did not accept the password, the key or the answers.
     case authenticationFailed
+    /// The server accepted the sign-in, but needs one of these methods as well, as a server with
+    /// two-factor sign-in does.
+    case partiallyAuthenticated(SSHAuthenticationMethods)
+    /// The SSH agent did not sign the sign-in with the SSH key.
+    case signingFailed
     /// The private key could not be read: it is not a key libssh knows, or the passphrase is wrong.
     case invalidKey
     /// The server refused to open a channel, or a request on one.
@@ -29,9 +37,15 @@ public enum SSHError: Error, Equatable, Sendable, CustomStringConvertible {
         switch self {
         case .unreachable(let reason): "The server can’t be reached: \(reason)."
         case .timedOut: "The server didn’t answer in time."
+        case .localNetworkDenied:
+            "Shello isn’t allowed to reach devices on your local network. Turn on Local Network for Shello in "
+                + "Settings, under Privacy & Security, then connect again."
         case .connectionLost(let reason): "The connection ended: \(reason)."
         case .closed: "The connection is closed."
         case .authenticationFailed: "The server didn’t accept the credentials."
+        case .partiallyAuthenticated(let methods):
+            "The server needs a further sign-in: \(methods.names.joined(separator: ", "))."
+        case .signingFailed: "The SSH key didn’t sign the sign-in."
         case .invalidKey: "The SSH key can’t be read. Check that it’s a private key and that its passphrase is right."
         case .channelRefused(let reason): "The server refused the request: \(reason)."
         case .protocolError(let reason): "SSH failed: \(reason)."

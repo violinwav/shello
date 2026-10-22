@@ -63,8 +63,12 @@ A key exchange built to resist a quantum computer, so that traffic recorded toda
 _Avoid_: Quantum-safe, quantum-proof, PQC
 
 **Algorithm policy**:
-The algorithms Shello offers a server, most preferred first, and which of them are post-quantum. It is data that ships with the app and carries a version, not code (README section 14).
+The algorithms Shello offers a server, most preferred first, and which of them are post-quantum: key exchanges, ciphers, MACs, host key algorithms and the algorithms SSH keys sign in with. It is data that ships with the app and carries a version, not code (README section 14). A host can have lists of its own in place of the policy's.
 _Avoid_: Crypto settings, cipher suite
+
+**Local Network access**:
+iOS's permission for Shello to reach servers on the local network, which iOS asks the user for once, on the first connection to such a server. Shello explains the question just before it appears.
+_Avoid_: LAN permission, local network prompt (that is iOS's question)
 
 **tmux session**:
 A session of the tmux program on the server, which keeps running when connections drop. Always written in full.
@@ -194,8 +198,12 @@ When an SSH key may sign: while Shello is unlocked, inside the unlock window, or
 _Avoid_: Unlock policy, key lock
 
 **SSH agent**:
-Shello holding the user's SSH keys and signing for servers on request, for agent forwarding and key-based sudo.
+Shello holding the user's SSH keys and signing with them on request: for its own sign-in with an SSH key, and later for agent forwarding and key-based sudo.
 _Avoid_: Agent (on its own), key agent
+
+**Keyboard-interactive**:
+A way of signing in in which the server asks questions, such as a password or a one-time code, round after round, and the user answers them in Shello's sign-in sheet. Servers with two-factor sign-in ask it after the SSH key or the password.
+_Avoid_: Challenge-response, interactive authentication, 2FA prompt
 
 **App lock**:
 Face ID, Touch ID or the device passcode before Shello shows anything: when it opens, and when it returns after app lock's timeout in the background. Passing it opens the unlock window.

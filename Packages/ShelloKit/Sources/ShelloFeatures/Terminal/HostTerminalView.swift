@@ -5,8 +5,10 @@ import SwiftUI
 import UIKit
 
 /// A host's terminal, full screen: the host's Connect button opens it (README sections 4 and 5). It
-/// connects as it appears, with the trust sheet for a new host key and the block sheet for a changed
-/// one, and shows above the terminal what the connection is doing until it works, and how it ended.
+/// connects as it appears, with the trust sheet for a new host key, the block sheet for a changed
+/// one, from which the user can replace the trusted key, and the sign-in sheet for the server's
+/// keyboard-interactive questions. It shows above the terminal what the connection is doing until it
+/// works, and how it ended.
 /// While the connection is open, the Connection button shows whether its key exchange is
 /// post-quantum or classical by its symbol, and opens the connection sheet, also with Command-I
 /// (README section 14). Close ends the connection. One terminal at a time, until tabs come (#28).
@@ -83,13 +85,24 @@ struct HostTerminalView: View {
                     break
                 }
             }
-            .sheet(item: Binding(get: { model.trustQuestion }, set: { if $0 == nil { model.answerTrust(false) } })) {
-                question in
-                HostKeyTrustSheet(question: question) { trusts in model.answerTrust(trusts) }
+            // One sheet asks to trust a new host key, then the server's questions: one presentation
+            // follows the other without one sheet coming up while the last one is still going.
+            .sheet(item: Binding(get: { model.prompt }, set: { if $0 == nil { model.dismissPrompt() } })) { prompt in
+                switch prompt {
+                case .trust(let question):
+                    HostKeyTrustSheet(question: question) { trusts in model.answerTrust(trusts) }
+                case .signIn:
+                    SignInSheet(
+                        question: model.signInQuestion, hostName: host.name,
+                        answer: { answers in model.answerSignIn(answers) }, cancel: { model.dismissPrompt() })
+                }
             }
-            .sheet(item: Binding(get: { model.hostKeyChange }, set: { model.hostKeyChange = $0 }), onDismiss: close) {
-                change in
-                HostKeyChangedSheet(change: change) { model.hostKeyChange = nil }
+            .sheet(
+                item: Binding(get: { model.hostKeyChange }, set: { if $0 == nil { model.hostKeyChangeDismissed() } })
+            ) { change in
+                HostKeyChangedSheet(
+                    change: change, isReplacing: model.isReplacingHostKey, problem: model.replacementProblem,
+                    replace: { model.replaceTrustedHostKey() }, close: { model.hostKeyChangeDismissed() })
             }
             .toolbar {
                 // While the connection is open: once it ends, the status bar says so.

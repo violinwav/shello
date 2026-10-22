@@ -264,7 +264,9 @@ struct HostEditorView: View {
             case .sshKey: nil
             case .password where model.offersPassword:
                 "Shello keeps the password in the Keychain, on this device only, and never puts it in an export."
-            case .password, .keyboardInteractive: nil
+            case .password: nil
+            case .keyboardInteractive:
+                "When it connects, Shello asks you the server’s questions, such as your password or a one-time code."
             }
         let parts = [method, model.passwordNote].compactMap(\.self)
         return parts.isEmpty ? nil : parts.joined(separator: " ")
