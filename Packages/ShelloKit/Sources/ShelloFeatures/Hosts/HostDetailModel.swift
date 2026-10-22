@@ -70,9 +70,6 @@ final class HostDetailModel {
         _ = await (host, groups, tags)
     }
 
-    /// Connects to the host. A stub that does nothing: connections and terminal tabs come in #28.
-    func connect() {}
-
     /// Marks or unmarks the host as a favourite, and returns whether it worked.
     @discardableResult
     func setFavorite(_ isFavorite: Bool) async -> Bool {

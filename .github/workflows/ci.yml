@@ -119,6 +119,16 @@ jobs:
               DidShowContinuousPathIntroduction -bool true
           done
 
+      # The test server of the SSH integration tests and ConnectionTests (TestServers/README.md):
+      # macOS runners have no Docker, so it is this runner's own sshd, unprivileged on
+      # 127.0.0.1:2222, which lets the runner's user in with the fixture key only. xcodebuild hands
+      # the user to the tests, whose password sign-ins then skip.
+      - name: Start the test SSH server
+        if: matrix.suite == 'checks' || matrix.suite == 'ui-tests'
+        run: |
+          TestServers/local-sshd.sh
+          echo "TEST_RUNNER_SHELLO_TEST_SERVER_USER=$(id -un)" >> "$GITHUB_ENV"
+
       - name: Unit tests
         if: matrix.suite == 'checks'
         run: >-

@@ -15,7 +15,7 @@ public enum LibSSH {
     }
 
     /// A statically linked libssh must be initialised once before anything else is called.
-    private static let isInitialized = ssh_init() == SSH_OK
+    static let isInitialized = ssh_init() == SSH_OK
 
     private static func supportedMethods(_ type: ssh_kex_types_e) -> [String] {
         guard isInitialized, let methods = unsafe ssh_get_supported_methods(type) else { return [] }

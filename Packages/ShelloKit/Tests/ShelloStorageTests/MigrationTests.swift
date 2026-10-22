@@ -16,7 +16,7 @@ import Testing
 /// `v1FixtureKeepsEveryValue`.
 struct MigrationTests {
     /// Each fixture, with the last migration of its schema version.
-    static let fixtures = [("v1", "v1")]
+    static let fixtures = [("v1", "v1"), ("v2", "v2")]
 
     @Test(arguments: fixtures)
     func fixtureMigratesToTheCurrentSchema(_ fixture: String, _: String) async throws {
@@ -73,6 +73,25 @@ struct MigrationTests {
         let times = try await migrated.modificationTimes(table: "host", id: Self.id("000000000101"))
         #expect(times["nameModifiedAt"] == Date(timeIntervalSinceReferenceDate: 800_000_500))
         #expect(times["addressModifiedAt"] == Date(timeIntervalSinceReferenceDate: 800_000_000))
+    }
+
+    /// Version 2 adds the trusted host keys; the v2 fixture is the v1 fixture migrated, with two of
+    /// them.
+    @Test func v2FixtureKeepsEveryValue() async throws {
+        let migrated = try TestDatabase(fixture: "v2")
+        let v1 = try TestDatabase(fixture: "v1")
+
+        #expect(try await migrated.repository.hosts() == v1.repository.hosts())
+        #expect(try await migrated.repository.groups() == v1.repository.groups())
+        #expect(try await migrated.repository.tags() == v1.repository.tags())
+        #expect(
+            try await migrated.hostKeys.trustedKey(of: Server(address: "10.0.4.21", port: 2222))
+                == TrustedHostKey(
+                    key: HostKeyRepositoryTests.keyA, trustedAt: Date(timeIntervalSinceReferenceDate: 800_001_000)))
+        #expect(
+            try await migrated.hostKeys.trustedKey(of: Server(address: "forge.lan", port: 22))
+                == TrustedHostKey(
+                    key: HostKeyRepositoryTests.keyB, trustedAt: Date(timeIntervalSinceReferenceDate: 800_002_000.25)))
     }
 
     /// Every table, index and trigger, with the SQL that creates it.

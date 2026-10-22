@@ -20,6 +20,7 @@ enum Schema {
     static let migrator: DatabaseMigrator = {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1", migrate: v1)
+        migrator.registerMigration("v2", migrate: v2)
         return migrator
     }()
 
@@ -83,6 +84,23 @@ enum Schema {
                 t.column("hostID", .blob).references("host", onDelete: .cascade, deferred: true)
                 t.column("tagID", .blob).references("tag", onDelete: .cascade, deferred: true).indexed()
             }
+        }
+    }
+
+    /// Trusted host keys (README section 3): the host key the user accepted for a server, keyed by
+    /// the server's address, in lowercase, and port, so that it covers every host that points at the
+    /// server. The key is stored in SSH's wire format with its algorithm and fingerprint. A trusted
+    /// key changes as a whole, so `trustedAt` is the modification time of the row.
+    private static func v2(_ db: Database) throws {
+        try db.create(table: "hostKey", options: .strict) { t in
+            t.primaryKey {
+                t.column("address", .text).notNull()
+                t.column("port", .integer).notNull()
+            }
+            t.column("algorithm", .text).notNull()
+            t.column("key", .blob).notNull()
+            t.column("fingerprint", .text).notNull()
+            t.column("trustedAt", .real).notNull()
         }
     }
 }

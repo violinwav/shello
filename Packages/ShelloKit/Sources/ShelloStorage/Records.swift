@@ -317,6 +317,42 @@ struct HostTagRecord: StoredRecord {
     }
 }
 
+// MARK: - Host keys
+
+/// The host key trusted for one server, which the server's address and port identify.
+struct HostKeyRecord: StoredRecord {
+    static let databaseTableName = "hostKey"
+
+    /// The server's address, in lowercase (`Server`).
+    var address: String
+    var port: UInt16
+    var algorithm: String
+    /// The key in SSH's wire format.
+    var key: Data
+    var fingerprint: String
+    var trustedAt: Date
+
+    enum Columns {
+        static let address = Column(CodingKeys.address)
+        static let port = Column(CodingKeys.port)
+    }
+
+    init(_ key: HostKey, of server: Server, trustedAt: Date) {
+        address = server.address
+        port = server.port
+        algorithm = key.algorithm
+        self.key = key.wireRepresentation
+        fingerprint = key.fingerprint
+        self.trustedAt = trustedAt
+    }
+
+    var trustedHostKey: TrustedHostKey {
+        TrustedHostKey(
+            key: HostKey(algorithm: algorithm, wireRepresentation: key, fingerprint: fingerprint),
+            trustedAt: trustedAt)
+    }
+}
+
 // MARK: - Stored values
 
 /// A model enum stored as text. The stored values are part of the database format: they never change.

@@ -1,4 +1,5 @@
 import Foundation
+import ShelloModel
 
 /// A password or passphrase in memory (README section 13, STACK section 7.3): bytes, never a
 /// `String`, in a buffer of its own that is overwritten with zeros once the last reference to the
@@ -57,3 +58,6 @@ extension Secret: CustomStringConvertible, CustomDebugStringConvertible, CustomR
     public var debugDescription: String { "Secret" }
     public var customMirror: Mirror { Mirror(self, children: []) }
 }
+
+/// A secret hands its bytes to ShelloSSH, such as a password to sign in with, in place.
+extension Secret: SecretBytes {}

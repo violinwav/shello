@@ -34,6 +34,8 @@ xcrun swift-format lint --strict --recursive --parallel App AppTests UITests Pac
 xcodebuild test -project Shello.xcodeproj -scheme Shello -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' -skipPackagePluginValidation
 ```
 
+The SSH integration tests and the connection UI tests sign in to a disposable OpenSSH 10 server, which `TestServers/ssh-server.sh` starts with Docker in one command. Without it they skip; CI uses the runner's own sshd instead. See `TestServers/README.md`.
+
 Build settings live in `Configurations/*.xcconfig`, not in the Xcode project. Set them there so both developers see the change in review.
 
 ## Branches and pull requests

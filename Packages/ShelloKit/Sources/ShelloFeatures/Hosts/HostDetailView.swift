@@ -12,6 +12,9 @@ struct HostDetailView: View {
 
     @State private var editsHost: Host?
     @State private var confirmsDelete = false
+    /// The host whose terminal is open.
+    @State private var connectsHost: Host?
+    @Environment(\.hostConnector) private var connector
 
     init(
         repository: HostRepository, secrets: SecretStore?, keys: SSHKeyStore?, hostID: Host.ID,
@@ -63,6 +66,9 @@ struct HostDetailView: View {
         .sheet(item: $editsHost, onDismiss: { model.loadSSHKeys() }) { host in
             HostEditorView(repository: model.repository, secrets: model.secrets, keys: model.keys, host: host)
         }
+        .fullScreenCover(item: $connectsHost) { host in
+            HostTerminalView(host: host)
+        }
         .confirmationDialog(
             "Delete “\(model.host?.name ?? "")”?", isPresented: $confirmsDelete, titleVisibility: .visible
         ) {
@@ -90,7 +96,7 @@ struct HostDetailView: View {
         List {
             Section {
                 Button {
-                    model.connect()
+                    connectsHost = host
                 } label: {
                     Label("Connect", systemImage: "play.fill")
                         .font(Typography.rowTitle)
@@ -98,10 +104,15 @@ struct HostDetailView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .accentFill()
+                .disabled(connector == nil || host.protocol == .vnc)
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
             } footer: {
-                FooterText("Connecting comes with terminal tabs.")
+                switch host.protocol {
+                case .ssh: EmptyView()
+                case .mosh: FooterText("Mosh comes later: this host connects over SSH.")
+                case .vnc: FooterText("Remote desktop comes later.")
+                }
             }
 
             Section {

@@ -1,5 +1,7 @@
 import Foundation
+import ShelloCore
 import ShelloFeatures
+import ShelloModel
 import ShelloSecurity
 import ShelloStorage
 import SwiftUI
@@ -20,6 +22,8 @@ struct ShelloApp: App {
     private let appLock: AppLock
     /// The terminal settings of this device.
     private let terminalSettings: TerminalSettings
+    /// Whether the data a UI test asked for is in the database. Debug builds only.
+    @State private var hasTestData = !Launch.addsTestData
 
     init() {
         DesignSystem.registerFonts()
@@ -32,7 +36,8 @@ struct ShelloApp: App {
             : SSHKeyStore(unlockWindow: unlockWindow)
         appLock = AppLock(window: unlockWindow, defaults: Launch.settings, isEnabled: Launch.locksApp)
         terminalSettings = TerminalSettings(defaults: Launch.settings, cursorBlinks: Launch.blinksCursor)
-        services = Result { Services(database: try Self.openDatabase()) }
+        let secrets = secrets
+        services = Result { Services(database: try Self.openDatabase(), secrets: secrets) }
         if case .failure(let error) = services {
             Logger(subsystem: "ch.shello.Shello", category: "Storage").error("Could not open the database: \(error)")
         }
@@ -45,7 +50,7 @@ struct ShelloApp: App {
                     PrivacyCover()
                 } else {
                     switch services {
-                    case .success(let services):
+                    case .success(let services) where hasTestData:
                         RootView()
                             .environment(\.hostRepository, services.hostRepository)
                             .environment(\.exportRepository, services.exportRepository)
@@ -53,6 +58,12 @@ struct ShelloApp: App {
                             .environment(\.sshKeyStore, sshKeys)
                             .environment(\.appLock, appLock)
                             .environment(\.terminalSettings, terminalSettings)
+                            .environment(\.hostConnector, services.hostConnector)
+                    case .success(let services):
+                        Color.clear.task {
+                            await Launch.addTestData(to: services.hostKeyRepository)
+                            hasTestData = true
+                        }
                     case .failure(let error):
                         DatabaseUnavailableView(error: error)
                     }
@@ -91,14 +102,18 @@ struct ShelloApp: App {
     }
 }
 
-/// What the screens read and write the database through.
+/// What the screens read and write the database through, and connect with.
 private struct Services {
     let hostRepository: HostRepository
     let exportRepository: ExportRepository
+    let hostKeyRepository: HostKeyRepository
+    let hostConnector: HostConnector
 
-    init(database: AppDatabase) {
+    init(database: AppDatabase, secrets: SecretStore) {
         hostRepository = HostRepository(database)
         exportRepository = ExportRepository(database)
+        hostKeyRepository = HostKeyRepository(database)
+        hostConnector = HostConnector(hostKeys: hostKeyRepository, secrets: secrets)
     }
 }
 
@@ -141,6 +156,31 @@ private enum Launch {
         /// app inactive, which is when the cover shows.
         static var showsPrivacyCoverOnly: Bool { environment["SHELLO_UI_TESTING_PRIVACY_COVER"] == "1" }
 
+        /// A UI test about a changed host key starts with another key trusted for its server:
+        /// "address port algorithm key-in-base64 fingerprint".
+        private static var trustedHostKey: (server: Server, key: HostKey)? {
+            let fields = environment["SHELLO_UI_TESTING_TRUSTED_HOST_KEY"]?.split(separator: " ").map(String.init)
+            guard let fields, fields.count == 5, let port = UInt16(fields[1]),
+                let key = Data(base64Encoded: fields[3])
+            else { return nil }
+            return (
+                Server(address: fields[0], port: port),
+                HostKey(algorithm: fields[2], wireRepresentation: key, fingerprint: fields[4])
+            )
+        }
+
+        static var addsTestData: Bool { trustedHostKey != nil }
+
+        /// Adds what the UI test asked for to the database, before the first screen shows.
+        static func addTestData(to hostKeys: HostKeyRepository) async {
+            guard let trustedHostKey else { return }
+            do {
+                try await hostKeys.trust(trustedHostKey.key, of: trustedHostKey.server)
+            } catch {
+                Logger(subsystem: "ch.shello.Shello", category: "Storage").error("Could not add test data: \(error)")
+            }
+        }
+
         static let settings: UserDefaults = {
             guard isUITesting else { return .standard }
             let suite = "ch.shello.Shello.UITests"
@@ -157,5 +197,7 @@ private enum Launch {
         static let colorScheme: ColorScheme? = nil
         static let showsPrivacyCoverOnly = false
         static let settings = UserDefaults.standard
+        static let addsTestData = false
+        static func addTestData(to hostKeys: HostKeyRepository) async {}
     #endif
 }

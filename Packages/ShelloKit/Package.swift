@@ -29,9 +29,12 @@ let package = Package(
     name: "ShelloKit",
     platforms: [.iOS(.v26)],
     products: [
-        // The app's screens, plus the storage and the security services its composition root opens
-        // and hands to them.
-        .library(name: "ShelloFeatures", targets: ["ShelloFeatures", "ShelloStorage", "ShelloSecurity"])
+        // The app's screens, plus the storage, the security services and the connector its
+        // composition root opens and hands to them, and the model types they take.
+        .library(
+            name: "ShelloFeatures",
+            targets: ["ShelloFeatures", "ShelloStorage", "ShelloSecurity", "ShelloCore", "ShelloModel"]
+        )
     ],
     // Pinned exactly; docs/spec/STACK.md section 8 lists every dependency and why.
     dependencies: [
@@ -106,9 +109,16 @@ let package = Package(
             swiftSettings: core
         ),
         .testTarget(name: "ShelloSecurityTests", dependencies: ["ShelloSecurity"], swiftSettings: core),
-        .testTarget(name: "ShelloSSHTests", dependencies: ["ShelloSSH"], swiftSettings: core),
+        // Most of them sign in to the test server in TestServers/, and skip when it is not running.
+        .testTarget(name: "ShelloSSHTests", dependencies: ["ShelloSSH", "ShelloModel"], swiftSettings: core),
         .testTarget(name: "ShelloTmuxTests", dependencies: ["ShelloTmux"], swiftSettings: core),
-        .testTarget(name: "ShelloCoreTests", dependencies: ["ShelloCore"], swiftSettings: core),
+        // A real database in a temporary directory, secrets in memory, and the test server in
+        // TestServers/, without which the tests that need it skip.
+        .testTarget(
+            name: "ShelloCoreTests",
+            dependencies: ["ShelloCore", "ShelloModel", "ShelloStorage", "ShelloSecurity", "ShelloSSH"],
+            swiftSettings: core
+        ),
         .testTarget(
             name: "ShelloTerminalUITests",
             dependencies: ["ShelloTerminalUI", "ShelloModel", .product(name: "SwiftTerm", package: "SwiftTerm")],
@@ -120,7 +130,7 @@ let package = Package(
         .testTarget(
             name: "ShelloFeaturesTests",
             dependencies: [
-                "ShelloFeatures", "ShelloStorage", "ShelloSecurity", "ShelloModel", "ShelloTerminalUI",
+                "ShelloFeatures", "ShelloStorage", "ShelloSecurity", "ShelloModel", "ShelloTerminalUI", "ShelloCore",
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
             ],
             exclude: ["__Snapshots__"],

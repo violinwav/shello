@@ -20,6 +20,10 @@ _Avoid_: Machine, box, remote
 The key a server proves its identity with. Trust in a host key belongs to the server, so it covers every host that points at that server.
 _Avoid_: Server key, fingerprint (the fingerprint is how a host key is shown)
 
+**Trusted host key**:
+The host key the user accepted for a server on the first connection to it, kept in Shello's own trust store. Every later connection to the server must present it: a different host key is a changed host key, which blocks the connection.
+_Avoid_: Known host (OpenSSH's `known_hosts` file, which Shello does not use), saved fingerprint
+
 **Group**:
 The one group a host belongs to, if any. New hosts in a group inherit its defaults. Groups do not nest.
 _Avoid_: Folder, category

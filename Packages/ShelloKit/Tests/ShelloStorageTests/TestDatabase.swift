@@ -17,6 +17,7 @@ final class TestDatabase: Sendable {
     let clock: TestClock
     let repository: HostRepository
     let exports: ExportRepository
+    let hostKeys: HostKeyRepository
 
     /// The directory the database owns.
     var directory: URL { Self.databaseDirectory(in: root) }
@@ -37,6 +38,7 @@ final class TestDatabase: Sendable {
         database = try AppDatabase(directory: directory)
         repository = HostRepository(database, now: { clock.now })
         exports = ExportRepository(database, now: { clock.now })
+        hostKeys = HostKeyRepository(database, now: { clock.now })
     }
 
     deinit {

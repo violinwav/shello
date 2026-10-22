@@ -2,7 +2,7 @@
 import Foundation
 import GRDB
 
-/// Shello's local database: hosts, groups and tags, with settings and host keys to come.
+/// Shello's local database: hosts, groups and tags, and trusted host keys, with settings to come.
 ///
 /// Open it once, in the composition root, and share it: two instances on the same file would not see
 /// each other's changes in their observations. The app opens it with `openInAppGroup()`, tests with

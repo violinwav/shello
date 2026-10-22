@@ -1,3 +1,4 @@
+import ShelloCore
 import ShelloSecurity
 import ShelloStorage
 import SwiftUI
@@ -25,4 +26,8 @@ extension EnvironmentValues {
     /// The terminal settings of this device. Without them, Settings leaves them out, and terminals
     /// use the defaults.
     @Entry public var terminalSettings: TerminalSettings? = nil
+
+    /// Connects to a host's server, with the trusted host keys and the passwords. Without it, a host's
+    /// Connect button is disabled.
+    @Entry public var hostConnector: HostConnector? = nil
 }
