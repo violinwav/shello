@@ -4,8 +4,9 @@ import ShelloStorage
 import ShelloTerminalUI
 import SwiftUI
 
-/// The settings sheet: export and import of the user's data, app lock, the SSH keys, the terminal
-/// and hardware keyboards, and About with the diagnostics of the SSH library and the terminal demo.
+/// The settings sheet: export and import of the user's data, app lock, the SSH keys, the terminal,
+/// the Shello keyboard and hardware keyboards, and About with the diagnostics of the SSH library and
+/// the terminal demo.
 struct SettingsView: View {
     @Environment(\.exportRepository) private var exportRepository
     @Environment(\.appLock) private var appLock
@@ -56,6 +57,7 @@ private struct SettingsList: View {
                 }
                 if let terminalSettings {
                     TerminalSection(settings: terminalSettings)
+                    ShelloKeyboardSection(settings: terminalSettings)
                     HardwareKeyboardSection(settings: terminalSettings)
                 }
                 Section {
@@ -188,6 +190,72 @@ private struct TerminalSection: View {
                     + "back to and search. With VoiceOver, new output is read aloud.")
         }
         .listRowBackground(Palette.cell)
+    }
+}
+
+/// The Shello keyboard (README section 6): a row to its settings, which have a screen of their own.
+/// Laid out in Settings itself, they made the list longer, and the accessibility audit's Dynamic
+/// Type check, which makes the text larger and measures it again, then reported rows that the
+/// larger text pushed below the screen, such as Require Unlock, as not growing at all.
+private struct ShelloKeyboardSection: View {
+    let settings: TerminalSettings
+
+    var body: some View {
+        Section {
+            NavigationLink {
+                ShelloKeyboardSettingsView(settings: settings)
+            } label: {
+                Label("Shello Keyboard", systemImage: "keyboard")
+                    .labelStyle(.row)
+            }
+        } footer: {
+            FooterText("The letters layout, haptic feedback and the swipe key.")
+        }
+        .listRowBackground(Palette.cell)
+    }
+}
+
+/// The Shello keyboard's letters layout, its haptics and the swipe key's speed.
+private struct ShelloKeyboardSettingsView: View {
+    @Bindable var settings: TerminalSettings
+    /// What Automatic means on this device, read once as the screen shows.
+    @State private var automatic = LettersLayout.ID.automatic
+
+    var body: some View {
+        List {
+            Section {
+                Picker("Letters", selection: $settings.keyboardLetters) {
+                    Text("Automatic (\(automatic.layout.name))").tag(LettersLayout.ID?.none)
+                    ForEach(LettersLayout.ID.allCases) { letters in
+                        Text(letters.layout.name).tag(Optional(letters))
+                    }
+                }
+                Toggle("Haptic Feedback", isOn: $settings.keyboardHaptics)
+                Stepper(value: $settings.swipeKeySpeed, in: KeyboardPreferences.swipeSpeeds, step: 0.25) {
+                    LabeledContent("Swipe Key Speed") { ValueText("\(speed)×") }
+                }
+                .accessibilityLabel("Swipe Key Speed")
+                // As a percentage, which VoiceOver reads well at any speed: "125 percent".
+                .accessibilityValue(settings.swipeKeySpeed.formatted(.percent))
+            } footer: {
+                FooterText(
+                    "Automatic follows the first keyboard in the Settings app. Pull a key down to type the symbol "
+                        + "in its corner, or hold a letter for its accents. Tap Shift, Control or Alt twice, or hold "
+                        + "it, to lock it. The swipe key sends the arrow you tap, except with VoiceOver, and arrows "
+                        + "faster the further you drag; the function keys have arrows too. With VoiceOver, the "
+                        + "arrows, symbols, accents and Lock are also in the Actions rotor.")
+            }
+            .listRowBackground(Palette.cell)
+        }
+        .font(Typography.body)
+        .scrollContentBackground(.hidden)
+        .background(Palette.ground)
+        .navigationTitle("Shello Keyboard")
+    }
+
+    /// The speed as a number, such as 1.25.
+    private var speed: String {
+        settings.swipeKeySpeed.formatted(.number.precision(.fractionLength(0...2)))
     }
 }
 

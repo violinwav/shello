@@ -113,6 +113,12 @@ extension XCUIApplication {
         let escapeKey = picker("Extra Esc Key")
         revealFarDown(escapeKey, file: file, line: line)
         XCTAssertEqual(escapeKey.label, "Extra Esc Key, None", file: file, line: line)
+        openTerminalDemoFromSettings(file: file, line: line)
+    }
+
+    /// Opens Diagnostics, Terminal Demo from the open Settings sheet.
+    @MainActor
+    func openTerminalDemoFromSettings(file: StaticString = #filePath, line: UInt = #line) {
         let diagnostics = buttons["Diagnostics"]
         revealFarDown(diagnostics, file: file, line: line)
         diagnostics.tap()

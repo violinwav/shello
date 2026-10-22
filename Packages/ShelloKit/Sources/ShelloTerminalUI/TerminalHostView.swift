@@ -17,7 +17,10 @@ import os
 /// - Pinch changes the font size.
 /// - Hardware keyboards: SwiftTerm handles Control and Option as Meta; this view adds the key the
 ///   user chose to send Esc.
-/// - The cursor stops blinking with Reduce Motion (README section 16).
+/// - The Shello keyboard (README section 6) is the input view, and its extra keys row the input
+///   accessory view, above the system keyboard too. Control and Alt, armed on the row, apply to
+///   the next key of either keyboard.
+/// - The cursor stops blinking with Reduce Motion (README section 16), or when the settings say so.
 /// - Assistive technologies: activating the terminal shows the keyboard, and its actions read or
 ///   copy the current line, copy the screen, and change the text size without a pinch.
 public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate {
@@ -28,6 +31,8 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
     public let theme: TerminalTheme
     private let typeface: TerminalTypeface
     private let renderer: TerminalRenderer
+    /// The Shello keyboard and the extra keys row of this terminal.
+    let keyboard: ShelloKeyboard
 
     private lazy var editMenu = UIEditMenuInteraction(delegate: self)
     private var isShowingEditMenu = false
@@ -40,8 +45,8 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
     private let pinch = UIPinchGestureRecognizer()
     private var fontSizeAtPinchStart: CGFloat?
     private var bellFlash: UIView?
-    /// Whether Reduce Motion is on, read by SwiftTerm's thread when a program changes the cursor.
-    private nonisolated let reducesMotion = Mutex(false)
+    /// Whether the cursor stays steady, read by SwiftTerm's thread when a program changes the cursor.
+    private nonisolated let keepsCursorSteady = Mutex(false)
 
     init(
         preferences: TerminalPreferences, theme: TerminalTheme, typeface: TerminalTypeface, renderer: TerminalRenderer
@@ -50,6 +55,7 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
         self.theme = theme
         self.typeface = typeface
         self.renderer = renderer
+        keyboard = ShelloKeyboard(theme: theme, typeface: typeface, preferences: preferences.keyboard)
         var options = TerminalOptions.default
         options.scrollback = preferences.scrollbackLines
         // xterm's fixed 6×6×6 cube and grey ramp, which programs expect for colours 16 to 255.
@@ -66,9 +72,15 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
     }
 
     private func configure() {
-        // The extra keys row comes with the Shello keyboard (#26). SwiftTerm's own row has keys
-        // without VoiceOver labels.
-        inputAccessoryView = nil
+        // The Shello keyboard and its extra keys row, in place of SwiftTerm's own row, whose keys
+        // have no VoiceOver labels.
+        keyboard.terminal = self
+        keyboard.onModifiersChange = { [weak self] modifiers in
+            guard let self else { return }
+            self.events?.terminalView(self, modifiersChanged: modifiers)
+        }
+        inputView = keyboard.inputView
+        inputAccessoryView = keyboard.extraKeysRow
         contentInsetAdjustmentBehavior = .never
         // The theme is dark whatever the app's appearance, and so are the keyboard, the edit menu
         // and the scroll indicator over it.
@@ -112,7 +124,7 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
             }
         }
 
-        updateForReduceMotion()
+        updateCursorBlink()
         NotificationCenter.default.addObserver(
             self, selector: #selector(reduceMotionChanged),
             name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
@@ -142,6 +154,10 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
             changeScrollback(newPreferences.scrollbackLines)
         }
         optionAsMetaKey = newPreferences.optionAsMeta
+        keyboard.preferences = newPreferences.keyboard
+        if newPreferences.cursorBlinks != old.cursorBlinks {
+            updateCursorBlink()
+        }
     }
 
     private func applyFont(size: CGFloat) {
@@ -460,6 +476,32 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
         }
     }
 
+    // MARK: - Keyboards
+
+    /// Text from the system keyboard, or a hardware keyboard's letters: Control or Alt armed on the
+    /// extra keys row applies to it (README section 6).
+    public override func insertText(_ text: String) {
+        if keyboard.typeFromSystemKeyboard(text) {
+            return
+        }
+        super.insertText(text)
+    }
+
+    public override func deleteBackward() {
+        if keyboard.deleteBackwardFromSystemKeyboard() {
+            return
+        }
+        super.deleteBackward()
+    }
+
+    /// Shows the keyboard the Shello keyboard's switch key chose, keeping the extra keys row.
+    /// VoiceOver stays on the switch key, which now says it switches back.
+    func keyboardSwitched() {
+        inputView = keyboard.inputView
+        reloadInputViews()
+        UIAccessibility.post(notification: .layoutChanged, argument: keyboard.extraKeysRow.switchAccessibilityElement)
+    }
+
     // MARK: - Bell
 
     /// Flashes the terminal briefly in its text colour: the bell's visual half (README section 5).
@@ -490,18 +532,23 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
     // MARK: - Reduce Motion
 
     @objc private func reduceMotionChanged() {
-        updateForReduceMotion()
+        updateCursorBlink()
     }
 
-    private func updateForReduceMotion() {
-        let reduce = UIAccessibility.isReduceMotionEnabled
-        reducesMotion.withLock { $0 = reduce }
-        setCursorStyle(reduce ? .steadyBlock : .blinkBlock)
+    /// The cursor blinks unless Reduce Motion is on or the settings say it does not.
+    private func updateCursorBlink() {
+        let steady = UIAccessibility.isReduceMotionEnabled || !preferences.cursorBlinks
+        keepsCursorSteady.withLock { $0 = steady }
+        setCursorStyle(steady ? .steadyBlock : .blinkBlock)
     }
 
-    /// A program can ask for a blinking cursor (DECSCUSR); with Reduce Motion it stays steady.
+    /// Whether the cursor stays steady, whatever a program asks for.
+    var isCursorSteady: Bool { keepsCursorSteady.withLock { $0 } }
+
+    /// A program can ask for a blinking cursor (DECSCUSR); with Reduce Motion, or when the settings
+    /// say so, it stays steady.
     public nonisolated override func cursorStyleChanged(source: Terminal, newStyle: CursorStyle) {
-        let style = reducesMotion.withLock { $0 } ? newStyle.steady : newStyle
+        let style = keepsCursorSteady.withLock { $0 } ? newStyle.steady : newStyle
         super.cursorStyleChanged(source: source, newStyle: style)
     }
 
@@ -558,6 +605,8 @@ protocol TerminalHostViewEvents: AnyObject {
     func terminalView(_ view: TerminalHostView, zoomedTo fontSize: CGFloat)
     /// The user chose one of the terminal's actions for assistive technologies.
     func terminalView(_ view: TerminalHostView, performs action: TerminalAccessibilityAction)
+    /// Control or Alt, on the extra keys row, changed.
+    func terminalView(_ view: TerminalHostView, modifiersChanged modifiers: ArmedModifiers)
 }
 
 /// The terminal's actions for VoiceOver, Voice Control and Switch Control: what the user would

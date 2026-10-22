@@ -92,7 +92,9 @@ final class HostTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["New Tag"].waitForExistence(timeout: 5))
 
         // The name field takes the focus. Return in the empty field puts the keyboard away and adds
-        // nothing; the audit then sees the screen at rest.
+        // nothing; the audit then sees the screen at rest. Its Dynamic Type check passes on a slow
+        // runner too since the app applies each text size at once
+        // (DesignSystem.applyTextSizeChangesAtOnce).
         app.textFields["Tag Name"].typeText("\n")
         XCTAssertTrue(app.navigationBars["New Tag"].exists)
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))

@@ -23,6 +23,7 @@ struct ShelloApp: App {
 
     init() {
         DesignSystem.registerFonts()
+        DesignSystem.applyTextSizeChangesAtOnce()
         let unlockWindow = UnlockWindow()
         secrets = SecretStore(keychain: SystemKeychain(), unlockWindow: unlockWindow)
         sshKeys =
@@ -30,7 +31,7 @@ struct ShelloApp: App {
             ? .inMemory(unlockWindow: unlockWindow, secureEnclave: Launch.standsInForSecureEnclave)
             : SSHKeyStore(unlockWindow: unlockWindow)
         appLock = AppLock(window: unlockWindow, defaults: Launch.settings, isEnabled: Launch.locksApp)
-        terminalSettings = TerminalSettings(defaults: Launch.settings)
+        terminalSettings = TerminalSettings(defaults: Launch.settings, cursorBlinks: Launch.blinksCursor)
         services = Result { Services(database: try Self.openDatabase()) }
         if case .failure(let error) = services {
             Logger(subsystem: "ch.shello.Shello", category: "Storage").error("Could not open the database: \(error)")
@@ -123,6 +124,10 @@ private enum Launch {
             environment["SHELLO_UI_TESTING_APP_LOCK"].map { $0 == "1" } ?? !isUITesting
         }
 
+        /// UI tests keep the terminal's cursor steady: XCUITest waits for the app to go idle before
+        /// each step, and while a cursor blinks it never does, so each step would wait a minute.
+        static var blinksCursor: Bool { !isUITesting }
+
         /// Each UI test chooses its appearance, whatever the simulator's.
         static var colorScheme: ColorScheme? {
             switch environment["SHELLO_UI_TESTING_APPEARANCE"] {
@@ -148,6 +153,7 @@ private enum Launch {
         static let keepsSSHKeysInMemory = false
         static let standsInForSecureEnclave = false
         static let locksApp = true
+        static let blinksCursor = true
         static let colorScheme: ColorScheme? = nil
         static let showsPrivacyCoverOnly = false
         static let settings = UserDefaults.standard

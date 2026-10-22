@@ -64,6 +64,9 @@ public final class TerminalController {
     }
     /// Counts requests to put the focus in the search field, which Find makes each time.
     public private(set) var searchFocusRequests = 0
+    /// Control and Alt as the extra keys row has them, which the screen shows over the terminal:
+    /// the row can scroll them out of view (README section 6: the armed state is always visible).
+    public private(set) var modifiers = ArmedModifiers()
 
     @ObservationIgnored private var stream: (any TerminalByteStream)?
     @ObservationIgnored private var pump: Task<Void, Never>?
@@ -469,6 +472,10 @@ extension TerminalController: TerminalHostViewEvents {
         case .biggerText: changeFontSizeForVoiceOver(by: 1)
         case .smallerText: changeFontSizeForVoiceOver(by: -1)
         }
+    }
+
+    func terminalView(_ view: TerminalHostView, modifiersChanged modifiers: ArmedModifiers) {
+        self.modifiers = modifiers
     }
 
     /// A new font size says its grid; at either end of the sizes, VoiceOver says that instead.

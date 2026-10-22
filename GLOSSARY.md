@@ -100,6 +100,30 @@ _Avoid_: Local shell, sandbox, playground
 A key the user presses: on the Shello keyboard, the extra keys row, a pad or a hardware keyboard. Never an SSH key or a host key.
 _Avoid_: Button
 
+**Shello keyboard**:
+The keyboard Shello shows in place of the system keyboard in a terminal, in three layers, under the extra keys row. One key on the row switches to the system keyboard and back.
+_Avoid_: Custom keyboard, soft keyboard, on-screen keyboard (the system keyboard is one too)
+
+**Layer**:
+One of the Shello keyboard's sets of keys, shown one at a time: letters, symbols or function keys.
+_Avoid_: Page, mode, plane
+
+**Letters layout**:
+The arrangement of the letters layer: QWERTY or QWERTZ, and AZERTY in v1. Unless the user chooses one, it is that of the first keyboard in the Settings app.
+_Avoid_: Keyboard layout, locale
+
+**Flick**:
+Pulling a key down before letting go, which types the symbol in its corner.
+_Avoid_: Swipe (that is the swipe key's), slide
+
+**Alternates**:
+The characters a long-press on a key offers, such as its accented letters.
+_Avoid_: Accents, variants, popup
+
+**Sticky modifier**:
+Control or Alt on the extra keys row, which stays down for the user: one tap arms it for the next key, a double tap, or holding it on its own, locks it until it is tapped again. It applies to the next key of the system keyboard too.
+_Avoid_: Latching key, toggle key
+
 **Extra keys row**:
 The scrollable row of terminal keys above whichever keyboard is active.
 _Avoid_: Toolbar, accessory bar
@@ -113,7 +137,7 @@ A named set of keys for the extra keys row.
 _Avoid_: Layout, key profile
 
 **Swipe key**:
-The key in the extra keys row that sends arrow keys while the user drags across it.
+The key in the extra keys row that sends arrow keys while the user drags across it, or one arrow for a tap on that arrow.
 _Avoid_: Swipe pad, trackpad, joystick
 
 **Pad**:

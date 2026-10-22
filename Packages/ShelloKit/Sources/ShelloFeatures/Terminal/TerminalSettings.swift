@@ -4,7 +4,8 @@ import ShelloTerminalUI
 
 /// The terminal settings of this device (README section 5): the scrollback's length, Option as
 /// Meta, the extra Esc key, whether VoiceOver reads new output, and the font size, which pinch and
-/// the shortcuts change. Like app lock's timeout they stay on the device, and the export leaves
+/// the shortcuts change; and the Shello keyboard's (section 6): its letters layout, its haptics and
+/// the swipe key's speed. Like app lock's timeout they stay on the device, and the export leaves
 /// them out (docs/spec/EXPORT.md).
 @MainActor
 @Observable
@@ -24,6 +25,26 @@ public final class TerminalSettings {
     public var fontSize: CGFloat {
         didSet { defaults.set(Double(fontSize), forKey: Keys.fontSize) }
     }
+    /// The letters layout, or nil to follow the first keyboard in the Settings app.
+    public var keyboardLetters: LettersLayout.ID? {
+        didSet { defaults.set(keyboardLetters?.rawValue, forKey: Keys.keyboardLetters) }
+    }
+    public var keyboardHaptics: Bool {
+        didSet { defaults.set(keyboardHaptics, forKey: Keys.keyboardHaptics) }
+    }
+    public var swipeKeySpeed: Double {
+        didSet {
+            let clamped = KeyboardPreferences.clampedSwipeSpeed(swipeKeySpeed)
+            if clamped != swipeKeySpeed {
+                swipeKeySpeed = clamped
+            }
+            defaults.set(swipeKeySpeed, forKey: Keys.swipeKeySpeed)
+        }
+    }
+
+    /// Whether the cursor blinks, which the composition root decides: Settings does not offer it,
+    /// and only UI tests stop it.
+    public let cursorBlinks: Bool
 
     private let defaults: UserDefaults
 
@@ -33,12 +54,16 @@ public final class TerminalSettings {
         static let escapeKey = "terminalEscapeKey"
         static let announcesOutput = "terminalAnnouncesOutput"
         static let fontSize = "terminalFontSize"
+        static let keyboardLetters = "keyboardLetters"
+        static let keyboardHaptics = "keyboardHaptics"
+        static let swipeKeySpeed = "keyboardSwipeKeySpeed"
     }
 
     /// The settings stored in `defaults`, or the defaults of `TerminalPreferences` for those never
     /// set. A stored value Settings would not offer is replaced by the default.
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = .standard, cursorBlinks: Bool = true) {
         self.defaults = defaults
+        self.cursorBlinks = cursorBlinks
         let standard = TerminalPreferences()
         let lines = defaults.object(forKey: Keys.scrollbackLines) as? Int
         scrollbackLines =
@@ -48,13 +73,20 @@ public final class TerminalSettings {
         announcesOutput = defaults.object(forKey: Keys.announcesOutput) as? Bool ?? standard.announcesOutput
         fontSize = TerminalPreferences.clampedFontSize(
             (defaults.object(forKey: Keys.fontSize) as? Double).map { CGFloat($0) } ?? standard.fontSize)
+        keyboardLetters = defaults.string(forKey: Keys.keyboardLetters).flatMap(LettersLayout.ID.init)
+        keyboardHaptics = defaults.object(forKey: Keys.keyboardHaptics) as? Bool ?? standard.keyboard.haptics
+        swipeKeySpeed = KeyboardPreferences.clampedSwipeSpeed(
+            defaults.object(forKey: Keys.swipeKeySpeed) as? Double ?? standard.keyboard.swipeSpeed)
     }
 
     /// The settings as a terminal takes them.
     public var preferences: TerminalPreferences {
         TerminalPreferences(
             scrollbackLines: scrollbackLines, optionAsMeta: optionAsMeta, escapeKey: escapeKey,
-            announcesOutput: announcesOutput, fontSize: fontSize)
+            announcesOutput: announcesOutput, fontSize: fontSize,
+            keyboard: KeyboardPreferences(
+                letters: keyboardLetters, haptics: keyboardHaptics, swipeSpeed: swipeKeySpeed),
+            cursorBlinks: cursorBlinks)
     }
 }
 

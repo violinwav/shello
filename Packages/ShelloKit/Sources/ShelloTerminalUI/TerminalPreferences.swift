@@ -1,7 +1,7 @@
 import UIKit
 
-/// The user's settings for every terminal (README section 5), which Settings changes. The font size
-/// changes with pinch and the font size shortcuts too.
+/// The user's settings for every terminal (README section 5) and its Shello keyboard (section 6),
+/// which Settings changes. The font size changes with pinch and the font size shortcuts too.
 nonisolated public struct TerminalPreferences: Equatable, Sendable {
     /// How many lines scrolled off the top a terminal keeps for scrolling back and search.
     public var scrollbackLines: Int
@@ -17,17 +17,26 @@ nonisolated public struct TerminalPreferences: Equatable, Sendable {
     public var fontSize: CGFloat {
         didSet { fontSize = Self.clampedFontSize(fontSize) }
     }
+    /// The Shello keyboard's settings (README section 6).
+    public var keyboard: KeyboardPreferences
+    /// Whether the cursor blinks. Reduce Motion stops it anyway (README section 16). UI tests stop
+    /// it too: XCUITest waits for the app to go idle before each step, and a blinking cursor never
+    /// lets it.
+    public var cursorBlinks: Bool
 
     public init(
         scrollbackLines: Int = TerminalPreferences.defaultScrollbackLines, optionAsMeta: Bool = true,
         escapeKey: EscapeKey = .none, announcesOutput: Bool = true,
-        fontSize: CGFloat = TerminalPreferences.defaultFontSize
+        fontSize: CGFloat = TerminalPreferences.defaultFontSize, keyboard: KeyboardPreferences = KeyboardPreferences(),
+        cursorBlinks: Bool = true
     ) {
         self.scrollbackLines = scrollbackLines
         self.optionAsMeta = optionAsMeta
         self.escapeKey = escapeKey
         self.announcesOutput = announcesOutput
         self.fontSize = Self.clampedFontSize(fontSize)
+        self.keyboard = keyboard
+        self.cursorBlinks = cursorBlinks
     }
 
     /// 10,000 lines per tab (README section 5).

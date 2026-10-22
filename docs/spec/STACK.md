@@ -149,7 +149,7 @@ Consequences:
 
 **Connections.** Each connection is an `actor` whose executor is its own `DispatchSerialQueue` (`nonisolated var unownedExecutor { queue.asUnownedSerialExecutor() }`, [SE-0392](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0392-custom-actor-executors.md); `DispatchSerialQueue` conforms to `SerialExecutor` from iOS 17). The same queue runs the `NWConnection` callbacks, the socketpair pump and every libssh call. libssh is therefore never touched from two threads (ADR 0002), and the compiler rejects code that tries.
 
-**Input path** (budget: keystroke to network send under 10 ms). Key event on the main actor, one hop to the connection actor, `ssh_channel_write`, then the socketpair and `NWConnection.send`. No allocation-heavy work and no main-thread round trip on the way.
+**Input path** (budget: keystroke to network send under 10 ms). Key event on the main actor, one hop to the connection actor, `ssh_channel_write`, then the socketpair and `NWConnection.send`. No allocation-heavy work and no main-thread round trip on the way. A key of the Shello keyboard reaches the terminal's stream before the keyboard draws or gives feedback: in the simulator, with no output, its keys took 0.1 ms (median) and 7.4 ms (95th percentile) from the moment the touch was queued on the main thread (`TerminalPerformanceTests`). The keyboard's own part, from the touch reaching it to the stream, is the signpost interval "Key".
 
 **Output path** (budget: a 10 MB log never freezes input).
 
@@ -274,16 +274,20 @@ Consequences:
 ### 7.5 Shello keyboard, extra keys row and pads (README sections 6 and 7)
 
 - **Keyboard:** a UIKit `UIInputView` subclass set as the terminal's `inputView`. SwiftUI has no API to replace the system keyboard.
-- **Extra keys row:** a `UIScrollView` set as `inputAccessoryView`, shown above the system keyboard too.
+- **Extra keys row:** a `UIScrollView` set as `inputAccessoryView`, shown above the system keyboard too. The key that switches between the Shello keyboard and the system keyboard stays at its end, outside the scrolling part: it is the only key that can bring the Shello keyboard back.
 - **Keys and layouts:** keys are drawn with Core Animation layers. One gesture recognizer per keyboard handles tap, flick, long-press alternates, key repeat and the swipe key, which keeps per-key overhead and latency low. Layouts (QWERTY, QWERTZ, AZERTY, symbols, function, the Vim pad) are data, not code.
+- **What keys send:** what SwiftTerm sends for the same key on a hardware keyboard: its `EscapeSequences`, its `sendKey…` and `pageUp`/`pageDown` for the keys that depend on the program's cursor key mode, and xterm's modifier parameters. The Shello keyboard writes to the terminal directly rather than through `UITextInput`, whose rules for the system keyboard, such as a period after two spaces, have no place in a terminal. Control and Alt armed on the extra keys row reach the system keyboard's next key through the terminal's `insertText`.
+- **Colours:** the keyboard follows the terminal's theme rather than the app's appearance, so the Night theme's keyboard is dark in light mode too, as the system keyboard over the terminal is.
 - **Haptics:** `UIImpactFeedbackGenerator`, prepared ahead of the touch. Input clicks via `UIInputViewAudioFeedback`.
 - **Hardware keyboards:**
   - SwiftTerm's `pressesBegan` handles Ctrl and Option as Meta.
   - The Esc remap is a Shello setting.
   - App shortcuts (new tab, next tab, font size, Cmd-K) use SwiftUI `.commands` / `.keyboardShortcut`, which also fill the iPadOS menu bar. `UIKeyCommand.wantsPriorityOverSystemBehavior` handles shortcuts that compete with text input.
 - **Accessibility:**
-  - Every key has the `.keyboardKey` trait and a localised label.
-  - The keyboard container uses `.allowsDirectInteraction` so VoiceOver users can type.
+  - Every key has the `.keyboardKey` trait and a localised label, and is an accessibility element of its own whose activation presses it, so VoiceOver's typing modes work as with the system keyboard. A key's corner symbol and alternates are its actions, and a modifier's Lock and Unlock, since VoiceOver's and Switch Control's activations are too far apart for a double tap; holding a modifier on its own locks it too. Voice Control also knows a key by the label it shows, such as "123".
+  - The elements outlive layer changes, rotation and text size changes, so VoiceOver keeps its place. After a layer change it moves to the key where the layer key was and says the new layer's name; after a keyboard switch it moves to the switch key.
+  - The swipe key, which takes drags, uses `.allowsDirectInteraction`, and offers each arrow as an action too. A tap on one of its arrows sends that arrow, except with VoiceOver, whose touches the trait passes straight through. The function layer has arrow keys, for those who can neither drag nor aim at the swipe key's arrows, and for Voice Control. The whole keyboard container does not use the trait: a direct-interaction element hides the elements inside it from VoiceOver, which would leave no keys to type with.
+  - Keys follow Bold Text, Increase Contrast (an outline around every key) and Dynamic Type, up to the size a letter key holds.
 - **Custom keys and presets (v1):** stored in the database. A custom key references its snippet by identifier.
 
 ### 7.6 tmux (README section 8)
@@ -410,6 +414,7 @@ How the database works:
   - Custom actions, in VoiceOver's Actions rotor, read the line the cursor is on, copy it or the screen, and change the text size.
 - **Dynamic Type, Reduce Motion, colour:**
   - Dynamic Type for every app screen. The terminal font size is separate.
+  - A text size change is laid out at once (`DesignSystem.applyTextSizeChangesAtOnce`), not in the next layout pass, which waits while the main thread is busy. The accessibility audit's Dynamic Type check sets one size after another and reads the screen after each; on a slow CI runner it read sizes that had not been drawn yet, and reported text that scales as partially unsupported.
   - Reduce Motion stops the cursor blink.
   - Status is never shown by colour alone; the UI design already pairs the online dot with an offline ring.
 - **Automated checks:** XCUITest runs [`performAccessibilityAudit`](https://developer.apple.com/documentation/xctest/xcuiapplication/performaccessibilityaudit(for:_:)) (iOS 17) on every main screen in CI.

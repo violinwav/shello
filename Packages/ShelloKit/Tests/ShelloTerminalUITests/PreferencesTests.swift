@@ -12,6 +12,33 @@ import UIKit
         #expect(preferences.escapeKey == .none)
         #expect(preferences.announcesOutput)
         #expect(preferences.fontSize == 13)
+        // README section 6: the letters follow the system keyboard, and haptics are on.
+        #expect(preferences.keyboard.letters == nil)
+        #expect(preferences.keyboard.haptics)
+        #expect(preferences.keyboard.swipeSpeed == 1)
+    }
+
+    /// The swipe key's speed changes in quarter steps within the design's range.
+    @Test func swipeSpeedIsClampedToQuarterSteps() {
+        var keyboard = KeyboardPreferences(swipeSpeed: 1.3)
+        #expect(keyboard.swipeSpeed == 1.25)
+        keyboard.swipeSpeed = 9
+        #expect(keyboard.swipeSpeed == 3)
+        keyboard.swipeSpeed = 0.1
+        #expect(keyboard.swipeSpeed == 0.5)
+        keyboard.swipeSpeed = .infinity
+        #expect(keyboard.swipeSpeed == 1)
+    }
+
+    /// The keyboard follows the terminal's theme: Night's keyboard is dark in light mode too.
+    @Test func keyboardColorsFollowTheTheme() {
+        #expect(TerminalTheme.night.isDark)
+        #expect(KeyboardPalette.forTheme(.night).isDark)
+        var paper = TerminalTheme.night
+        paper.background = TerminalTheme.RGB(0xF7F6F2)
+        #expect(!KeyboardPalette.forTheme(paper).isDark)
+        // On a light keyboard, accent text is the design's darker ink.
+        #expect(KeyboardPalette.forTheme(paper).accentLabel == TerminalTheme.RGB(0x05615E).uiColor)
     }
 
     /// The font size changes in whole points within its range, however it is set.

@@ -4,7 +4,8 @@ import SwiftUI
 /// A terminal on screen (README section 5), whatever it is attached to: the terminal demo here,
 /// an SSH connection behind a tab once tabs come (#28). Search is a bar under the terminal, above
 /// the keyboard, where the system's find bar goes; a paste of more lines asks first; a new font
-/// size shows the grid's new size for a moment.
+/// size shows the grid's new size for a moment; Control and Alt show over the terminal's corner
+/// while they are on.
 struct TerminalScreen: View {
     let controller: TerminalController
     @State private var searchTerm = ""
@@ -37,6 +38,12 @@ struct TerminalScreen: View {
                     // VoiceOver hears the new size from the terminal.
                     zoomFeedback
                         .accessibilityHidden(isVoiceOverEnabled)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if let summary = controller.modifiers.summary {
+                    ModifierBadge(text: summary, theme: controller.view.theme)
+                        .padding(EdgeInsets(top: 0, leading: 12, bottom: 10, trailing: 12))
                 }
             }
             // Not under the navigation bar, whose title follows the app's appearance and would be
@@ -237,6 +244,27 @@ private struct MinimumTargetButtonStyle: PrimitiveButtonStyle {
                 .contentShape(.rect)
         }
         .buttonStyle(.borderless)
+    }
+}
+
+/// Control and Alt while they are on, after the UI design: "CTRL armed · next key sends ⌃", over
+/// the terminal's bottom corner, where it shows whichever keyboard is up and however the extra keys
+/// row is scrolled (README section 6). VoiceOver hears the state from the keys instead.
+private struct ModifierBadge: View {
+    let text: String
+    let theme: TerminalTheme
+
+    var body: some View {
+        Text(text)
+            .font(Typography.sectionHeader)
+            .foregroundStyle(Color(uiColor: theme.accent.uiColor))
+            .multilineTextAlignment(.trailing)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(uiColor: theme.onAccent.uiColor), in: .rect(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(uiColor: theme.accent.uiColor)))
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
     }
 }
 
