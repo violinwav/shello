@@ -22,7 +22,7 @@ struct SSHKeyStoreTests {
 
     // MARK: - Generating
 
-    @Test(arguments: SSHKey.Kind.allCases)
+    @Test(arguments: SSHKey.Kind.generated)
     func generatedKeySignsWhatItsPublicKeyVerifies(kind: SSHKey.Kind) async throws {
         try await window.open(reason: "Unlock Shello")
         let key = try await store.generate(kind, comment: "florian@iphone", signingPolicy: .whileUnlocked)
@@ -129,7 +129,7 @@ struct SSHKeyStoreTests {
 
     /// "While Shello is unlocked": the user authenticated once, at app lock, and every signature
     /// takes that context, which can ask nothing more.
-    @Test(arguments: SSHKey.Kind.allCases)
+    @Test(arguments: SSHKey.Kind.generated)
     func keyThatSignsWhileUnlockedUsesTheUnlockWindowAndAsksNoMore(kind: SSHKey.Kind) async throws {
         try await window.open(reason: "Unlock Shello")
         let key = try await store.generate(kind, comment: "a", signingPolicy: .whileUnlocked)
@@ -143,7 +143,7 @@ struct SSHKeyStoreTests {
         #expect(contextsThatSigned(kind) == Array(repeating: unlocked, count: 3))
     }
 
-    @Test(arguments: SSHKey.Kind.allCases)
+    @Test(arguments: SSHKey.Kind.generated)
     func keyThatSignsWhileUnlockedWaitsForTheNextUnlock(kind: SSHKey.Kind) async throws {
         try await window.open(reason: "Unlock Shello")
         let key = try await store.generate(kind, comment: "a", signingPolicy: .whileUnlocked)
@@ -158,7 +158,7 @@ struct SSHKeyStoreTests {
 
     /// "Every use": each signature asks the user, on a context of its own, which signs that one
     /// signature, and is invalidated after it. The unlock window's context is never used.
-    @Test(arguments: SSHKey.Kind.allCases)
+    @Test(arguments: SSHKey.Kind.generated)
     func keyThatSignsOnEveryUseAsksForEachSignature(kind: SSHKey.Kind) async throws {
         try await window.open(reason: "Unlock Shello")
         let key = try await store.generate(kind, comment: "work", signingPolicy: .everyUse)
@@ -213,7 +213,7 @@ struct SSHKeyStoreTests {
     }
 
     /// The flags choose an RSA key's hash: the signatures of ECDSA and Ed25519 keys stay as they are.
-    @Test(arguments: SSHKey.Kind.allCases)
+    @Test(arguments: SSHKey.Kind.generated)
     func flagsChangeNothingForECDSAAndEd25519(kind: SSHKey.Kind) async throws {
         try await window.open(reason: "Unlock Shello")
         let key = try await store.generate(kind, comment: "a", signingPolicy: .whileUnlocked)
@@ -264,7 +264,7 @@ struct SSHKeyStoreTests {
 
     /// What the store hands out is public: an `SSHKey` holds no more than these fields, and shows
     /// none of the private key's bytes when printed or dumped.
-    @Test(arguments: SSHKey.Kind.allCases)
+    @Test(arguments: SSHKey.Kind.generated)
     func keyHoldsNoPrivateKeyMaterial(kind: SSHKey.Kind) async throws {
         try await window.open(reason: "Unlock Shello")
         let key = try await store.generate(kind, comment: "a", signingPolicy: .whileUnlocked)
@@ -281,7 +281,7 @@ struct SSHKeyStoreTests {
 
     /// The record lies in the Keychain item's attributes, which read without authentication: it
     /// must not hold the private key, which only an authenticated context reads.
-    @Test(arguments: SSHKey.Kind.allCases)
+    @Test(arguments: SSHKey.Kind.generated)
     func recordInTheKeychainHoldsNoPrivateKey(kind: SSHKey.Kind) async throws {
         try await window.open(reason: "Unlock Shello")
         let key = try await store.generate(kind, comment: "a", signingPolicy: .whileUnlocked)
@@ -325,12 +325,16 @@ struct SSHKeyStoreTests {
     private func verify(_ signature: Data, of data: Data, by key: SSHKey) throws -> Bool {
         let line = try ParsedOpenSSHLine(key.openSSHPublicKey)
         let parsed = try ParsedSSHSignature(signature)
-        guard parsed.algorithm == line.algorithm else { return false }
+        guard parsed.isMade(by: line) else { return false }
         switch key.kind {
-        case .secureEnclave:
+        case .secureEnclave, .imported(.ecdsaP256):
             return try line.p256PublicKey().isValidSignature(try parsed.ecdsaSignature(), for: data)
-        case .ed25519:
+        case .ed25519, .imported(.ed25519):
             return try line.ed25519PublicKey().isValidSignature(parsed.blob, for: data)
+        case .imported(.ecdsaP384):
+            return try line.p384PublicKey().isValidSignature(try parsed.p384Signature(), for: data)
+        case .imported(.rsa):
+            return try parsed.isValidRSASignature(for: data, by: try line.rsaPublicKey())
         }
     }
 
@@ -339,7 +343,7 @@ struct SSHKeyStoreTests {
     private func contextsThatSigned(_ kind: SSHKey.Kind) -> [RecordingKeychain.Read] {
         switch kind {
         case .secureEnclave: enclave.signatures
-        case .ed25519: items.reads
+        case .ed25519, .imported: items.reads
         }
     }
 

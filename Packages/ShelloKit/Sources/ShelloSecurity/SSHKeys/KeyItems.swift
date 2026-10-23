@@ -4,8 +4,8 @@ import LocalAuthentication
 /// The Keychain items behind `SSHKeyStore`, one per SSH key (STACK section 7.3). An item holds:
 /// - the key's record, everything about the key but the private key, which reads without
 ///   authentication, so that keys can be listed while nobody is asked anything;
-/// - the key data: the Secure Enclave's blob of the key, or the Ed25519 private key, which reads
-///   only with the right context.
+/// - the key data: the Secure Enclave's blob of the key, or the private key of an Ed25519 or an
+///   imported key, which reads only with the right context.
 ///
 /// `SystemKeyItems` keeps them in the iOS Keychain; `MemoryKeyItems` keeps them in memory, for tests,
 /// previews and UI tests.
@@ -33,6 +33,10 @@ struct KeyRecord: Codable, Hashable, Sendable {
     var id: UUID
     /// `SSHKey.Kind`, as one of `KindValue`'s raw values.
     var kind: String
+    /// An imported key's algorithm, as one of `AlgorithmValue`'s raw values; nil, and left out of the
+    /// record, for the kinds of key Shello makes, whose kind gives their algorithm. A Shello from
+    /// before imported keys skips the records of the kind `imported`, which it does not know.
+    var algorithm: String?
     /// `SigningPolicy`, as one of `PolicyValue`'s raw values.
     var signingPolicy: String
     var comment: String
@@ -44,6 +48,15 @@ struct KeyRecord: Codable, Hashable, Sendable {
     private enum KindValue: String {
         case secureEnclave
         case ed25519
+        case imported
+    }
+
+    /// The stored values of `SSHKeyAlgorithm`, for imported keys. They never change either.
+    private enum AlgorithmValue: String {
+        case ecdsaP256
+        case ecdsaP384
+        case ed25519
+        case rsa
     }
 
     /// The stored values of `SigningPolicy`. They never change either.
@@ -54,11 +67,21 @@ struct KeyRecord: Codable, Hashable, Sendable {
 
     init(_ key: SSHKey) {
         id = key.id
-        kind =
-            switch key.kind {
-            case .secureEnclave: KindValue.secureEnclave.rawValue
-            case .ed25519: KindValue.ed25519.rawValue
-            }
+        switch key.kind {
+        case .secureEnclave:
+            kind = KindValue.secureEnclave.rawValue
+        case .ed25519:
+            kind = KindValue.ed25519.rawValue
+        case .imported(let algorithm):
+            kind = KindValue.imported.rawValue
+            self.algorithm =
+                switch algorithm {
+                case .ecdsaP256: AlgorithmValue.ecdsaP256.rawValue
+                case .ecdsaP384: AlgorithmValue.ecdsaP384.rawValue
+                case .ed25519: AlgorithmValue.ed25519.rawValue
+                case .rsa: AlgorithmValue.rsa.rawValue
+                }
+        }
         signingPolicy =
             switch key.signingPolicy {
             case .whileUnlocked: PolicyValue.whileUnlocked.rawValue
@@ -69,17 +92,12 @@ struct KeyRecord: Codable, Hashable, Sendable {
         createdAt = key.createdAt
     }
 
-    /// The key this record holds, or nil for a kind or policy this version of Shello does not know,
-    /// for example one a newer version wrote.
+    /// The key this record holds, or nil for a kind, algorithm or policy this version of Shello does
+    /// not know, for example one a newer version wrote.
     var key: SSHKey? {
-        guard let kindValue = KindValue(rawValue: kind), let policyValue = PolicyValue(rawValue: signingPolicy) else {
+        guard let kind = storedKind, let policyValue = PolicyValue(rawValue: signingPolicy) else {
             return nil
         }
-        let kind: SSHKey.Kind =
-            switch kindValue {
-            case .secureEnclave: .secureEnclave
-            case .ed25519: .ed25519
-            }
         let policy: SigningPolicy =
             switch policyValue {
             case .whileUnlocked: .whileUnlocked
@@ -88,5 +106,22 @@ struct KeyRecord: Codable, Hashable, Sendable {
         return SSHKey(
             id: id, comment: comment, kind: kind, signingPolicy: policy,
             publicKey: SSHPublicKey(algorithm: kind.algorithm, wireRepresentation: publicKey), createdAt: createdAt)
+    }
+
+    /// The kind `kind` and `algorithm` hold, or nil for one this version does not know.
+    private var storedKind: SSHKey.Kind? {
+        switch KindValue(rawValue: kind) {
+        case .secureEnclave: return .secureEnclave
+        case .ed25519: return .ed25519
+        case .imported:
+            switch algorithm.flatMap(AlgorithmValue.init(rawValue:)) {
+            case .ecdsaP256: return .imported(.ecdsaP256)
+            case .ecdsaP384: return .imported(.ecdsaP384)
+            case .ed25519: return .imported(.ed25519)
+            case .rsa: return .imported(.rsa)
+            case nil: return nil
+            }
+        case nil: return nil
+        }
     }
 }

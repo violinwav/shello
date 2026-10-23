@@ -1,4 +1,6 @@
 import Foundation
+import KeyFixtures
+import OSLog
 import ShelloModel
 import ShelloSecurity
 import ShelloStorage
@@ -8,7 +10,7 @@ import Testing
 
 /// Secrets never reach the database or the export (README section 13, docs/spec/EXPORT.md). A host
 /// saved with a password through the host editor leaves no trace of it in either, and one saved
-/// with an SSH key holds the key's identifier only.
+/// with an SSH key holds the key's identifier only. An imported key reaches the log neither.
 @Suite(.timeLimit(.minutes(1)))
 struct SecretsStayOutTests {
     let test: TestDatabase
@@ -71,6 +73,64 @@ struct SecretsStayOutTests {
         SSHKeyDetailModel(store: keys.store, key: key) { clipboard.append($0) }.copyPublicKey()
         #expect(clipboard == [key.openSSHPublicKey])
         #expect(!Self.holds(Data(clipboard[0].utf8), keyData))
+    }
+
+    /// The private key of an imported key of each type, the text it was pasted as and its passphrase
+    /// reach neither the database, the export nor the log: a host refers to its key by its identifier
+    /// only. A wrong passphrase first takes each import through its failure too.
+    @Test func importedPrivateKeysStayInTheKeychain() async throws {
+        let start = Date.now
+        let marker = "SecretsStayOutTests \(UUID().uuidString)"
+        Logger(subsystem: "ch.shello.Shello", category: "Tests").notice("\(marker, privacy: .public)")
+        let keys = TestKeys(secureEnclave: false)
+        var secrets: [Data] = [Data(KeyFixture.passphrase.utf8), Data("Wrong-Passphrase-1d2c".utf8)]
+        var privateKeys: [Data] = []
+        var identifiers: [String] = []
+        for (index, fixture) in KeyFixture.Key.allCases.enumerated() {
+            let variant = KeyFixture.Variant(key: fixture, format: .openSSH, isEncrypted: true)
+            let importer = ImportSSHKeyModel(store: keys.store, clipboard: TestClipboard())
+            importer.paste(variant.text)
+            importer.passphrase = "Wrong-Passphrase-1d2c"
+            #expect(await importer.importKey() == nil)
+            importer.passphrase = KeyFixture.passphrase
+            let key = try #require(await importer.importKey())
+            let model = HostEditorModel(repository: test.repository, keys: keys.store, host: nil)
+            model.draft.name = "build-0\(index)"
+            model.draft.address = "build\(index).lan"
+            model.chooseSSHKey(key.id)
+            #expect(await model.save())
+            // The private key, as the Keychain holds it and as its unencrypted file writes it, and
+            // the text that was pasted.
+            privateKeys.append(try #require(keys.keyData(of: key)))
+            secrets += [variant.text, KeyFixture.text("\(fixture.rawValue)-openssh")].flatMap(Self.bodyLines)
+            identifiers.append(key.id.uuidString)
+        }
+
+        let files = try FileManager.default.contentsOfDirectory(at: test.root, includingPropertiesForKeys: nil)
+            .map { try Data(contentsOf: $0) }
+        #expect(files.contains { $0.range(of: Data("build-03".utf8)) != nil })
+        let export = try await test.exports.export().encoded()
+        #expect(identifiers.allSatisfy { String(decoding: export, as: UTF8.self).contains($0) })
+        let log = try Self.logMessages(since: start)
+        // The log is read: the marker is there.
+        #expect(log.contains { $0.contains(marker) })
+        for data in files + [export, Data(log.joined(separator: "\n").utf8)] {
+            #expect(privateKeys.allSatisfy { !Self.holds(data, $0) })
+            #expect(secrets.allSatisfy { data.range(of: $0) == nil })
+        }
+    }
+
+    /// The lines of a key file's body, each of which is the key's text: its base64.
+    private static func bodyLines(_ text: String) -> [Data] {
+        text.split(separator: "\n").filter { !$0.hasPrefix("-----") && $0.count >= 16 }.map { Data($0.utf8) }
+    }
+
+    /// What this process logged since `date`, as the log store has it.
+    private static func logMessages(since date: Date) throws -> [String] {
+        let store = try OSLogStore(scope: .currentProcessIdentifier)
+        return try store.getEntries(at: store.position(date: date)).compactMap {
+            ($0 as? OSLogEntryLog)?.composedMessage
+        }
     }
 
     /// Whether `data` holds `secret`'s bytes as they are, or as base64 or hex text.

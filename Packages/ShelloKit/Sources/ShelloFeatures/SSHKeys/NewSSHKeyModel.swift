@@ -47,6 +47,9 @@ final class NewSSHKeyModel {
         if name.isEmpty {
             return "Enter a name."
         }
+        if SSHKeyName.holdsPrivateKey(name) {
+            return SSHKeyName.privateKeyProblem
+        }
         if !SSHKey.isValidComment(name) {
             return "Enter the name on one line."
         }

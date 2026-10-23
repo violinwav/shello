@@ -10,7 +10,8 @@ import os
 ///   device;
 /// - is not synchronizable, so that it never syncs (ADR 0003);
 /// - holds the key's record in its generic attribute and the key data as its data;
-/// - for an Ed25519 key, has an access control that needs the user's presence to read the data.
+/// - for an Ed25519 key and an imported key, has an access control that needs the user's presence
+///   to read the data.
 ///
 /// The items go into Shello's Keychain access group, as `SystemKeychain`'s do.
 struct SystemKeyItems: KeyItems {

@@ -8,7 +8,6 @@ struct NewSSHKeyView: View {
     @State private var model: NewSSHKeyModel
     private let onCreate: (SSHKey) -> Void
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.appLock) private var appLock
     @FocusState private var nameIsFocused: Bool
 
     /// A sheet that makes a key in `store`, and hands it to `onCreate` before it closes.
@@ -26,9 +25,9 @@ struct NewSSHKeyView: View {
     var body: some View {
         NavigationStack {
             Form {
-                nameSection
+                SSHKeyNameSection(name: $model.name, problem: model.visibleNameProblem, isFocused: $nameIsFocused)
                 kindSection
-                signingSection
+                SigningPolicySection(policy: $model.signingPolicy)
             }
             // On the form only: toolbar items keep the system font, which follows Dynamic Type.
             .font(Typography.body)
@@ -48,10 +47,6 @@ struct NewSSHKeyView: View {
                         .prominentToolbarButton()
                 }
             }
-            // The warning replaces the footer while VoiceOver is still on the choice.
-            .onChange(of: model.signingPolicy) { _, policy in
-                if policy == .everyUse { announce(everyUseWarning, priority: .low) }
-            }
             .alert(
                 "Couldn’t Make the SSH Key",
                 isPresented: Binding(get: { model.createError != nil }, set: { if !$0 { model.createError = nil } })
@@ -67,32 +62,6 @@ struct NewSSHKeyView: View {
     }
 
     // MARK: - Sections
-
-    private var nameSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 6) {
-                // Names such as "deploy@ci" are identifiers, which autocorrection would change.
-                TextField("Name", text: name, prompt: Text("required"), axis: .vertical)
-                    .accessibilityLabel("Name")
-                    .accessibilityHint(model.visibleNameProblem ?? "")
-                    .font(Typography.data)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .focused($nameIsFocused)
-                    .submitLabel(.done)
-                    .onSubmit { nameIsFocused = false }
-                if let problem = model.visibleNameProblem {
-                    ProblemText(problem: problem)
-                }
-            }
-        } header: {
-            SectionHeader("Name")
-        } footer: {
-            FooterText(
-                "The name goes at the end of the public key, so that a server’s authorized_keys shows whose key it is.")
-        }
-        .listRowBackground(Palette.cell)
-    }
 
     @ViewBuilder private var kindSection: some View {
         if model.offersKinds {
@@ -125,59 +94,7 @@ struct NewSSHKeyView: View {
         }
     }
 
-    private var signingSection: some View {
-        Section {
-            Picker("Signing", selection: $model.signingPolicy) {
-                ForEach(SigningPolicy.allCases, id: \.self) { policy in
-                    Text(policy.displayName).tag(policy)
-                }
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } header: {
-            SectionHeader("Signing")
-        } footer: {
-            switch model.signingPolicy {
-            case .whileUnlocked:
-                FooterText("The key signs without asking again once you’ve unlocked Shello with \(biometry).")
-            case .everyUse:
-                // An icon and a sentence, not only a colour.
-                Label(everyUseWarning, systemImage: "exclamationmark.triangle.fill")
-                    .labelStyle(.row)
-                    .font(Typography.footnote)
-                    .foregroundStyle(Palette.textSecondary)
-            }
-        }
-        .listRowBackground(Palette.cell)
-    }
-
     // MARK: - Helpers
-
-    /// The name as its field edits it. The field wraps, so that a long name stays readable at large
-    /// text sizes, but the name stays on one line: Return puts the keyboard away instead of starting
-    /// a new line, and a pasted line break goes.
-    private var name: Binding<String> {
-        Binding {
-            model.name
-        } set: { name in
-            guard name.contains(where: \.isNewline) else {
-                model.name = name
-                return
-            }
-            model.name = name.filter { !$0.isNewline }
-            nameIsFocused = false
-        }
-    }
-
-    /// README section 13: the UI warns that "every use" makes every reconnect prompt.
-    private var everyUseWarning: String {
-        "Every connection and every reconnect with this key asks for \(biometry)."
-    }
-
-    /// What the device asks for, as app lock knows it.
-    private var biometry: String {
-        appLock?.biometry.inSentence ?? "Face ID or Touch ID"
-    }
 
     private func create() async {
         nameIsFocused = false

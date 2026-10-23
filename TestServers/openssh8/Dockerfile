@@ -15,7 +15,7 @@ FROM alpine:3.15@sha256:19b4bcc4f60e99dd5ebdca0cbce22c503bbcff197549d7e19dab4f22
 # to a plain shell (TmuxIntegrationTests).
 RUN apk add --no-cache openssh-server openssh-server-pam google-authenticator
 
-COPY keys/client_ed25519.pub keys/ssh_host_ed25519_key_a keys/ssh_host_ed25519_key_b /tmp/keys/
+COPY keys/client_ed25519.pub keys/import_fixtures.pub keys/ssh_host_ed25519_key_a keys/ssh_host_ed25519_key_b /tmp/keys/
 COPY openssh/sshd_config /etc/ssh/sshd_config
 COPY openssh/sshd_config.two-factor openssh/google_authenticator /tmp/
 # Alpine 3.15's sshd.pam asks PAM as the service sshd.pam, after its own name; later ones as sshd.
@@ -31,6 +31,7 @@ RUN for user in shello shello-otp shello-2fa; do \
     && for user in shello shello-2fa; do \
         install -m 600 -o "$user" -g "$user" /tmp/keys/client_ed25519.pub "/home/$user/.ssh/authorized_keys"; \
     done \
+    && cat /tmp/keys/import_fixtures.pub >> /home/shello/.ssh/authorized_keys \
     && for user in shello-otp shello-2fa; do \
         install -m 400 -o "$user" -g "$user" /tmp/google_authenticator "/home/$user/.google_authenticator"; \
     done \

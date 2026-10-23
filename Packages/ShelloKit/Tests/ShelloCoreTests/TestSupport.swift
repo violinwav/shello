@@ -39,6 +39,20 @@ enum TestServer {
 
     private static let openSSH8Probe = Task { await hasSSHBanner(port: openSSH8Port) }
 
+    /// The server with post-quantum key exchange off: in Docker, a container of its own, and with
+    /// this Mac's sshd, one whose home directory is the servers' own (TestServers/local-sshd.sh). The
+    /// tests that install SSH keys use it, since they write to `~/.ssh/authorized_keys`, which on
+    /// port 2222 of this Mac's sshd is the user's own.
+    static let installPort: UInt16 = 2224
+    static let installServerNotRunning: Comment =
+        "The test server is not running on localhost:2224. Start it with TestServers/ssh-server.sh (TestServers/README.md)."
+
+    static var isInstallServerRunning: Bool {
+        get async { await installProbe.value }
+    }
+
+    private static let installProbe = Task { await hasSSHBanner(port: installPort) }
+
     /// TestServers/keys/ssh_host_ed25519_key_a.pub.
     static let hostKeyA = HostKey(
         algorithm: "ssh-ed25519",
@@ -152,9 +166,9 @@ final class TestConnector: Sendable {
         return host
     }
 
-    /// The test server's client key, in the key store.
+    /// The test server's client key, in the key store, among any others a test made.
     func clientKey() throws -> SSHKey {
-        try #require(try keys.keys().first)
+        try #require(try keys.keys().first { $0.comment == TestServer.clientKey.comment })
     }
 }
 

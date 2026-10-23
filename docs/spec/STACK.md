@@ -242,6 +242,16 @@ Consequences:
 - The item's data is the key itself: the Secure Enclave's blob, or the Ed25519 private key behind the access control. The record never holds it.
 - `SSHKeyStore` in `ShelloSecurity` is the only code that reads the data, and it hands out public keys and signatures only.
 
+**Imported keys** (README section 13):
+
+- libssh reads the pasted or picked text (`ssh_pki_import_privkey_base64`): OpenSSH's format and PEM, PKCS #8 included, plain or encrypted. Before that, Shello reads only what the text says without its passphrase (`ShelloSSH/KeyImport/KeyText.swift`, fuzzed by `Fuzz/KeyText`): the format, whether it is encrypted, and an OpenSSH key's public key. So it asks for the passphrase only when the key needs one, and refuses DSA, RSA under 2048 bits, ECDSA P-521 and security keys first, each with its own sentence.
+- The text and the passphrase stay in byte buffers that are overwritten once let go, never in a `String` or a text field: the sheet has the system's Paste button and the Files app's picker. Once a pasted key is imported, Shello empties the clipboard, which would hold the key, or its passphrase if the user copied that meanwhile. An app cannot tell whether the clipboard changed since its paste: its own count of the clipboard's changes moves whenever one of its text fields takes the keyboard. libssh's own copies are freed by libssh.
+- libssh hands the decrypted key over as PKCS #8 (`ssh_pki_export_privkey_base64_format`), whose private key Shello finds in place (`PKCS8.swift`): Ed25519's seed and an ECDSA scalar for CryptoKit, an RSA key's PKCS #1 `RSAPrivateKey` for Security (`SecKeyCreateWithData`), as CryptoKit has no RSA. Shello imports a key only if the public key it computes from the private key is the one libssh read.
+- The private key is a Keychain item like a generated Ed25519 key's: the service `ch.shello.ssh-key`, `WhenUnlockedThisDeviceOnly`, never synchronizable (sync on opt-in is v1), readable only with the user's presence. The record's kind is `imported`, with the algorithm beside it; a Shello from before skips such records. The passphrase is not kept.
+- Imported keys sign through the same SSH agent and `SSHKeyStore.sign`, under their signing policy. ECDSA P-384 signs with SHA-384; RSA signs with SHA-256 or SHA-512 as the sign request's flags say (RFC 8332), and refuses a request for SHA-1's `ssh-rsa`. libssh asks for SHA-512 when the server's `server-sig-algs` has it.
+
+**Install on host** (README section 13) runs one command on a hidden channel of a tab's open connection, as `ssh-copy-id` does: `exec sh -c '…'`, which every login shell, fish and csh included, passes on to POSIX sh as it is. The script makes `~/.ssh` (700) and `authorized_keys` (600) if they are missing, adds the key's line unless a line that is not a comment has the key already, ends a file without a final line break first, and runs `restorecon` where SELinux is. The key's line reaches the file through `printf` with every byte that a shell or `printf` would read anything into written as an octal escape, so no part of the key's name is ever read as shell syntax (`ShelloCore/AuthorizedKeys.swift`).
+
 **The iOS Simulator** reports a Secure Enclave (`SecureEnclave.isAvailable`) but refuses to make a key that needs the user's presence ("This call is not supported on iOS Simulator"). Its Keychain also gives out items that need the user's presence without asking. Shello therefore offers Ed25519 keys only in the simulator. Secure Enclave keys and the Keychain's access control are checked on a device (section 11).
 
 **App lock and privacy.**
@@ -511,7 +521,7 @@ Development and CI only:
 | Integration: protocol | `ShelloSSH` and `ShelloTmux` built for Linux, run against Docker OpenSSH servers | Every pull request |
 | Integration: app end to end | iOS Simulator app connecting to the CI Mac's own `sshd`, started unprivileged on a high port | Every pull request |
 | Network faults | Toxiproxy for TCP; tc netem for Mosh's UDP | Nightly |
-| Fuzzing | libFuzzer: SwiftTerm's targets plus Shello's parsers (OpenSSH config and known\_hosts import, SSH agent protocol, tmux output, sudo-prompt detection, SOCKS5, JSON import, snippet variables). libssh and Mosh are covered by OSS-Fuzz. | 60-second smoke run per pull request, long runs nightly |
+| Fuzzing | libFuzzer: SwiftTerm's targets plus Shello's parsers (OpenSSH config and known\_hosts import, SSH agent protocol, tmux output, private keys' text before libssh reads them, sudo-prompt detection, SOCKS5, JSON import, snippet variables). libssh and Mosh are covered by OSS-Fuzz. | 60-second smoke run per pull request, long runs nightly |
 | Sanitizers | Address, Thread and Undefined Behavior Sanitizers in a dedicated configuration. Thread Sanitizer guards the libssh threading rule. | Nightly |
 | Performance | XCTest metrics with signposts (section 6) | Simulator per pull request as a regression signal; physical devices before each TestFlight build |
 | Device-only checks | Secure Enclave, arm64e and memory tagging, Local Network prompt, Wi-Fi to cellular switches, haptics | Before each TestFlight build |

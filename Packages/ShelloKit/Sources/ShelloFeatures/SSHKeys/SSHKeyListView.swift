@@ -1,11 +1,13 @@
 import ShelloSecurity
 import SwiftUI
 
-/// The SSH keys on this device (README section 13), in Settings. Each row opens the key's details;
-/// New SSH Key makes one.
+/// The SSH keys on this device (README section 13), in Settings, generated and imported alike, each
+/// row saying which. Each row opens the key's details; New SSH Key makes one, and Import SSH Key
+/// brings one from elsewhere.
 struct SSHKeyListView: View {
     @State private var model: SSHKeyListModel
     @State private var createsKey = false
+    @State private var importsKey = false
     @State private var keyToDelete: SSHKey?
 
     init(store: SSHKeyStore) {
@@ -39,13 +41,19 @@ struct SSHKeyListView: View {
         .overlay { emptyState }
         .navigationTitle("SSH Keys")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button("Import SSH Key", systemImage: "square.and.arrow.down") { importsKey = true }
+                    // For Voice Control: the toolbar shows only the symbol.
+                    .accessibilityInputLabels(["Import SSH Key", "Import Key", "Import"])
                 Button("New SSH Key", systemImage: "plus") { createsKey = true }
             }
         }
         .onAppear { model.load() }
         .sheet(isPresented: $createsKey, onDismiss: { model.load() }) {
             NewSSHKeyView(store: model.store)
+        }
+        .sheet(isPresented: $importsKey, onDismiss: { model.load() }) {
+            ImportSSHKeyView(store: model.store)
         }
         .confirmationDialog(
             keyToDelete.map { "Delete “\($0.comment)”?" } ?? "",
@@ -56,8 +64,8 @@ struct SSHKeyListView: View {
             Button("Delete SSH Key", role: .destructive) {
                 if model.delete(key) { announce("Deleted \(key.comment)") }
             }
-        } message: { _ in
-            Text(SSHKeyDetailView.deleteMessage)
+        } message: { key in
+            Text(SSHKeyDetailView.deleteMessage(for: key))
         }
         .alert(
             "Couldn’t Delete the SSH Key",
@@ -82,6 +90,8 @@ struct SSHKeyListView: View {
                 title: "No SSH Keys", systemImage: "key",
                 description: "An SSH key signs you in to servers without a password."
             ) {
+                // One button: a second does not fit at the largest text sizes. Import SSH Key is in the
+                // toolbar.
                 Button("New SSH Key") { createsKey = true }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)

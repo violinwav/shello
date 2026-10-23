@@ -61,6 +61,23 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         return fallback.note
     }
 
+    /// The hidden channels (GLOSSARY) of the tab's connection while it is active, for Shello's own
+    /// commands on the server it signed in to, such as installing an SSH key there (README section
+    /// 13); nil while the tab has no connection that works. A command on them fails with the
+    /// connection's `SSHError` if the connection drops under it.
+    public var hiddenChannels: (any HiddenChannels)? {
+        state == .active ? connection : nil
+    }
+
+    /// Installs `key` on the server the tab is signed in to (README section 13), over a hidden
+    /// channel of its connection, as `AuthorizedKeys.install(_:on:)` does.
+    /// - Throws: `KeyInstallationError.notConnected` while the tab has no connection that works; as
+    ///   `AuthorizedKeys.install(_:on:)` otherwise.
+    public func installSSHKey(_ key: SSHKey) async throws -> KeyInstallation {
+        guard let channels = hiddenChannels else { throw KeyInstallationError.notConnected }
+        return try await AuthorizedKeys.install(key, on: channels)
+    }
+
     /// The question the tab waits for the user to answer: to trust a new host key, or the server's
     /// questions, round after round, in one sheet.
     public var prompt: Prompt? {

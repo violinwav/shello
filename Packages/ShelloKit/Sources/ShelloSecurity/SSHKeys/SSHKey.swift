@@ -1,25 +1,40 @@
 import Foundation
+import ShelloModel
 
-/// An SSH key that Shello made on this device: a generated key (GLOSSARY.md), which never leaves it
-/// (README section 13, ADR 0003).
+/// An SSH key on this device (GLOSSARY): a generated key, which Shello made here and which never
+/// leaves the device (README section 13, ADR 0003), or an imported key, which the user brought from
+/// elsewhere.
 ///
 /// It holds what is safe to show and share: the key's name, kind and signing policy, and its public
 /// key. The private key stays in the Secure Enclave or the Keychain, and no code outside
 /// ShelloSecurity can read it: `SSHKeyStore` signs with it instead.
 public struct SSHKey: Identifiable, Hashable, Sendable {
-    /// Where the private key lives, which decides its algorithm.
-    public enum Kind: Hashable, Sendable, CaseIterable {
+    /// Where the private key lives and where it came from, which decide its algorithm.
+    public enum Kind: Hashable, Sendable {
         /// ECDSA P-256 inside the Secure Enclave, which never lets the private key out: the default.
         /// The Secure Enclave makes no other kind of key.
         case secureEnclave
         /// Ed25519 in the Keychain, on this device only, for servers that need it.
         case ed25519
+        /// An imported key, of `algorithm`, in the Keychain, on this device only. Shello does not
+        /// make it: it comes from `SSHKeyStore.importKey(_:comment:signingPolicy:)`.
+        case imported(SSHKeyAlgorithm)
+
+        /// The kinds of key Shello makes, the default first: `SSHKeyStore.kinds` says which this
+        /// device can.
+        public static let generated: [Kind] = [.secureEnclave, .ed25519]
 
         public var algorithm: SSHKeyAlgorithm {
             switch self {
             case .secureEnclave: .ecdsaP256
             case .ed25519: .ed25519
+            case .imported(let algorithm): algorithm
             }
+        }
+
+        /// Whether a key of this kind is an imported key, rather than one Shello made.
+        public var isImported: Bool {
+            if case .imported = self { true } else { false }
         }
     }
 
@@ -30,6 +45,7 @@ public struct SSHKey: Identifiable, Hashable, Sendable {
     public let kind: Kind
     public let signingPolicy: SigningPolicy
     public let publicKey: SSHPublicKey
+    /// When the key was made, or imported.
     public let createdAt: Date
 
     init(
@@ -77,12 +93,23 @@ public enum SSHKeyError: Error, Equatable, CustomStringConvertible {
     case secureEnclaveUnavailable
     /// The comment holds a line break or another control character, which `authorized_keys` cannot.
     case invalidComment
+    /// Shello does not make keys of this kind: imported keys come from elsewhere.
+    case cannotMake(SSHKey.Kind)
+    /// The private key of an imported key is not the private key of its public key, or one that
+    /// Apple's frameworks cannot use.
+    case mismatchedKeyPair
+    /// An RSA key was asked for a signature with SHA-1 (`ssh-rsa`), which Shello never makes:
+    /// OpenSSH 8.8 and later refuse it, and Shello signs with SHA-256 or SHA-512 only (RFC 8332).
+    case rsaSHA1Refused
 
     public var description: String {
         switch self {
         case .keyNotFound: "The SSH key isn’t on this device."
         case .secureEnclaveUnavailable: "This device can’t make Secure Enclave keys."
         case .invalidComment: "The name of an SSH key must be one line, without control characters."
+        case .cannotMake: "Shello can’t make this kind of SSH key: imported keys come from elsewhere."
+        case .mismatchedKeyPair: "The SSH key can’t be used: its private key doesn’t match its public key."
+        case .rsaSHA1Refused: "Shello signs with RSA keys using SHA-256 or SHA-512 only, never SHA-1."
         }
     }
 }

@@ -1,3 +1,4 @@
+import ShelloModel
 import ShelloSecurity
 
 // How SSH keys and their properties read on screen and to VoiceOver.
@@ -7,6 +8,7 @@ extension SSHKey.Kind {
         switch self {
         case .secureEnclave: "Secure Enclave"
         case .ed25519: "Ed25519"
+        case .imported(let algorithm): algorithm.displayName
         }
     }
 
@@ -14,7 +16,7 @@ extension SSHKey.Kind {
     var storage: String {
         switch self {
         case .secureEnclave: "Secure Enclave"
-        case .ed25519: "Keychain"
+        case .ed25519, .imported: "Keychain"
         }
     }
 
@@ -23,6 +25,7 @@ extension SSHKey.Kind {
         switch self {
         case .secureEnclave: "ECDSA P-256 in the Secure Enclave"
         case .ed25519: "Ed25519 in the Keychain"
+        case .imported(let algorithm): "Imported \(algorithm.displayName) key in the Keychain"
         }
     }
 
@@ -33,6 +36,8 @@ extension SSHKey.Kind {
             "ECDSA P-256. The private key never leaves the Secure Enclave, the chip that guards this device’s keys."
         case .ed25519:
             "For servers that need Ed25519. The private key stays in this device’s Keychain."
+        case .imported:
+            "A key you brought from elsewhere. Its private key stays in this device’s Keychain."
         }
     }
 }
@@ -42,6 +47,8 @@ extension SSHKeyAlgorithm {
         switch self {
         case .ecdsaP256: "ECDSA P-256"
         case .ed25519: "Ed25519"
+        case .ecdsaP384: "ECDSA P-384"
+        case .rsa: "RSA"
         }
     }
 }
@@ -56,9 +63,16 @@ extension SigningPolicy {
 }
 
 extension SSHKey {
-    /// What VoiceOver reads after the key's name, and what its row shows under it: its kind, and that
-    /// it asks on every use.
+    /// The key's algorithm, with an RSA key's size, which tells RSA keys apart: "RSA 3072".
+    var algorithmName: String {
+        guard let bits = publicKey.rsaBits else { return kind.algorithm.displayName }
+        return "\(kind.algorithm.displayName) \(bits)"
+    }
+
+    /// What VoiceOver reads after the key's name, and what its row shows under it: its kind, whether
+    /// it is imported, and that it asks on every use.
     var summary: String {
-        signingPolicy == .everyUse ? "\(kind.summary), asks on every use" : kind.summary
+        let kind = kind.isImported ? "Imported \(algorithmName) key in the Keychain" : kind.summary
+        return signingPolicy == .everyUse ? "\(kind), asks on every use" : kind
     }
 }

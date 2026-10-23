@@ -104,6 +104,12 @@ let package = Package(
         .binaryTarget(name: "libssh", path: "../../Vendor/build/xcframeworks/libssh.xcframework"),
         .binaryTarget(name: "libcrypto", path: "../../Vendor/build/xcframeworks/libcrypto.xcframework"),
 
+        // Test fixtures only, in no product: SSH keys that ssh-keygen made for the tests of importing
+        // SSH keys, never anyone's own. make-fixtures.sh says how they were made.
+        .target(
+            name: "KeyFixtures", path: "Tests/KeyFixtures", exclude: ["make-fixtures.sh"], resources: [.copy("Keys")],
+            swiftSettings: core),
+
         .testTarget(name: "ShelloModelTests", dependencies: ["ShelloModel"], swiftSettings: core),
         // GRDB too, for the tests that inspect the schema and the stored rows. Fixtures holds a
         // database written by each schema version, for the migration tests.
@@ -113,18 +119,24 @@ let package = Package(
             resources: [.copy("Fixtures")],
             swiftSettings: core
         ),
-        .testTarget(name: "ShelloSecurityTests", dependencies: ["ShelloSecurity"], swiftSettings: core),
+        .testTarget(name: "ShelloSecurityTests", dependencies: ["ShelloSecurity", "ShelloModel"], swiftSettings: core),
         // Most of them sign in to the test server in TestServers/, and skip when it is not running.
-        .testTarget(name: "ShelloSSHTests", dependencies: ["ShelloSSH", "ShelloModel"], swiftSettings: core),
+        // KeyFixtures has the keys they import.
+        .testTarget(
+            name: "ShelloSSHTests", dependencies: ["ShelloSSH", "ShelloModel", "KeyFixtures"], swiftSettings: core),
         // The parsers against what tmux printed, and the version check against stand-ins for hidden
         // channels. ShelloCoreTests run the check against the test servers.
         .testTarget(
             name: "ShelloTmuxTests", dependencies: ["ShelloTmux", "ShelloSSH", "ShelloModel"], swiftSettings: core),
         // A real database in a temporary directory, secrets in memory, and the test server in
-        // TestServers/, without which the tests that need it skip.
+        // TestServers/, without which the tests that need it skip. KeyFixtures has the imported keys
+        // they sign in with.
         .testTarget(
             name: "ShelloCoreTests",
-            dependencies: ["ShelloCore", "ShelloModel", "ShelloStorage", "ShelloSecurity", "ShelloSSH", "ShelloTmux"],
+            dependencies: [
+                "ShelloCore", "ShelloModel", "ShelloStorage", "ShelloSecurity", "ShelloSSH", "ShelloTmux",
+                "KeyFixtures",
+            ],
             swiftSettings: core
         ),
         .testTarget(
@@ -134,12 +146,13 @@ let package = Package(
         ),
         // The view models run against a real database in a temporary directory, and a Keychain in memory.
         // The terminal's snapshot tests and its performance test run here too, with the app's fonts and
-        // colours; __Snapshots__ holds their reference images.
+        // colours; __Snapshots__ holds their reference images. KeyFixtures has the keys the import
+        // sheet's tests import.
         .testTarget(
             name: "ShelloFeaturesTests",
             dependencies: [
                 "ShelloFeatures", "ShelloStorage", "ShelloSecurity", "ShelloModel", "ShelloTerminalUI", "ShelloCore",
-                "ShelloSSH", .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
+                "ShelloSSH", "KeyFixtures", .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
             ],
             exclude: ["__Snapshots__"],
             swiftSettings: ui

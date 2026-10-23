@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import ShelloModel
 
 /// The public half of an SSH key (README section 13), in the forms that servers and people use:
 /// SSH's wire format, which an SSH agent lists; OpenSSH's one-line text, which `authorized_keys`
@@ -25,12 +26,32 @@ public struct SSHPublicKey: Hashable, Sendable {
         self.init(algorithm: .ecdsaP256, wireRepresentation: writer.data)
     }
 
+    /// An ECDSA P-384 key (RFC 5656 section 3.1): `ecdsa-sha2-nistp384`, the curve's name, and the
+    /// point, uncompressed.
+    init(_ key: P384.Signing.PublicKey) {
+        var writer = SSHWriter()
+        writer.writeString(SSHKeyAlgorithm.ecdsaP384.name)
+        writer.writeString("nistp384")
+        writer.writeString(key.x963Representation)
+        self.init(algorithm: .ecdsaP384, wireRepresentation: writer.data)
+    }
+
     /// An Ed25519 key (RFC 8709 section 4): `ssh-ed25519`, then the key's 32 bytes.
     init(_ key: Curve25519.Signing.PublicKey) {
         var writer = SSHWriter()
         writer.writeString(SSHKeyAlgorithm.ed25519.name)
         writer.writeString(key.rawRepresentation)
         self.init(algorithm: .ed25519, wireRepresentation: writer.data)
+    }
+
+    /// An RSA key (RFC 4253 section 6.6): `ssh-rsa`, the public exponent, then the modulus, each an
+    /// `mpint`, given as unsigned big-endian bytes.
+    init(rsaModulus modulus: some Collection<UInt8>, exponent: some Collection<UInt8>) {
+        var writer = SSHWriter()
+        writer.writeString(SSHKeyAlgorithm.rsa.name)
+        writer.writeMPInt(unsignedBigEndian: exponent)
+        writer.writeMPInt(unsignedBigEndian: modulus)
+        self.init(algorithm: .rsa, wireRepresentation: writer.data)
     }
 
     /// The key as one line of `authorized_keys`, as `ssh-keygen` writes a `.pub` file without its
@@ -46,21 +67,34 @@ public struct SSHPublicKey: Hashable, Sendable {
         let hash = Data(SHA256.hash(data: wireRepresentation)).base64EncodedString()
         return "SHA256:" + hash.prefix { $0 != "=" }
     }
-}
 
-/// The SSH key algorithms of the keys Shello makes.
-public enum SSHKeyAlgorithm: Hashable, Sendable, CaseIterable {
-    /// ECDSA on the NIST P-256 curve, with SHA-256 (RFC 5656): the only kind of key the Secure
-    /// Enclave makes.
-    case ecdsaP256
-    /// Ed25519 (RFC 8709).
-    case ed25519
+    /// How many bits an RSA key's modulus has, such as 3072, as `ssh-keygen -l` counts them; nil for
+    /// the other algorithms, whose curve fixes their size.
+    public var rsaBits: Int? {
+        guard algorithm == .rsa else { return nil }
+        var bytes = wireRepresentation[...]
+        // The algorithm's name and the exponent come first.
+        guard Self.dropString(from: &bytes), Self.dropString(from: &bytes), let modulus = Self.string(in: bytes),
+            let first = modulus.first(where: { $0 != 0 })
+        else { return nil }
+        let leadingZeros = modulus.prefix { $0 == 0 }.count
+        return (modulus.count - leadingZeros - 1) * 8 + (8 - first.leadingZeroBitCount)
+    }
 
-    /// The algorithm's name in SSH, which starts its public keys and its signatures.
-    public var name: String {
-        switch self {
-        case .ecdsaP256: "ecdsa-sha2-nistp256"
-        case .ed25519: "ssh-ed25519"
-        }
+    /// Drops the `string` at the start of `bytes`, and returns whether there was one.
+    private static func dropString(from bytes: inout Data.SubSequence) -> Bool {
+        guard let string = string(in: bytes) else { return false }
+        bytes = bytes[string.endIndex...]
+        return true
+    }
+
+    /// The contents of the `string` at the start of `bytes`: a `uint32` length, then that many
+    /// bytes. Nil if `bytes` ends first.
+    private static func string(in bytes: Data.SubSequence) -> Data.SubSequence? {
+        guard bytes.count >= 4 else { return nil }
+        let length = bytes.prefix(4).reduce(0) { $0 << 8 | Int($1) }
+        let start = bytes.startIndex + 4
+        guard bytes.endIndex - start >= length else { return nil }
+        return bytes[start..<start + length]
     }
 }

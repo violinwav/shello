@@ -1,21 +1,26 @@
 import ShelloSecurity
 import SwiftUI
 
-/// One SSH key's details (README section 13): the public key, with Copy and Share; the fingerprint;
-/// what kind of key it is and when it signs; and Delete. The private key is not shown, nor can it
-/// be: it never leaves the device.
+/// One SSH key's details (README section 13): the public key, with Copy, Share and Install on Host;
+/// the fingerprint; what kind of key it is, where it came from and when it signs; and Delete. The
+/// private key is not shown, nor can it be: Shello never lets it out of the device.
 struct SSHKeyDetailView: View {
     @State private var model: SSHKeyDetailModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(TerminalTabsModel.self) private var tabs: TerminalTabsModel?
     @State private var confirmsDelete = false
+    @State private var installs = false
 
     init(store: SSHKeyStore, key: SSHKey) {
         _model = State(initialValue: SSHKeyDetailModel(store: store, key: key))
     }
 
-    /// What deleting a key does, under the confirmation.
-    static let deleteMessage =
-        "Servers that accept only this key won’t let you in with Shello anymore. This can’t be undone."
+    /// What deleting `key` does, under the confirmation.
+    static func deleteMessage(for key: SSHKey) -> String {
+        key.kind.isImported
+            ? "Servers that accept only this key won’t let you in with Shello anymore, until you import it again."
+            : "Servers that accept only this key won’t let you in with Shello anymore. This can’t be undone."
+    }
 
     private var key: SSHKey { model.key }
 
@@ -43,7 +48,7 @@ struct SSHKeyDetailView: View {
                 }
             }
         } message: {
-            Text(Self.deleteMessage)
+            Text(Self.deleteMessage(for: key))
         }
         .alert(
             "Couldn’t Delete the SSH Key",
@@ -52,6 +57,9 @@ struct SSHKeyDetailView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(model.actionError ?? "")
+        }
+        .sheet(isPresented: $installs) {
+            InstallSSHKeyView(model: InstallSSHKeyModel(key: key, tabs: tabs))
         }
         // A link's destination takes the font of the list the link is in; the screen sets its own.
         .environment(\.font, nil)
@@ -65,7 +73,7 @@ struct SSHKeyDetailView: View {
                 .textSelection(.enabled)
                 // VoiceOver would read the base64 for half a minute: it says what the text is, and
                 // offers the text itself in the More Content rotor.
-                .accessibilityLabel("\(key.kind.algorithm.displayName) public key, \(key.comment)")
+                .accessibilityLabel("\(key.algorithmName) public key, \(key.comment)")
                 .accessibilityCustomContent("Public key", key.openSSHPublicKey)
             Button("Copy Public Key", systemImage: "doc.on.doc") {
                 model.copyPublicKey()
@@ -76,6 +84,8 @@ struct SSHKeyDetailView: View {
                 Label("Share Public Key", systemImage: "square.and.arrow.up")
                     .labelStyle(.row)
             }
+            Button("Install on Host…", systemImage: "server.rack") { installs = true }
+                .labelStyle(.row)
         } header: {
             SectionHeader("Public Key")
         } footer: {
@@ -86,7 +96,9 @@ struct SSHKeyDetailView: View {
                         .font(Typography.footnote)
                         .foregroundStyle(Palette.textSecondary)
                 }
-                FooterText("Add it to ~/.ssh/authorized_keys on each server this key signs in to.")
+                FooterText(
+                    "Add it to ~/.ssh/authorized_keys on each server this key signs in to, or install it on a host "
+                        + "you’re connected to.")
             }
         }
         .listRowBackground(Palette.cell)
@@ -112,16 +124,26 @@ struct SSHKeyDetailView: View {
         Section {
             // The name in full, which the inline title may cut short.
             LabeledContent("Name") { ValueText(key.comment, font: Typography.data) }
-            valueRow("Algorithm", key.kind.algorithm.displayName)
+            valueRow("Algorithm", key.algorithmName)
             valueRow("Stored In", key.kind.storage)
+            valueRow("Source", key.kind.isImported ? "Imported" : "Made on This Device")
             valueRow("Signing", key.signingPolicy.displayName)
-            valueRow("Created", key.createdAt.formatted(date: .abbreviated, time: .shortened))
+            valueRow(
+                // "Imported On", so that VoiceOver does not hear "Imported" twice, after the source.
+                key.kind.isImported ? "Imported On" : "Created",
+                key.createdAt.formatted(date: .abbreviated, time: .shortened))
         } header: {
             SectionHeader("Details")
         } footer: {
-            FooterText(
-                "The private key never leaves this device: Shello can’t export it, and no backup or sync takes it "
-                    + "along.")
+            if key.kind.isImported {
+                FooterText(
+                    "Shello keeps the private key in this device’s Keychain only: it can’t export it, and no backup or "
+                        + "sync takes it along. Its passphrase isn’t kept.")
+            } else {
+                FooterText(
+                    "The private key never leaves this device: Shello can’t export it, and no backup or sync takes it "
+                        + "along.")
+            }
         }
         .listRowBackground(Palette.cell)
     }

@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import LocalAuthentication
+import ShelloModel
 
 /// The SSH keys on this device (README section 13, STACK section 7.3), and the one place that signs
 /// with them: the SSH agent signs through `sign(_:with:flags:reason:)`.
@@ -12,9 +13,14 @@ import LocalAuthentication
 /// - Ed25519, for servers that need it. The private key is a Keychain item, which reads only with
 ///   the user's presence.
 ///
-/// Both items are `WhenUnlockedThisDeviceOnly` and never synchronizable, so they are in no backup
-/// that leaves the device, and never sync. The store hands out no private key: it returns `SSHKey`s,
-/// which hold public data only, and signatures.
+/// It also keeps imported keys, which the user brought from elsewhere: Ed25519, ECDSA P-256 and
+/// P-384, and RSA, which signs with SHA-256 or SHA-512 only. Their private key is a Keychain item
+/// like an Ed25519 key's, and their passphrase is not kept.
+///
+/// Every item is `WhenUnlockedThisDeviceOnly` and never synchronizable, so it is in no backup that
+/// leaves the device, and never syncs; syncing imported keys is for v1, when the user opts in. The
+/// store hands out no private key: it returns `SSHKey`s, which hold public data only, and
+/// signatures.
 ///
 /// A key signs as its `SigningPolicy` says:
 /// - While Shello is unlocked, with the unlock window's context, on which the user authenticated at
@@ -129,13 +135,16 @@ public struct SSHKeyStore: Sendable {
     /// Surrounding whitespace is left out of the name.
     /// - Throws: `UnlockWindowClosed` while app lock is engaged; `SSHKeyError.invalidComment` for a
     ///   name with a line break, `.secureEnclaveUnavailable` for a Secure Enclave key on a device
-    ///   that cannot make one; `KeychainError`, or what the Secure Enclave reported.
+    ///   that cannot make one, `.cannotMake` for an imported key; `KeychainError`, or what the Secure
+    ///   Enclave reported.
     @concurrent
     public func generate(_ kind: SSHKey.Kind, comment: String, signingPolicy: SigningPolicy) async throws -> SSHKey {
         guard unlockWindow.isOpen else { throw UnlockWindowClosed() }
         let comment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
         guard SSHKey.isValidComment(comment) else { throw SSHKeyError.invalidComment }
         switch kind {
+        case .imported:
+            throw SSHKeyError.cannotMake(kind)
         case .secureEnclave:
             guard enclave.isAvailable else { throw SSHKeyError.secureEnclaveUnavailable }
             let (blob, publicKey) = try enclave.makeKey()
@@ -157,6 +166,37 @@ public struct SSHKeyStore: Sendable {
         }
     }
 
+    /// Keeps the imported key `material` (README section 13), which ShelloSSH read from the user's
+    /// file or paste, named `comment`, signing as `signingPolicy` says. Surrounding whitespace is
+    /// left out of the name. Its private key goes into the Keychain as an Ed25519 key's does: on this
+    /// device only, never synchronizable, readable only with the user's presence. The material's
+    /// buffer is the caller's, which overwrites it once it lets it go.
+    ///
+    /// Shello computes the public key from the private key, as it writes the public keys of the keys
+    /// it makes, and imports only a key whose public key is the one libssh read.
+    /// - Throws: `UnlockWindowClosed` while app lock is engaged; `SSHKeyError.invalidComment` for a
+    ///   name with a line break, `.mismatchedKeyPair` for a private key that is not the public key's,
+    ///   or that Apple's frameworks cannot use; `KeychainError`.
+    @concurrent
+    public func importKey(
+        _ material: ImportedKeyMaterial, comment: String, signingPolicy: SigningPolicy
+    ) async throws -> SSHKey {
+        guard unlockWindow.isOpen else { throw UnlockWindowClosed() }
+        let comment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard SSHKey.isValidComment(comment) else { throw SSHKeyError.invalidComment }
+        let algorithm = material.algorithm
+        let publicKey = try unsafe material.privateKey.withUnsafeBytes { bytes in
+            try unsafe Self.publicKey(of: algorithm, privateKey: bytes)
+        }
+        guard publicKey.wireRepresentation.elementsEqual(material.publicKey) else {
+            throw SSHKeyError.mismatchedKeyPair
+        }
+        let key = newKey(.imported(algorithm), comment: comment, signingPolicy: signingPolicy, publicKey: publicKey)
+        let keyData = unsafe material.privateKey.withUnsafeBytes { unsafe Secret(copying: $0) }
+        try items.add(KeyRecord(key), keyData: keyData, requiresUserPresence: true)
+        return key
+    }
+
     /// Deletes the SSH key `id` for good: its private key is gone, and hosts that refer to it show it
     /// as not on this device. Deleting needs no unlock.
     /// - Throws: `KeychainError`.
@@ -166,27 +206,33 @@ public struct SSHKeyStore: Sendable {
 
     /// Signs `data` with the SSH key `keyID`, and returns the signature in SSH's wire format: what
     /// an SSH agent answers a sign request with (draft-ietf-sshm-ssh-agent section 4.5.1). An ECDSA
-    /// key signs `data` hashed with SHA-256, as `ecdsa-sha2-nistp256` requires; `flags` matter only
-    /// to RSA keys.
+    /// key signs `data` hashed with its curve's hash, SHA-256 for `ecdsa-sha2-nistp256` and SHA-384
+    /// for `ecdsa-sha2-nistp384`. `flags` matter only to RSA keys, which sign with SHA-256 or SHA-512
+    /// as they say (RFC 8332), and never with SHA-1.
     ///
     /// A key that signs on every use asks the user first, giving `reason`, or a sentence that names
     /// the key; a key that signs while Shello is unlocked asks nobody. Cancelling the task ends the
     /// prompt, as when the SSH agent closes for a tab that closes.
-    /// - Throws: `SSHKeyError.keyNotFound` for a key that is not on this device;
-    ///   `UnlockWindowClosed` while app lock is engaged, for a key that signs while Shello is
-    ///   unlocked; `UnlockError` if the user does not authenticate, for a key that signs on every
-    ///   use; `KeychainError`, or what the Secure Enclave reported.
+    /// - Throws: `SSHKeyError.keyNotFound` for a key that is not on this device, `.rsaSHA1Refused` for
+    ///   an RSA key asked for neither SHA-256 nor SHA-512; `UnlockWindowClosed` while app lock is
+    ///   engaged, for a key that signs while Shello is unlocked; `UnlockError` if the user does not
+    ///   authenticate, for a key that signs on every use; `KeychainError`, or what the Secure Enclave
+    ///   or Security reported.
     @concurrent
     public func sign(
         _ data: Data, with keyID: SSHKey.ID, flags: SSHSignatureFlags = [], reason: String? = nil
     ) async throws -> Data {
         guard let key = try key(id: keyID) else { throw SSHKeyError.keyNotFound(keyID) }
+        // Before anyone is asked: an RSA key never signs with SHA-1.
+        if key.kind.algorithm == .rsa, RSAHash(flags) == nil {
+            throw SSHKeyError.rsaSHA1Refused
+        }
         let items = items
         let enclave = enclave
         switch key.signingPolicy {
         case .whileUnlocked:
             return try unlockWindow.withAuthenticationContext { context in
-                try Self.signature(for: data, by: key, items: items, enclave: enclave, context: context)
+                try Self.signature(for: data, by: key, flags: flags, items: items, enclave: enclave, context: context)
             }
         case .everyUse:
             let context = authentication.makeContext()
@@ -201,7 +247,8 @@ public struct SSHKeyStore: Sendable {
             }
             // The signature takes the authentication just given, and asks nothing more.
             context.interactionNotAllowed = true
-            return try Self.signature(for: data, by: key, items: items, enclave: enclave, context: context)
+            return try Self.signature(
+                for: data, by: key, flags: flags, items: items, enclave: enclave, context: context)
         }
     }
 
@@ -213,9 +260,10 @@ public struct SSHKeyStore: Sendable {
             createdAt: Date())
     }
 
-    /// Reads `key`'s key data with `context`, and signs `data` with it.
+    /// Reads `key`'s key data with `context`, and signs `data` with it, as `flags` ask of an RSA key.
     private static func signature(
-        for data: Data, by key: SSHKey, items: any KeyItems, enclave: any Enclave, context: LAContext
+        for data: Data, by key: SSHKey, flags: SSHSignatureFlags, items: any KeyItems, enclave: any Enclave,
+        context: LAContext
     ) throws -> Data {
         guard let keyData = try items.keyData(of: key.id, context: context) else {
             throw SSHKeyError.keyNotFound(key.id)
@@ -224,11 +272,47 @@ public struct SSHKeyStore: Sendable {
         case .secureEnclave:
             let blob = unsafe keyData.withUnsafeBytes { unsafe Data($0) }
             return SSHSignature.ecdsaP256(try enclave.signature(for: data, blob: blob, context: context))
-        case .ed25519:
+        case .ed25519, .imported(.ed25519):
             let privateKey = try unsafe keyData.withUnsafeBytes { bytes in
                 try unsafe Curve25519.Signing.PrivateKey(rawRepresentation: bytes)
             }
             return SSHSignature.ed25519(try privateKey.signature(for: data))
+        case .imported(.ecdsaP256):
+            let privateKey = try unsafe keyData.withUnsafeBytes { bytes in
+                try unsafe P256.Signing.PrivateKey(rawRepresentation: bytes)
+            }
+            return SSHSignature.ecdsaP256(try privateKey.signature(for: data))
+        case .imported(.ecdsaP384):
+            let privateKey = try unsafe keyData.withUnsafeBytes { bytes in
+                try unsafe P384.Signing.PrivateKey(rawRepresentation: bytes)
+            }
+            return SSHSignature.ecdsaP384(try privateKey.signature(for: data))
+        case .imported(.rsa):
+            guard let hash = RSAHash(flags) else { throw SSHKeyError.rsaSHA1Refused }
+            let privateKey = try unsafe keyData.withUnsafeBytes { bytes in try unsafe RSAKey.privateKey(der: bytes) }
+            return try RSAKey.signature(for: data, by: privateKey, hash: hash)
+        }
+    }
+
+    /// The public key of the imported private key `privateKey` of `algorithm`, in the form
+    /// `ImportedKeyMaterial` describes, as Shello writes it.
+    /// - Throws: `SSHKeyError.mismatchedKeyPair` for a private key Apple's frameworks cannot read.
+    private static func publicKey(
+        of algorithm: SSHKeyAlgorithm, privateKey: UnsafeRawBufferPointer
+    ) throws(SSHKeyError) -> SSHPublicKey {
+        do {
+            switch algorithm {
+            case .ed25519:
+                return SSHPublicKey(try unsafe Curve25519.Signing.PrivateKey(rawRepresentation: privateKey).publicKey)
+            case .ecdsaP256:
+                return SSHPublicKey(try unsafe P256.Signing.PrivateKey(rawRepresentation: privateKey).publicKey)
+            case .ecdsaP384:
+                return SSHPublicKey(try unsafe P384.Signing.PrivateKey(rawRepresentation: privateKey).publicKey)
+            case .rsa:
+                return try RSAKey.publicKey(of: try unsafe RSAKey.privateKey(der: privateKey))
+            }
+        } catch {
+            throw .mismatchedKeyPair
         }
     }
 }

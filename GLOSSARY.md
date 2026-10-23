@@ -206,8 +206,16 @@ An SSH key Shello created on this device. It never leaves the device.
 _Avoid_: Device key, local key
 
 **Imported key**:
-An SSH key the user brought into Shello from elsewhere.
+An SSH key the user brought into Shello from elsewhere, by pasting its private key or picking its file. Shello keeps the private key in the Keychain, on this device only, and signs with it as with a generated key.
 _Avoid_: External key
+
+**Passphrase**:
+The secret that encrypts a private key's file. Shello asks for an imported key's passphrase once, to read the key, and keeps the key, never the passphrase.
+_Avoid_: Password (for a key), PIN
+
+**Install on host**:
+Adding an SSH key's public key to the server's `authorized_keys`, for the user a host signs in as, over the open connection of a tab, as `ssh-copy-id` does: from then on the key signs in to the host.
+_Avoid_: Deploy, upload, copy (Copy puts the public key on the clipboard)
 
 **Secure Enclave key**:
 A generated key inside the device's Secure Enclave: ECDSA P-256, the only kind the Secure Enclave makes, and the default. Not even Shello can read its private key.

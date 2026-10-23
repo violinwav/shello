@@ -59,6 +59,7 @@ OpenSSH before 9.9 knows `sntrup761x25519-sha512` only as `sntrup761x25519-sha51
 | User | `shello`; on the Alpine servers (2222, 2224, 2225 and 2226) also `shello-otp` and `shello-2fa` |
 | Password | `shello-test-password`, for every user |
 | SSH key | `keys/client_ed25519` (Ed25519), for `shello` and `shello-2fa`; `keys/client_ed25519_encrypted` is the same key with the passphrase `shello-test-passphrase` |
+| Imported keys | The keys the tests import, Ed25519, ECDSA P-256 and P-384, and RSA 3072, for `shello`: their private keys are in `Packages/ShelloKit/Tests/KeyFixtures/Keys`, made by its `make-fixtures.sh`, and their public keys in `keys/import_fixtures.pub` |
 | One-time code | TOTP (RFC 6238, six digits every 30 seconds) of the secret `SHELLOTESTSECRET`, for `shello-otp` and `shello-2fa`: `oathtool --totp -b SHELLOTESTSECRET` prints the current one |
 | Host key a | `SHA256:lgFemmffoQcpnsIrUqaSgDH/p2JSkANqAb3Qm8/avRY` (ED25519) |
 | Host key b | `SHA256:vRTlNPuThVvvrnjbeKgZ/H5Ud52Nq2MKVToLDK4pofI` (ED25519) |
@@ -79,7 +80,9 @@ In Shello: add a host with the address `localhost`, port 2222, user `shello` and
 
 ## Without Docker
 
-`TestServers/local-sshd.sh` runs this Mac's own `/usr/sbin/sshd` as you, unprivileged, with host key a: on port 2222 with OpenSSH's defaults, on port 2224 with post-quantum key exchange off, and on port 2226 with the NIST curves and Diffie-Hellman groups only. It lets only you in, with `keys/client_ed25519`: an unprivileged sshd cannot check passwords, nor ask keyboard-interactive questions. There is no OpenSSH 9 or 8.8 without Docker. `TestServers/local-sshd.sh stop` stops all three. CI runs it, because GitHub's macOS runners have no Docker.
+`TestServers/local-sshd.sh` runs this Mac's own `/usr/sbin/sshd` as you, unprivileged, with host key a: on port 2222 with OpenSSH's defaults, on port 2224 with post-quantum key exchange off, and on port 2226 with the NIST curves and Diffie-Hellman groups only. It lets only you in, with `keys/client_ed25519` and the imported keys of `keys/import_fixtures.pub`: an unprivileged sshd cannot check passwords, nor ask keyboard-interactive questions. There is no OpenSSH 9 or 8.8 without Docker. `TestServers/local-sshd.sh stop` stops all three. CI runs it, because GitHub's macOS runners have no Docker.
+
+Installing an SSH key on a host writes to `~/.ssh/authorized_keys`, which on port 2222 is your own. So the tests that install keys use port 2224 only, in Docker too: there `~` is the servers' own home directory (below), and ports 2224 and 2226 also let in the keys installed in its `~/.ssh/authorized_keys`, which `local-sshd.sh` empties each time it starts.
 
 tmux: the server on port 2222 puts this Mac's tmux, if it has one (`brew install tmux`), on the `PATH` a command gets, which sshd's default `/usr/bin:/bin:/usr/sbin:/sbin` leaves out, as a Linux server's `/usr/bin` has it. Ports 2224 and 2226 leave it out, as servers without tmux, and give the shell an empty home directory of the servers' own: macOS's bash reads `~/.bashrc` even for a command that sshd runs, and on GitHub's runner that file puts Homebrew on the `PATH`. The tmux they start keeps its socket in the servers' own directory (`TMUX_TMPDIR`), apart from your own tmux sessions, and `stop` ends it. Without tmux on the Mac, the tmux tests skip. GitHub's macOS runner image has no tmux either, so CI installs it with Homebrew first.
 
@@ -100,8 +103,10 @@ With `SHELLO_TEST_SERVER_USER` set, the tests that sign in with a password or ke
 - `ShelloSSHTests` (`KeyboardInteractiveTests`, `AgentAuthenticationTests`): keyboard-interactive sign-in, on ports 2222 and 2225, and signing in through an SSH agent, with a stand-in agent.
 - `ShelloCoreTests` (`HostConnectorTests`, `SignInTests`): the first connection's trust question, a trusted key, a changed one and its replacement; signing in with the SSH key through Shello's SSH agent, keyboard-interactive with the one-time codes, and two-factor sign-in, on ports 2222 and 2225.
 - `ShelloCoreTests` (`TmuxIntegrationTests`): tmux auto-attach, which attaches the same tmux session, with what ran in it, after a dropped connection, on port 2222; the plain shell of a server without tmux, on port 2225 in Docker or 2224 with this Mac's sshd; and the tmux parsers on what tmux 3.7c and 3.4 print, on ports 2222 and 2223. Each test leaves no tmux session behind.
+- `ShelloCoreTests` (`ImportedKeySignInTests`, `KeyInstallTests`): signing in with an imported key of each type, on port 2222, and with RSA on port 2225, OpenSSH 8.8; installing a key on a host, once, then signing in with it, on port 2224.
 - `ShelloFeaturesTests` (`SignInPromptTests`): the terminal's sign-in sheet, on port 2222.
 - `ShelloUITests/ConnectionTests`: the trust sheet, the changed host key sheet and its replacement, sign-in with a password, the SSH key and keyboard-interactive to the shell, and the Connection sheet, post-quantum on port 2222 and classical on port 2224.
+- `ShelloUITests/ImportedKeyTests`: installing a key on a host over a tab's connection, on port 2224.
 
 They check that a server greets on its port, and skip with a message that points here when none does. Each needs a fresh connection, and the server's default `MaxStartups` would drop some of many at once, so the test servers raise it.
 
@@ -119,6 +124,6 @@ They check that a server greets on its port, and skip with a message that points
 | `openssh/google_authenticator` | The one-time code's secret, for `pam_google_authenticator` |
 | `openssh/entrypoint.sh` | Starts sshd with host key a or b, as `HOST_KEY` says, the key exchanges `KEX` names, keyboard-interactive through PAM as `KEYBOARD_INTERACTIVE` says, and without per-source penalties as `PER_SOURCE_PENALTIES` says |
 | `local-sshd.sh` | This Mac's own sshd as the test servers on ports 2222, 2224 and 2226 |
-| `keys/` | The host keys a and b, and the client key, made with `ssh-keygen -t ed25519` for these tests only |
+| `keys/` | The host keys a and b, and the client key, made with `ssh-keygen -t ed25519` for these tests only; `import_fixtures.pub`, the public keys of the keys the tests import |
 
 To move to a newer image, take the digest that `docker buildx imagetools inspect alpine:3.24` (or `ubuntu:24.04`, or `alpine:3.15`) prints for the image index and put it in the Dockerfile's `FROM` line.

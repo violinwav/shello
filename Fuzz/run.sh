@@ -78,4 +78,19 @@ docker run --rm --volume "$REPO:/shello:ro" --workdir /tmp --env "SECONDS_PER_TA
     printf "\$0\t1792738688\t0\t3\tmain\n\$1\t1792738688\t1\t1\tz\303\274rich-1\n\$4\t1792738688\t0\t1\tdot_x\n" \
         >tmux-output-corpus/sessions
     fuzz tmux-output
+
+    # Private keys as the user pastes them (README section 13): what Shello reads of their text
+    # before libssh does, and the PKCS #8 that libssh hands a key over in, as they ship, with the
+    # target in one module.
+    swiftc -sanitize=fuzzer,address -parse-as-library -O -g \
+        /shello/Packages/ShelloKit/Sources/ShelloSSH/KeyImport/KeyText.swift \
+        /shello/Packages/ShelloKit/Sources/ShelloSSH/KeyImport/PKCS8.swift \
+        /shello/Fuzz/KeyText/FuzzTarget.swift \
+        -o key-text
+
+    # Seeds: the key fixtures, test keys of every format and type that ssh-keygen made, public ones
+    # and refused ones included.
+    mkdir -p key-text-corpus
+    cp /shello/Packages/ShelloKit/Tests/KeyFixtures/Keys/* key-text-corpus/
+    fuzz key-text
 '

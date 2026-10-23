@@ -51,7 +51,7 @@ private struct SettingsList: View {
                                 .labelStyle(.row)
                         }
                     } footer: {
-                        FooterText("SSH keys that Shello makes never leave this device.")
+                        FooterText("SSH keys that Shello makes never leave this device. Imported keys stay on it too.")
                     }
                     .listRowBackground(Palette.cell)
                 }

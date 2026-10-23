@@ -17,7 +17,7 @@ RUN apt-get update \
         tmux=3.4-1build1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY keys/client_ed25519.pub keys/ssh_host_ed25519_key_a keys/ssh_host_ed25519_key_b /tmp/keys/
+COPY keys/client_ed25519.pub keys/import_fixtures.pub keys/ssh_host_ed25519_key_a keys/ssh_host_ed25519_key_b /tmp/keys/
 COPY openssh/sshd_config /etc/ssh/sshd_config
 COPY openssh/entrypoint.sh /entrypoint.sh
 
@@ -27,6 +27,7 @@ RUN useradd --create-home --shell /bin/sh shello \
     && echo 'shello:shello-test-password' | chpasswd \
     && install -d -m 700 -o shello -g shello /home/shello/.ssh \
     && install -m 600 -o shello -g shello /tmp/keys/client_ed25519.pub /home/shello/.ssh/authorized_keys \
+    && cat /tmp/keys/import_fixtures.pub >> /home/shello/.ssh/authorized_keys \
     && install -d -m 755 /etc/ssh/keys /run/sshd \
     && install -m 600 /tmp/keys/ssh_host_ed25519_key_a /tmp/keys/ssh_host_ed25519_key_b /etc/ssh/keys/ \
     && rm -r /tmp/keys \

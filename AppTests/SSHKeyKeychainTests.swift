@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Security
+import ShelloModel
 import ShelloSecurity
 import Testing
 
