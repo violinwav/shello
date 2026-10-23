@@ -283,7 +283,14 @@ public final class TerminalController {
             searchResult = .none
             return .none
         }
-        let found = backwards ? view.findPrevious(term) : view.findNext(term)
+        var found = backwards ? view.findPrevious(term) : view.findNext(term)
+        if !found, backwards {
+            // Going on up past the first match, round from the bottom, SwiftTerm skips a match on
+            // the continuation of a wrapped line, such as a command after a prompt wider than the
+            // terminal. A search that starts at the bottom finds it.
+            view.clearSearch()
+            found = view.findPrevious(term)
+        }
         searchResult = found ? matchSummary() : .none
         return searchResult
     }

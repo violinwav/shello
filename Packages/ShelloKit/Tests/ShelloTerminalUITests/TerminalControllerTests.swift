@@ -164,6 +164,20 @@ import UIKit
         #expect(lines() <= rows + 1_000)
     }
 
+    /// A match on the continuation of a wrapped line, such as a command after a prompt wider than
+    /// the terminal, is found again when the search goes on up from it, round from the top.
+    @Test func searchGoesRoundToAMatchOnAWrappedLine() async {
+        let fixture = TerminalFixture()
+        #expect(await fixture.settle())
+        let prompt = String(repeating: "h", count: fixture.controller.size.columns + 10) + ":~ $ "
+        fixture.feed("Last login: today\r\n" + prompt + "uname\r\nDarwin\r\n" + prompt)
+
+        let match = TerminalController.SearchResult(index: 1, total: 1)
+        #expect(fixture.controller.search(for: "uname") == match)
+        #expect(fixture.controller.search(for: "uname") == match)
+        #expect(fixture.view.getSelection() == "uname")
+    }
+
     /// Search goes up from the bottom first, to the most recent match, and counts the matches.
     /// While the term is typed, the match stays as long as it still matches.
     @Test func searchFindsTheMostRecentMatchFirst() async {

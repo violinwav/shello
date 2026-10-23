@@ -176,10 +176,18 @@ final class FakeServer: Sendable {
         return FakeServer(listener: listener, port: port)
     }
 
-    /// A loopback port that nothing listens on: one a listener had a moment ago.
+    /// A loopback port that nothing listens on: one a listener had a moment ago. It returns once
+    /// the listener has stopped: until then, a connection to the port still reaches it, and is
+    /// reset rather than refused.
     static func closedPort() async throws -> UInt16 {
         let server = try await start { _ in }
-        server.stop()
+        await withCheckedContinuation { continuation in
+            let once = Once()
+            server.listener.stateUpdateHandler = { state in
+                if case .cancelled = state, once.isFirst() { continuation.resume() }
+            }
+            server.stop()
+        }
         return server.port
     }
 
