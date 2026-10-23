@@ -55,7 +55,10 @@ struct TabIntegrationTests {
         await waitUntil { tab.terminal.text.contains("before-2") }
 
         proxy.cut()
-        await waitUntil { tab.reconnecting?.failedAttempts ?? 0 >= 2 }
+        // Up to 30 seconds, as for connecting (`TestConnector.host(password:)`): a try that the proxy
+        // refuses fails at once here, but on CI's runner one was held up for 12 seconds, and went
+        // through once the proxy was restored.
+        await waitUntil(timeout: .seconds(30)) { tab.reconnecting?.failedAttempts ?? 0 >= 2 }
 
         #expect(tab.reconnecting?.failedAttempts ?? 0 >= 2)
         #expect(tab.latency == nil)

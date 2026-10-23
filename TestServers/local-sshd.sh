@@ -12,9 +12,11 @@
 # in a directory of their own under $TMPDIR.
 #
 # tmux: the server on port 2222 puts this Mac's tmux, if it has one, on the PATH a command gets, as a
-# Linux server's /usr/bin does, where sshd's default PATH leaves out Homebrew's; the others leave it
-# out, as servers without tmux. The tmux they start runs apart from the user's own, in the servers'
-# directory (TMUX_TMPDIR), and stop ends it.
+# Linux server's /usr/bin does, where sshd's default PATH leaves out Homebrew's. The others leave it
+# out, as servers without tmux, and give the shell an empty home directory: macOS's bash reads
+# ~/.bashrc even for a command sshd runs, and GitHub's runner puts Homebrew on the PATH there. The
+# tmux they start runs apart from the user's own, in the servers' directory (TMUX_TMPDIR), and stop
+# ends it.
 set -euo pipefail
 
 PORT=2222
@@ -75,18 +77,19 @@ EOF
 
 start() {
     stop >/dev/null
-    mkdir -p "$STATE" "$STATE/tmux"
-    chmod 700 "$STATE" "$STATE/tmux"
+    mkdir -p "$STATE" "$STATE/tmux" "$STATE/home"
+    chmod 700 "$STATE" "$STATE/tmux" "$STATE/home"
     # sshd refuses a host key that others can read; git does not keep the mode.
     install -m 600 "$DIR/keys/ssh_host_ed25519_key_a" "$STATE/ssh_host_ed25519_key"
     install -m 600 "$DIR/keys/client_ed25519.pub" "$STATE/authorized_keys"
     local with_tmux=$SYSTEM_PATH
     [[ -z $TMUX_COMMAND ]] || with_tmux="$(dirname "$TMUX_COMMAND"):$SYSTEM_PATH"
+    # Without tmux: no startup file of the user's can put it back on the PATH.
+    local without_tmux="SetEnv \"PATH=$SYSTEM_PATH\" \"HOME=$STATE/home\" \"TMUX_TMPDIR=$STATE/tmux\""
     write_config "$PORT" sshd "SetEnv \"PATH=$with_tmux\" \"TMUX_TMPDIR=$STATE/tmux\"" >"$STATE/sshd_config"
-    write_config "$CLASSICAL_PORT" sshd-classical "KexAlgorithms $CLASSICAL_KEX" \
-        "SetEnv \"PATH=$SYSTEM_PATH\" \"TMUX_TMPDIR=$STATE/tmux\"" >"$STATE/sshd-classical_config"
-    write_config "$NIST_PORT" sshd-nist "KexAlgorithms $NIST_KEX" \
-        "SetEnv \"PATH=$SYSTEM_PATH\" \"TMUX_TMPDIR=$STATE/tmux\"" >"$STATE/sshd-nist_config"
+    write_config "$CLASSICAL_PORT" sshd-classical "KexAlgorithms $CLASSICAL_KEX" "$without_tmux" \
+        >"$STATE/sshd-classical_config"
+    write_config "$NIST_PORT" sshd-nist "KexAlgorithms $NIST_KEX" "$without_tmux" >"$STATE/sshd-nist_config"
     /usr/sbin/sshd -f "$STATE/sshd_config" -E "$STATE/sshd.log"
     /usr/sbin/sshd -f "$STATE/sshd-classical_config" -E "$STATE/sshd-classical.log"
     /usr/sbin/sshd -f "$STATE/sshd-nist_config" -E "$STATE/sshd-nist.log"
