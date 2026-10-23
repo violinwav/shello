@@ -76,18 +76,26 @@ extension XCUIApplication {
     /// Ends the Face ID prompt without unlocking, as a user who changes their mind does: a face that
     /// does not match, then Cancel in LocalAuthentication's alert. Shello stays locked and offers
     /// Unlock.
+    ///
+    /// When Shello says it could not ask, there is no alert to cancel: as in `unlockWithFaceID`, this
+    /// taps Unlock, which asks again. In a CI run, LocalAuthentication answered the launch's request
+    /// with its internal error -1000 and put up no prompt.
     @MainActor
     func cancelFaceID(file: StaticString = #filePath, line: UInt = #line) {
         // The alert's button holds a button of the same name.
         let cancel = Self.springboard.buttons["com.apple.localauthentication.ax.authentication.button.cancel"]
             .firstMatch
+        let problem = staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Shello couldn’t")).firstMatch
+        let unlock = buttons["Unlock"]
         let deadline = Date.now.addingTimeInterval(30)
         while !cancel.exists, Date.now < deadline {
+            if problem.exists, unlock.isEnabled {
+                unlock.tap()
+            }
             SimulatedFaceID.failToMatch()
             _ = cancel.waitForExistence(timeout: 1)
         }
         cancel.tap()
-        let unlock = buttons["Unlock"]
         XCTAssertTrue(
             unlock.wait(for: \.isEnabled, toEqual: true, timeout: 10), "Unlock stays disabled", file: file,
             line: line)
@@ -424,14 +432,28 @@ extension XCUIApplication {
 
     /// Replaces a text field's value with `text`. The tap goes to the field's end: a field that wraps
     /// puts the cursor where the tap lands, and the deletes must start after the last character.
+    ///
+    /// A text field that still shows its old value five seconds later never got the keys, which are
+    /// typed once more. In a CI run, a field had the focus 20 seconds before the keyboard came up;
+    /// what XCUITest typed just as it came up was lost, while the tap on Save right after arrived. A
+    /// secure field shows only dots, and is not checked.
     @MainActor
     func replace(with text: String, in field: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(field.waitForExistence(timeout: 5), file: file, line: line)
-        focus(field, file: file, line: line) {
-            field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.9)).tap()
+        for attempt in 1...2 {
+            focus(field, file: file, line: line) {
+                field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.9)).tap()
+            }
+            let old = field.value as? String ?? ""
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + text)
+            guard attempt == 1, field.elementType == .textField, old != text.filter({ !$0.isNewline }) else {
+                return
+            }
+            let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value != %@", old), object: field)
+            if XCTWaiter.wait(for: [changed], timeout: 5) == .completed {
+                return
+            }
         }
-        let length = (field.value as? String)?.count ?? 0
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: length) + text)
     }
 
     /// Adds `nas`, a favourite in the new group Homelab with the new tag Staging.
