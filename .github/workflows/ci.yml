@@ -38,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [checks, ui-tests, ui-files, ui-extra]
+        suite: [checks, ui-tests, ui-files, ui-extra, ui-connect]
         include:
           - suite: ui-tests
             tests: >-
@@ -47,6 +47,8 @@ jobs:
               -skip-testing:ShelloUITests/AppLockTests
               -skip-testing:ShelloUITests/SSHKeyTests
               -skip-testing:ShelloUITests/TerminalTests
+              -skip-testing:ShelloUITests/ConnectionTests
+              -skip-testing:ShelloUITests/KeyboardTests
           - suite: ui-files
             tests: -only-testing:ShelloUITests/ExportImportTests
           - suite: ui-extra
@@ -54,6 +56,10 @@ jobs:
               -only-testing:ShelloUITests/AppLockTests
               -only-testing:ShelloUITests/SSHKeyTests
               -only-testing:ShelloUITests/TerminalTests
+          - suite: ui-connect
+            tests: >-
+              -only-testing:ShelloUITests/ConnectionTests
+              -only-testing:ShelloUITests/KeyboardTests
     # A cold vendor build adds about 10 minutes.
     timeout-minutes: ${{ matrix.suite == 'checks' && 40 || 60 }}
     permissions:
@@ -127,7 +133,7 @@ jobs:
       # fixture key only: xcodebuild hands the user to the tests, whose password and
       # keyboard-interactive sign-ins then skip.
       - name: Start the test SSH servers
-        if: matrix.suite == 'checks' || matrix.suite == 'ui-tests'
+        if: matrix.suite == 'checks' || matrix.suite == 'ui-tests' || matrix.suite == 'ui-connect'
         run: |
           TestServers/local-sshd.sh
           echo "TEST_RUNNER_SHELLO_TEST_SERVER_USER=$(id -un)" >> "$GITHUB_ENV"
