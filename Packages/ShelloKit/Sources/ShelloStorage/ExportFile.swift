@@ -10,8 +10,9 @@ import ShelloModel
 /// `init(data:)` has been checked completely, so importing it cannot fail on its contents.
 /// docs/spec/EXPORT.md describes the format, and `ExportFormat` defines it.
 public struct ExportFile: Hashable, Sendable {
-    /// The schema version Shello writes, and the newest one it reads.
-    public static let currentSchemaVersion = 1
+    /// The schema version Shello writes, and the newest one it reads. Version 2 added the hosts'
+    /// tmux auto-attach.
+    public static let currentSchemaVersion = 2
 
     /// The largest file Shello reads as an export, in bytes: room for tens of thousands of hosts,
     /// and small enough to read into memory at once.

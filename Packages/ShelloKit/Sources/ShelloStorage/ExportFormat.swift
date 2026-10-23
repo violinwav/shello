@@ -1,10 +1,11 @@
 import Foundation
 import ShelloModel
 
-/// The JSON of an export file, schema version 1. docs/spec/EXPORT.md describes the format; these
-/// types define it. The format is stable: a file that one version of Shello writes, every later
-/// version reads. A change to it is a new schema version (`ExportFile.currentSchemaVersion`), so
-/// that an older Shello refuses the file instead of leaving out what it does not know.
+/// The JSON of an export file, schema version 2, which reads version 1 too. docs/spec/EXPORT.md
+/// describes the format; these types define it. The format is stable: a file that one version of
+/// Shello writes, every later version reads. A change to it is a new schema version
+/// (`ExportFile.currentSchemaVersion`), so that an older Shello refuses the file instead of leaving
+/// out what it does not know.
 ///
 /// The keys are the names of the stored properties, and enum values the strings the database
 /// stores (`StoredEnum`); both never change. Optional values are left out when they have none.
@@ -51,6 +52,12 @@ struct ExportFormat: Codable {
         var tagIDs: [UUID]
         var notes: String
         var startupCommand: String
+        /// Whether the host attaches its tmux session (README section 8). Since schema version 2,
+        /// where every host has it; a host of version 1 has it off.
+        var tmuxAutoAttach: Bool?
+        /// The tmux session the host attaches. Since schema version 2, where every host has it; a
+        /// host of version 1 attaches `main`.
+        var tmuxSessionName: String?
         var terminalType: String
         var keepaliveIntervalMilliseconds: Int64
         var connectTimeoutMilliseconds: Int64
@@ -106,6 +113,8 @@ extension ExportFormat.Host {
         tagIDs = host.tagIDs.sorted { $0.uuidString < $1.uuidString }
         notes = host.notes
         startupCommand = host.startupCommand
+        tmuxAutoAttach = host.tmuxAutoAttach
+        tmuxSessionName = host.tmuxSessionName
         terminalType = host.terminalType
         keepaliveIntervalMilliseconds = host.keepaliveInterval.storedMilliseconds
         connectTimeoutMilliseconds = host.connectTimeout.storedMilliseconds
@@ -121,6 +130,14 @@ extension ExportFormat {
     /// host editor's, and what the database needs. Every record is checked, so that the error lists
     /// every problem, and a file with a problem is not imported at all.
     func file() throws(ImportError) -> ExportFile {
+        // From version 2 on every host has its tmux settings, and a host without them is damage, as
+        // a missing key is. Version 1 had none: its hosts get the defaults.
+        if schemaVersion >= 2 {
+            for (index, host) in hosts.enumerated() {
+                if host.tmuxAutoAttach == nil { throw .damaged(path: "hosts[\(index)].tmuxAutoAttach") }
+                if host.tmuxSessionName == nil { throw .damaged(path: "hosts[\(index)].tmuxSessionName") }
+            }
+        }
         var problems: [String] = []
         var checkedGroups: [HostGroup] = []
         for (index, group) in groups.enumerated() {
@@ -138,7 +155,10 @@ extension ExportFormat {
         let tagIDs = Set(tags.map(\.id))
         var checkedHosts: [ShelloModel.Host] = []
         for (index, host) in hosts.enumerated() {
-            if let host = host.checked(position: index + 1, groupIDs: groupIDs, tagIDs: tagIDs, problems: &problems) {
+            if let host = host.checked(
+                position: index + 1, schemaVersion: schemaVersion, groupIDs: groupIDs, tagIDs: tagIDs,
+                problems: &problems)
+            {
                 checkedHosts.append(host)
             }
         }
@@ -193,7 +213,7 @@ extension ExportFormat.Tag {
 
 extension ExportFormat.Host {
     fileprivate func checked(
-        position: Int, groupIDs: Set<UUID>, tagIDs fileTagIDs: Set<UUID>, problems: inout [String]
+        position: Int, schemaVersion: Int, groupIDs: Set<UUID>, tagIDs fileTagIDs: Set<UUID>, problems: inout [String]
     ) -> ShelloModel.Host? {
         let label = RecordName(kind: "host", position: position, name: name)
         let count = problems.count
@@ -234,6 +254,16 @@ extension ExportFormat.Host {
         if !fileTagIDs.isSuperset(of: tagIDs) {
             problems.append("\(label.atStart) has a tag that isn’t in the file.")
         }
+        // A version 1 file has no tmux settings: its hosts get the defaults. From version 2 on,
+        // `file()` made sure that every host has them.
+        let isVersion1 = schemaVersion < 2
+        let autoAttach = isVersion1 ? false : tmuxAutoAttach ?? false
+        let sessionName = (isVersion1 ? nil : tmuxSessionName) ?? ShelloModel.Host.defaultTmuxSessionName
+        if TmuxSessionName(sessionName) == nil {
+            problems.append(
+                "\(label.atStart) has a tmux session name Shello can’t use: it takes 1 to 64 letters, digits, "
+                    + "hyphens and underscores, not starting with a hyphen.")
+        }
         guard problems.count == count, let validPort, let hostProtocol, let method else { return nil }
         return ShelloModel.Host(
             id: id,
@@ -248,6 +278,8 @@ extension ExportFormat.Host {
             tagIDs: Set(tagIDs),
             notes: notes,
             startupCommand: startupCommand,
+            tmuxAutoAttach: autoAttach,
+            tmuxSessionName: sessionName,
             terminalType: terminalType,
             keepaliveInterval: .milliseconds(keepaliveIntervalMilliseconds),
             connectTimeout: .milliseconds(connectTimeoutMilliseconds),

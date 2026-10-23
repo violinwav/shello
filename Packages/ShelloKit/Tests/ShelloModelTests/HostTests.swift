@@ -24,6 +24,15 @@ import Testing
     #expect(host.lastConnectedAt == nil)
 }
 
+/// Auto-attach changes what a connection runs, so a host only uses tmux once the user asks it to.
+@Test func newHostDoesNotAttachATmuxSessionAndWouldAttachMain() {
+    let host = Host(name: "nas", address: "nas.lan", username: "admin")
+
+    #expect(!host.tmuxAutoAttach)
+    #expect(host.tmuxSessionName == "main")
+    #expect(TmuxSessionName(Host.defaultTmuxSessionName) != nil)
+}
+
 @Test func newHostKeepsAliveEvery30SecondsAndGivesUpConnectingAfter15() {
     let host = Host(name: "nas", address: "nas.lan", username: "admin")
 

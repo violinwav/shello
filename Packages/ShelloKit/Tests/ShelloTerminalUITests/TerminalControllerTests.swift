@@ -412,6 +412,46 @@ import UIKit
         #expect(await fixture.wait { fixture.screen.prefix(4) == ["one", "two", "$", "after"] })
     }
 
+    /// Shello's note, such as why a tab runs a plain shell, shows before the connection's output, on
+    /// a line of its own, after "Shello:". The terminal does not announce it, even on screen: the
+    /// connection's announcement says it (`TerminalTabsModel.stateChanged`).
+    @Test func showsANoteOfShellosOnALineOfItsOwn() async {
+        let fixture = TerminalFixture()
+        fixture.controller.isVisible = true
+
+        fixture.controller.showNote("No tmux here.")
+        let stream = RecordingStream()
+        fixture.controller.attach(stream)
+        stream.write("$ ")
+
+        #expect(await fixture.wait { fixture.screen.prefix(2) == ["Shello: No tmux here.", "$"] })
+        #expect(fixture.recorded.announcements.isEmpty)
+    }
+
+    /// After output that left the cursor in the middle of a line, the note starts a line of its own.
+    @Test func noteStartsALineOfItsOwn() async {
+        let fixture = TerminalFixture()
+        let first = RecordingStream()
+        fixture.controller.attach(first)
+        first.write("one\r\n$ ")
+        #expect(await fixture.wait { fixture.screen.prefix(2) == ["one", "$"] })
+        first.finish(throwing: Dropped())
+        #expect(await fixture.wait { fixture.controller.streamState != .attached })
+
+        fixture.controller.showNote("No tmux here.")
+
+        #expect(await fixture.wait { fixture.screen.prefix(3) == ["one", "$", "Shello: No tmux here."] })
+    }
+
+    /// A note can carry what the server said, so it loses what the terminal would read in it.
+    @Test func noteLosesControlCharacters() async {
+        let fixture = TerminalFixture()
+
+        fixture.controller.showNote("a\u{1B}[2Jb\nc\u{202E}d")
+
+        #expect(await fixture.wait { fixture.screen.first == "Shello: a [2Jb c d" })
+    }
+
     /// A program's window title names the tab, cleaned of what could make it read as something else.
     @Test(arguments: [
         ("vim compose.yml", "vim compose.yml"),

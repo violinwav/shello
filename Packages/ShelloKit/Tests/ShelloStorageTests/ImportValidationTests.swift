@@ -64,11 +64,24 @@ struct ImportValidationTests {
         Damage("a list that is not one", replacing: #""hosts" : ["#, with: #""hosts" : 1, "x" : ["#, path: "hosts"),
         Damage("an identifier that is not one", replacing: #"000000000001""#, with: #"1""#, path: "groups[0].id"),
         Damage(
-            "a schema version that is not a number", replacing: #""schemaVersion" : 1"#,
-            with: #""schemaVersion" : "1""#, path: "schemaVersion"),
+            "a schema version that is not a number", replacing: #""schemaVersion" : 2"#,
+            with: #""schemaVersion" : "2""#, path: "schemaVersion"),
         Damage(
-            "schema version 0", replacing: #""schemaVersion" : 1"#, with: #""schemaVersion" : 0"#,
+            "schema version 0", replacing: #""schemaVersion" : 2"#, with: #""schemaVersion" : 0"#,
             path: "schemaVersion"),
+        // Since version 2, every host has its tmux settings.
+        Damage(
+            "a host without auto-attach", replacing: #""tmuxAutoAttach" : true,"#, with: "",
+            path: "hosts[0].tmuxAutoAttach"),
+        Damage(
+            "a host without its tmux session", replacing: #""tmuxSessionName" : "dev_work-2","#, with: "",
+            path: "hosts[0].tmuxSessionName"),
+        Damage(
+            "auto-attach that is not true or false", replacing: #""tmuxAutoAttach" : true"#,
+            with: #""tmuxAutoAttach" : "yes""#, path: "hosts[0].tmuxAutoAttach"),
+        Damage(
+            "a tmux session name that is no text", replacing: #""tmuxSessionName" : "dev_work-2""#,
+            with: #""tmuxSessionName" : null"#, path: "hosts[0].tmuxSessionName"),
     ])
     func damagedFileIsRefusedAndTheDatabaseIsUnchanged(_ damage: Damage) async throws {
         try await ExportSample.store(in: test.repository)
@@ -113,8 +126,8 @@ struct ImportValidationTests {
     /// A newer Shello may have added records or changed their shape; this version would leave out
     /// what it does not know, so it refuses the file and says to update.
     @Test(arguments: [
-        #"{"format":"ch.shello.export","schemaVersion":2,"hosts":[],"groups":[],"tags":[]}"#,
-        #"{"format":"ch.shello.export","schemaVersion":2,"snippets":[{"name":"uptime"}],"hosts":"elsewhere"}"#,
+        #"{"format":"ch.shello.export","schemaVersion":3,"hosts":[],"groups":[],"tags":[]}"#,
+        #"{"format":"ch.shello.export","schemaVersion":3,"snippets":[{"name":"uptime"}],"hosts":"elsewhere"}"#,
         #"{"format":"ch.shello.export","schemaVersion":99}"#,
     ])
     func fileFromANewerSchemaVersionIsRefused(_ json: String) async throws {
@@ -228,6 +241,10 @@ struct Corruption: Sendable, CustomTestStringConvertible {
         return try JSONEncoder().encode(format)
     }
 
+    static let sessionNameProblem =
+        "The host “forge” has a tmux session name Shello can’t use: it takes 1 to 64 letters, digits, hyphens "
+        + "and underscores, not starting with a hyphen."
+
     static let all: [Corruption] = [
         Corruption(
             testDescription: "a host without a name", change: { $0.hosts[0].name = " " }, problem: "Host 1 has no name."
@@ -280,6 +297,18 @@ struct Corruption: Sendable, CustomTestStringConvertible {
         Corruption(
             testDescription: "a null character in a host's name", change: { $0.hosts[0].name = "for\u{0}ge" },
             problem: "Host 1 has a null character in its text, which Shello can’t store."),
+        Corruption(
+            testDescription: "a tmux session name with a space", change: { $0.hosts[0].tmuxSessionName = "my work" },
+            problem: Self.sessionNameProblem),
+        Corruption(
+            testDescription: "an empty tmux session name", change: { $0.hosts[0].tmuxSessionName = "" },
+            problem: Self.sessionNameProblem),
+        Corruption(
+            testDescription: "a tmux session name that a shell would run",
+            change: { $0.hosts[0].tmuxSessionName = "main'; rm -rf ~; '" }, problem: Self.sessionNameProblem),
+        Corruption(
+            testDescription: "a tmux session name that reads as an option",
+            change: { $0.hosts[0].tmuxSessionName = "-d" }, problem: Self.sessionNameProblem),
         Corruption(
             testDescription: "two hosts with one identifier", change: { $0.hosts[1].id = $0.hosts[0].id },
             problem: "The host “Media PC 📺” has the same identifier as another host in the file."),

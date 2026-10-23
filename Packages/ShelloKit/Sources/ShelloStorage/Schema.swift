@@ -21,6 +21,7 @@ enum Schema {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1", migrate: v1)
         migrator.registerMigration("v2", migrate: v2)
+        migrator.registerMigration("v3", migrate: v3)
         return migrator
     }()
 
@@ -101,6 +102,19 @@ enum Schema {
             t.column("key", .blob).notNull()
             t.column("fingerprint", .text).notNull()
             t.column("trustedAt", .real).notNull()
+        }
+    }
+
+    /// tmux auto-attach (README section 8): whether a host attaches its tmux session, and the
+    /// session's name. The hosts that exist get the defaults, auto-attach off and the session `main`,
+    /// as hosts behaved before. Their modification time is 0, 2001-01-01, older than any change: when
+    /// sync merges per field, a choice made on another device wins over a default.
+    private static func v3(_ db: Database) throws {
+        try db.alter(table: "host") { t in
+            t.add(column: "tmuxAutoAttach", .integer).notNull().defaults(to: false)
+            t.add(column: "tmuxAutoAttachModifiedAt", .real).notNull().defaults(to: 0)
+            t.add(column: "tmuxSessionName", .text).notNull().defaults(to: "main")
+            t.add(column: "tmuxSessionNameModifiedAt", .real).notNull().defaults(to: 0)
         }
     }
 }

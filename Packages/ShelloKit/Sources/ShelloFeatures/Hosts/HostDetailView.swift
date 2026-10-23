@@ -171,6 +171,8 @@ struct HostDetailView: View {
 
             Section {
                 dataRow("Startup command", host.startupCommand.isEmpty ? nil : host.startupCommand)
+                // The session auto-attach attaches, after the startup command (README section 8).
+                dataRow("tmux session", host.tmuxAutoAttach ? host.tmuxSessionName : nil)
                 dataRow("Terminal type", host.terminalType)
                 valueRow("Keepalive", host.keepaliveInterval.formattedSeconds)
                     .accessibilityValue(host.keepaliveInterval.spokenSeconds)

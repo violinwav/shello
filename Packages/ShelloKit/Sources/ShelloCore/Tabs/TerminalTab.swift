@@ -4,12 +4,14 @@ import ShelloModel
 import ShelloSSH
 import ShelloSecurity
 import ShelloStorage
+import ShelloTmux
 import os
 
 /// A tab (GLOSSARY): a terminal, and the connections behind it, one after the other (README section
 /// 4). It connects, has the user trust a new host key, blocks a changed one until the user replaces
 /// it, signs in, asking the server's keyboard-interactive questions, starts the login shell, attaches
-/// the terminal to it, and runs the host's startup command.
+/// the terminal to it, runs the host's startup command, and attaches the host's tmux session when
+/// the host has auto-attach on (README section 8), so that a reconnect reattaches it.
 ///
 /// While it is active, a keepalive checks the connection every keepalive interval, and its round
 /// trip is the tab's latency. When the connection drops, because the network went or the server
@@ -48,6 +50,16 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
     /// How long the last connection took, from the moment it was asked for to the shell's first
     /// output, its prompt: README section 16's "tap to usable prompt" for the first connection.
     public private(set) var timeToPrompt: Duration?
+    /// What the last connection did about the host's tmux session, when the host has auto-attach on
+    /// (README section 8): attached it, or ran a plain shell, and why. Nil with auto-attach off.
+    public private(set) var tmux: TmuxAttachment?
+
+    /// Why the last connection runs a plain shell although the host attaches a tmux session: the
+    /// note the terminal shows, for VoiceOver to hear with the connection. Nil otherwise.
+    public var plainShellNote: String? {
+        guard case .plainShell(let fallback)? = tmux else { return nil }
+        return fallback.note
+    }
 
     /// The question the tab waits for the user to answer: to trust a new host key, or the server's
     /// questions, round after round, in one sheet.
@@ -242,15 +254,29 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
 
     /// Starts the tab's session on a new connection, once it is signed in: the user's login shell,
     /// attached to the terminal, then the host's startup command, typed once the shell shows its
-    /// prompt, so that what it sets, such as `export`, holds in the shell (README section 3). Every
-    /// connection goes through here, the first and each reconnect: attaching the tmux session (#29)
-    /// goes here too, after the startup command, so that a reconnect reattaches.
+    /// prompt, so that what it sets, such as `export`, holds in the shell (README section 3).
+    ///
+    /// With auto-attach on (README section 8), a hidden channel checks the server's tmux before the
+    /// shell opens, and the command that attaches the host's tmux session, or starts it, is typed
+    /// after the startup command: the startup command runs in the login shell, outside tmux, where
+    /// what it sets reaches a tmux session that starts now, and never into a program left running in
+    /// a session it reattaches. Without a tmux it can use, the tab runs a plain shell, and its
+    /// terminal says why. Every connection goes through here, the first and each reconnect, so a
+    /// reconnect reattaches the same tmux session.
     private func startSession(on connection: any TabConnection, generation: Int, isReconnect: Bool) async throws {
         if isReconnect {
             terminal.prepareForNextConnection()
         }
+        // Before the shell, not beside it: a server that allows one session per connection
+        // (`MaxSessions 1`) would refuse the second channel.
+        let tmux = try await tmuxAttachment(on: connection)
+        try checkCurrent(generation)
         let shell = try await connection.openShell(for: host, size: terminal.size)
         try checkCurrent(generation)
+        self.tmux = tmux
+        if case .plainShell(let fallback) = tmux {
+            terminal.showNote(fallback.note)
+        }
         let watch = OutputWatch(
             onFirstOutput: { [weak self] in
                 Task { @MainActor in self?.firstOutputArrived(generation: generation) }
@@ -260,10 +286,33 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
                 Task { @MainActor in self?.outputEnded(failure: reason, generation: generation) }
             })
         attach(shell, watch: watch)
-        if let command = StartupCommand(host.startupCommand) {
-            await waitForPrompt(watch)
-            try checkCurrent(generation)
+        let command = StartupCommand(host.startupCommand)
+        let attachKeys = tmux.flatMap(TmuxAttachKeys.init)
+        guard command != nil || attachKeys != nil else { return }
+        await waitForPrompt(watch)
+        try checkCurrent(generation)
+        if let command {
             shell.send(command.bytes)
+        }
+        if let attachKeys {
+            shell.send(attachKeys.bytes)
+        }
+    }
+
+    /// How the connection starts with the host's tmux session, when the host has auto-attach on:
+    /// the server's tmux is checked on a hidden channel, within the host's connect timeout, as
+    /// connecting is. Nil with auto-attach off.
+    /// - Throws: What the connection throws when it is gone under the check, or `CancellationError`.
+    private func tmuxAttachment(on connection: any TabConnection) async throws -> TmuxAttachment? {
+        guard host.tmuxAutoAttach else { return nil }
+        let sessionName = host.tmuxSessionName
+        do {
+            return try await withTimeout(host.connectTimeout, sleep: services.sleep) {
+                try await Tmux.attachment(sessionName: sessionName, on: connection)
+            }
+        } catch is TimedOut {
+            TabLog.logger.notice("tmux did not answer within the connect timeout")
+            return .plainShell(.unknown("tmux didn’t answer in time"))
         }
     }
 
@@ -697,6 +746,20 @@ struct StartupCommand: Equatable {
         }
         guard !lines.isEmpty else { return nil }
         bytes = Array(lines.map { $0 + "\r" }.joined().utf8)
+    }
+}
+
+/// The keys that attach the host's tmux session, or start it (`Tmux.attachCommand(for:)`), as the
+/// user would type them, with Return. A space goes first: it keeps the command out of the shell's
+/// history where the user set that up, as bash's `HISTCONTROL=ignorespace` and zsh's
+/// `HIST_IGNORE_SPACE` do, since it comes with every connection.
+struct TmuxAttachKeys: Equatable {
+    let bytes: [UInt8]
+
+    /// Nil for a connection that runs a plain shell.
+    init?(_ attachment: TmuxAttachment) {
+        guard case .attaching(let session, _) = attachment else { return nil }
+        bytes = Array((" " + Tmux.attachCommand(for: session) + "\r").utf8)
     }
 }
 

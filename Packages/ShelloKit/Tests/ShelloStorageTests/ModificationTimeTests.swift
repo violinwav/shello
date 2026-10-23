@@ -90,6 +90,8 @@ struct HostFieldChange: Sendable, CustomTestStringConvertible {
         HostFieldChange(field: "tags") { host, _, tag in host.tagIDs = [tag.id] },
         HostFieldChange(field: "notes") { host, _, _ in host.notes = "Backups run at 03:00." },
         HostFieldChange(field: "startupCommand") { host, _, _ in host.startupCommand = "htop" },
+        HostFieldChange(field: "tmuxAutoAttach") { host, _, _ in host.tmuxAutoAttach = true },
+        HostFieldChange(field: "tmuxSessionName") { host, _, _ in host.tmuxSessionName = "work" },
         HostFieldChange(field: "terminalType") { host, _, _ in host.terminalType = "xterm" },
         HostFieldChange(field: "keepaliveInterval") { host, _, _ in host.keepaliveInterval = .seconds(60) },
         HostFieldChange(field: "connectTimeout") { host, _, _ in host.connectTimeout = .seconds(5) },

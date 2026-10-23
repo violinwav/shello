@@ -160,7 +160,7 @@ struct ExportImportModelTests {
     @Test func fileFromANewerShelloIsRefusedWithTheReason() async throws {
         let nas = try await storeNAS()
 
-        await model.fileChosen(.success(try file(Data(#"{"format":"ch.shello.export","schemaVersion":2}"#.utf8))))
+        await model.fileChosen(.success(try file(Data(#"{"format":"ch.shello.export","schemaVersion":3}"#.utf8))))
 
         #expect(model.alert?.title == "Can’t Import the File")
         #expect(

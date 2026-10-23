@@ -262,14 +262,17 @@ final class TerminalTabsModel {
     // MARK: - VoiceOver
 
     /// Tells VoiceOver what the selected tab's connection did, as it does it: the screen changes
-    /// above the terminal, where VoiceOver may not be.
+    /// above the terminal, where VoiceOver may not be. A connection that runs a plain shell instead
+    /// of the host's tmux session says why here, as an announcement of its own would be cut off by
+    /// this one.
     func stateChanged(of tab: TerminalTab<TerminalController>, from old: TabState, to new: TabState) {
         let host = tab.host.name
+        let note = tab.plainShellNote.map { ". \($0)" } ?? ""
         switch (old, new) {
         case (.connecting, .active):
-            announce("Connected to \(host)")
+            announce("Connected to \(host)\(note)")
         case (_, .active):
-            announce("Reconnected to \(host)")
+            announce("Reconnected to \(host)\(note)")
         case (.active, .reconnecting):
             announce("Connection lost. Reconnecting to \(host)")
         case (_, .ended):

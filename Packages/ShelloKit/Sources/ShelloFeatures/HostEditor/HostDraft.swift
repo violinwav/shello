@@ -4,11 +4,12 @@ import ShelloModel
 /// The host editor's fields as the user edits them (README section 3). Text stays as typed until
 /// the host is saved, so that a half-typed port is kept as it is.
 struct HostDraft: Equatable {
-    /// The fields that can have a problem.
+    /// The fields that can have a problem, in the sheet's order.
     enum Field: Hashable, CaseIterable {
         case name
         case address
         case port
+        case tmuxSessionName
         case terminalType
     }
 
@@ -31,6 +32,10 @@ struct HostDraft: Equatable {
     var tagIDs: Set<Tag.ID>
     var notes: String
     var startupCommand: String
+    /// Whether the host attaches its tmux session (README section 8).
+    var tmuxAutoAttach: Bool
+    /// The tmux session's name, which the sheet shows while auto-attach is on.
+    var tmuxSessionName: String
     var terminalType: String
     var keepaliveInterval: Duration
     var connectTimeout: Duration
@@ -48,6 +53,8 @@ struct HostDraft: Equatable {
         tagIDs = host.tagIDs
         notes = host.notes
         startupCommand = host.startupCommand
+        tmuxAutoAttach = host.tmuxAutoAttach
+        tmuxSessionName = host.tmuxSessionName
         terminalType = host.terminalType
         keepaliveInterval = host.keepaliveInterval
         connectTimeout = host.connectTimeout
@@ -97,12 +104,26 @@ struct HostDraft: Equatable {
         } else if terminalType.contains(where: \.isWhitespace) {
             problems[.terminalType] = "Enter the terminal type without spaces."
         }
+        // The name only shows, and only counts, while auto-attach is on.
+        if tmuxAutoAttach {
+            let sessionName = tmuxSessionName.trimmed
+            if sessionName.isEmpty {
+                problems[.tmuxSessionName] = "Enter the tmux session’s name, such as main."
+            } else if TmuxSessionName(sessionName) == nil {
+                // In words: at its default punctuation level, VoiceOver skips a bare hyphen and some
+                // underscores.
+                problems[.tmuxSessionName] =
+                    "Use up to 64 letters, digits, hyphens and underscores, not starting with a hyphen."
+            }
+        }
         return problems
     }
 
     /// `base` with every field the user changed since `original` set to the draft's value. Text is
     /// saved without surrounding whitespace, except in the notes, where it may be deliberate.
-    /// Fields the draft does not hold, such as when Shello last connected, keep `base`'s values.
+    /// Fields the draft does not hold, such as when Shello last connected, keep `base`'s values. A
+    /// tmux session name the user left unfinished when they turned auto-attach off, hidden now, is
+    /// not saved: a stored name is always one tmux can take.
     ///
     /// Pass the host as it is stored now as `base`: then saving never undoes a change made since
     /// the draft was taken. Call it on a draft without problems.
@@ -119,6 +140,10 @@ struct HostDraft: Equatable {
         if tagIDs != original.tagIDs { host.tagIDs = tagIDs }
         if notes != original.notes { host.notes = notes }
         if startupCommand != original.startupCommand { host.startupCommand = startupCommand.trimmed }
+        if tmuxAutoAttach != original.tmuxAutoAttach { host.tmuxAutoAttach = tmuxAutoAttach }
+        if tmuxSessionName != original.tmuxSessionName, let name = TmuxSessionName(tmuxSessionName.trimmed) {
+            host.tmuxSessionName = name.rawValue
+        }
         if terminalType != original.terminalType { host.terminalType = terminalType.trimmed }
         if keepaliveInterval != original.keepaliveInterval { host.keepaliveInterval = keepaliveInterval }
         if connectTimeout != original.connectTimeout { host.connectTimeout = connectTimeout }

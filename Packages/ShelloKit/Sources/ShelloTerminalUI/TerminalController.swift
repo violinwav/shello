@@ -202,6 +202,22 @@ public final class TerminalController {
         title = ""
     }
 
+    /// Shows Shello's `note` on a line of its own, after `Shello:` in bold, which marks it as no
+    /// output of the server's (`TabTerminal`). It is cleaned as a window title is, since it can carry
+    /// what the server said. VoiceOver can read it in the terminal; it is not announced here, since
+    /// the announcement of the connection that follows would cut it off, and says it instead.
+    public func showNote(_ note: String) {
+        let text = Self.displayableLine(note, maximumLength: Self.maximumNoteLength)
+        let newLine = view.terminalStateSnapshot().cursor.col == 0 ? "" : "\r\n"
+        view.feedSender.feed(byteArray: Array((newLine + Self.noteMarker + text + "\r\n").utf8)[...])
+    }
+
+    /// What comes before a note: `Shello:` in bold, then normal text.
+    nonisolated static let noteMarker = "\u{1B}[1mShello:\u{1B}[22m "
+
+    /// The most characters of a note the terminal shows.
+    nonisolated static let maximumNoteLength = 300
+
     /// Back to the normal screen, with the cursor where it was before the program entered the
     /// alternate one. Only sent while the alternate screen shows: elsewhere it would move the cursor
     /// to a position saved long before.
@@ -486,7 +502,13 @@ extension TerminalController: TerminalViewDelegate {
     /// bidirectional overrides that could make it read as something else, on one line, at most
     /// `maximumTitleLength` characters long.
     nonisolated static func displayableTitle(_ title: String) -> String {
-        let scalars = title.unicodeScalars.map { scalar -> Unicode.Scalar in
+        displayableLine(title, maximumLength: maximumTitleLength)
+    }
+
+    /// `text` without the control characters and bidirectional overrides that could make it read as
+    /// something else, its words on one line, at most `maximumLength` characters long.
+    nonisolated static func displayableLine(_ text: String, maximumLength: Int) -> String {
+        let scalars = text.unicodeScalars.map { scalar -> Unicode.Scalar in
             switch scalar.properties.generalCategory {
             case .control, .lineSeparator, .paragraphSeparator: " "
             case .format where (0x202A...0x202E).contains(scalar.value) || (0x2066...0x2069).contains(scalar.value):
@@ -495,7 +517,7 @@ extension TerminalController: TerminalViewDelegate {
             }
         }
         let words = String(String.UnicodeScalarView(scalars)).split(whereSeparator: \.isWhitespace)
-        return String(words.joined(separator: " ").prefix(maximumTitleLength))
+        return String(words.joined(separator: " ").prefix(maximumLength))
     }
 
     // SwiftTerm's other events: the working directory and links come with shell integration (v1).

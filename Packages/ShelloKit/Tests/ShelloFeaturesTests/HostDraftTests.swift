@@ -18,7 +18,9 @@ struct HostDraftTests {
     }
 
     @Test func draftOfAHostHoldsItsValues() {
-        let host = Host(name: "nas", address: "nas.lan", port: 2222, username: "admin", notes: "Rack 2")
+        let host = Host(
+            name: "nas", address: "nas.lan", port: 2222, username: "admin", notes: "Rack 2", tmuxAutoAttach: true,
+            tmuxSessionName: "work")
 
         let draft = HostDraft(host)
 
@@ -27,6 +29,8 @@ struct HostDraftTests {
         #expect(draft.port == "2222")
         #expect(draft.username == "admin")
         #expect(draft.notes == "Rack 2")
+        #expect(draft.tmuxAutoAttach)
+        #expect(draft.tmuxSessionName == "work")
     }
 
     @Test func newDraftNeedsANameAndAnAddress() {
@@ -101,6 +105,65 @@ struct HostDraftTests {
         draft.terminalType = "xterm 256color"
 
         #expect(draft.problems == [.terminalType: "Enter the terminal type without spaces."])
+    }
+
+    // MARK: - tmux
+
+    @Test func newDraftDoesNotAttachTmuxAndWouldAttachMain() {
+        #expect(!HostDraft.new.tmuxAutoAttach)
+        #expect(HostDraft.new.tmuxSessionName == "main")
+    }
+
+    @Test(arguments: ["main", "work", "deploy-1", "ops_2", " main "])
+    func sessionNameOfLettersDigitsHyphensAndUnderscoresIsFine(_ name: String) {
+        var draft = filledDraft()
+        draft.tmuxAutoAttach = true
+        draft.tmuxSessionName = name
+
+        #expect(draft.problems.isEmpty)
+    }
+
+    @Test func attachingNeedsASessionName() {
+        var draft = filledDraft()
+        draft.tmuxAutoAttach = true
+        draft.tmuxSessionName = " "
+
+        #expect(draft.problems == [.tmuxSessionName: "Enter the tmux session’s name, such as main."])
+    }
+
+    @Test(arguments: ["my work", "-main", "web.1", "it's", "zürich", String(repeating: "a", count: 65)])
+    func sessionNameThatAShellOrTmuxWouldReadMoreIntoIsAProblem(_ name: String) {
+        var draft = filledDraft()
+        draft.tmuxAutoAttach = true
+        draft.tmuxSessionName = name
+
+        #expect(
+            draft.problems == [
+                .tmuxSessionName: "Use up to 64 letters, digits, hyphens and underscores, not starting with a hyphen."
+            ])
+    }
+
+    /// With auto-attach off the name is hidden and unused: it is no problem, and a name that would be
+    /// one is not saved.
+    @Test func sessionNameDoesNotMatterWithAutoAttachOff() {
+        let base = Host(name: "nas", address: "nas.lan", username: "admin")
+        var draft = HostDraft(base)
+        draft.tmuxSessionName = "my work"
+
+        #expect(draft.problems.isEmpty)
+        #expect(draft.applied(to: base, comparedTo: HostDraft(base)).tmuxSessionName == "main")
+    }
+
+    @Test func savedHostAttachesTheSessionTheDraftNames() {
+        let base = Host(name: "nas", address: "nas.lan", username: "admin")
+        var draft = HostDraft(base)
+        draft.tmuxAutoAttach = true
+        draft.tmuxSessionName = " work "
+
+        let host = draft.applied(to: base, comparedTo: HostDraft(base))
+
+        #expect(host.tmuxAutoAttach)
+        #expect(host.tmuxSessionName == "work")
     }
 
     @Test(arguments: [

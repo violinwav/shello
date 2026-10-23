@@ -185,6 +185,57 @@ final class HostTests: XCTestCase {
         try app.auditAccessibility()
     }
 
+    /// tmux auto-attach (README section 8): its switch shows the tmux session's name, main unless the
+    /// user names another, which must be one tmux can take, and the host keeps both. Audited with the
+    /// name's problem showing.
+    @MainActor
+    func testAttachingATmuxSessionIsSavedWithTheHost() throws {
+        let app = XCUIApplication.launchWithEmptyDatabase()
+        app.buttons["Add Host"].firstMatch.tap()
+        // The name and address first: the sheet's rows far above go as it scrolls down. Return in the
+        // user field, the section's last, puts the keyboard away.
+        app.enter("nas", into: app.textFields["Name"])
+        app.enter("nas.lan", into: app.textFields["Address"])
+        app.enter("\n", into: app.textFields["User"])
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+        // A tap on a switch just after the keyboard went changed nothing in CI (`addTaggedFavorite`):
+        // the sheet comes to rest first. The tap goes on the switch itself.
+        app.settle()
+        let attach = app.switches["Attach tmux session"].firstMatch
+        app.reveal(attach)
+        let session = app.textFields["tmux session"]
+        XCTAssertFalse(session.exists)
+        attach.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertTrue(session.waitForExistence(timeout: 5))
+        XCTAssertEqual(session.value as? String, "main")
+        app.replace(with: "my work", in: session)
+
+        app.navigationBars["New Host"].buttons["Save"].tap()
+
+        let problem = app.staticTexts[
+            "Use up to 64 letters, digits, hyphens and underscores, not starting with a hyphen."]
+        XCTAssertTrue(problem.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["New Host"].exists)
+        // Return in the field moves on to the terminal type, and Return there puts the keyboard away,
+        // so that the audit sees the sheet at rest.
+        app.enter("\n", into: session)
+        app.enter("\n", into: app.textFields["Terminal type"])
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+        app.reveal(problem)
+        try app.auditAccessibility(scrolled: true)
+        app.replace(with: "work", in: session)
+        app.navigationBars["New Host"].buttons["Save"].tap()
+        XCTAssertTrue(app.navigationBars["Hosts"].waitForExistence(timeout: 5))
+
+        app.buttons["nas"].firstMatch.tap()
+        app.navigationBars["nas"].buttons["Edit"].tap()
+        XCTAssertTrue(app.navigationBars["Edit Host"].waitForExistence(timeout: 5))
+        let reopened = app.switches["Attach tmux session"].firstMatch
+        app.reveal(reopened)
+        XCTAssertEqual(reopened.value as? String, "1")
+        XCTAssertEqual(app.textFields["tmux session"].value as? String, "work")
+    }
+
     @MainActor
     func testSearchAndTagFilterNarrowTheList() {
         let app = XCUIApplication.launchWithEmptyDatabase()

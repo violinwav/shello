@@ -16,7 +16,8 @@ struct ImportTests {
         test = try TestDatabase()
     }
 
-    /// A file version 1 wrote keeps importing, with every value, in every later version.
+    /// A file version 1 wrote keeps importing, with every value, in every later version. Its hosts
+    /// do not attach a tmux session, as hosts did not before version 2.
     @Test func version1FixtureImportsEveryValue() async throws {
         let file = try ExportFile(data: Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 1)))
 
@@ -24,7 +25,35 @@ struct ImportTests {
 
         #expect(try await repository.groups() == [ExportSample.homelab, ExportSample.work])
         #expect(try await repository.tags() == ExportSample.tags.sorted { $0.name < $1.name })
+        #expect(try await Set(repository.hosts()) == Set(ExportSample.version1Hosts))
+    }
+
+    /// A file version 2 wrote, with a host that attaches a tmux session, keeps importing too.
+    @Test func version2FixtureImportsEveryValue() async throws {
+        let file = try ExportFile(data: Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 2)))
+
+        try await exports.importFile(file)
+
+        #expect(try await repository.groups() == [ExportSample.homelab, ExportSample.work])
+        #expect(try await repository.tags() == ExportSample.tags.sorted { $0.name < $1.name })
         #expect(try await Set(repository.hosts()) == Set(ExportSample.hosts))
+        #expect(try await repository.hosts().contains { $0.tmuxAutoAttach && $0.tmuxSessionName == "dev_work-2" })
+    }
+
+    /// A version 1 file says nothing about tmux, so a host it replaces gets the defaults back, as
+    /// hosts had them when the file was written.
+    @Test func version1FileReplacesAHostWithTheTmuxDefaults() async throws {
+        var forge = try #require(ExportSample.hosts.first { $0.name == "forge" })
+        forge.groupID = nil
+        forge.tagIDs = []
+        try await repository.create(forge)
+        let file = try ExportFile(data: Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 1)))
+
+        try await exports.importFile(file)
+
+        let imported = try #require(try await repository.host(id: forge.id))
+        #expect(!imported.tmuxAutoAttach)
+        #expect(imported.tmuxSessionName == "main")
     }
 
     @Test func importReplacesRecordsWithTheSameIdentifierAndKeepsTheOthers() async throws {

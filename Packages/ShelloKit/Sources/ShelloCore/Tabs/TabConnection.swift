@@ -3,6 +3,7 @@ import Network
 import ShelloModel
 import ShelloSSH
 import ShelloSecurity
+import ShelloTmux
 
 /// What a tab connects with: the network and the server behind it. `HostConnector` is the app's;
 /// tests stand in for the network and the server, to drop connections when they choose.
@@ -21,7 +22,8 @@ public protocol TabConnector: Sendable {
 }
 
 /// A signed-in connection behind a tab (GLOSSARY: Connection): `SSHConnection`, or a test's stand-in.
-public protocol TabConnection: Sendable {
+/// Its hidden channels check the server's tmux before the shell starts (README section 8).
+public protocol TabConnection: HiddenChannels {
     /// The key exchange the connection negotiated (README section 14).
     var keyExchange: KeyExchange? { get async }
 

@@ -10,6 +10,11 @@
 # groups only. All let that user in with the fixture key TestServers/keys/client_ed25519 only: an
 # unprivileged sshd cannot check passwords, nor ask keyboard-interactive questions. Their files live
 # in a directory of their own under $TMPDIR.
+#
+# tmux: the server on port 2222 puts this Mac's tmux, if it has one, on the PATH a command gets, as a
+# Linux server's /usr/bin does, where sshd's default PATH leaves out Homebrew's; the others leave it
+# out, as servers without tmux. The tmux they start runs apart from the user's own, in the servers'
+# directory (TMUX_TMPDIR), and stop ends it.
 set -euo pipefail
 
 PORT=2222
@@ -21,6 +26,9 @@ CLASSICAL_KEX=curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,
 NIST_KEX=ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256
 DIR=$(cd "$(dirname "$0")" && pwd)
 STATE="${TMPDIR:-/tmp}/shello-test-sshd"
+# The PATH sshd gives a command on macOS.
+SYSTEM_PATH=/usr/bin:/bin:/usr/sbin:/sbin
+TMUX_COMMAND=$(command -v tmux || true)
 
 die() {
     printf 'error: %s\n' "$*" >&2
@@ -67,14 +75,18 @@ EOF
 
 start() {
     stop >/dev/null
-    mkdir -p "$STATE"
-    chmod 700 "$STATE"
+    mkdir -p "$STATE" "$STATE/tmux"
+    chmod 700 "$STATE" "$STATE/tmux"
     # sshd refuses a host key that others can read; git does not keep the mode.
     install -m 600 "$DIR/keys/ssh_host_ed25519_key_a" "$STATE/ssh_host_ed25519_key"
     install -m 600 "$DIR/keys/client_ed25519.pub" "$STATE/authorized_keys"
-    write_config "$PORT" sshd >"$STATE/sshd_config"
-    write_config "$CLASSICAL_PORT" sshd-classical "KexAlgorithms $CLASSICAL_KEX" >"$STATE/sshd-classical_config"
-    write_config "$NIST_PORT" sshd-nist "KexAlgorithms $NIST_KEX" >"$STATE/sshd-nist_config"
+    local with_tmux=$SYSTEM_PATH
+    [[ -z $TMUX_COMMAND ]] || with_tmux="$(dirname "$TMUX_COMMAND"):$SYSTEM_PATH"
+    write_config "$PORT" sshd "SetEnv \"PATH=$with_tmux\" \"TMUX_TMPDIR=$STATE/tmux\"" >"$STATE/sshd_config"
+    write_config "$CLASSICAL_PORT" sshd-classical "KexAlgorithms $CLASSICAL_KEX" \
+        "SetEnv \"PATH=$SYSTEM_PATH\" \"TMUX_TMPDIR=$STATE/tmux\"" >"$STATE/sshd-classical_config"
+    write_config "$NIST_PORT" sshd-nist "KexAlgorithms $NIST_KEX" \
+        "SetEnv \"PATH=$SYSTEM_PATH\" \"TMUX_TMPDIR=$STATE/tmux\"" >"$STATE/sshd-nist_config"
     /usr/sbin/sshd -f "$STATE/sshd_config" -E "$STATE/sshd.log"
     /usr/sbin/sshd -f "$STATE/sshd-classical_config" -E "$STATE/sshd-classical.log"
     /usr/sbin/sshd -f "$STATE/sshd-nist_config" -E "$STATE/sshd-nist.log"
@@ -83,6 +95,11 @@ start() {
         "$(wait_for_banner "$CLASSICAL_PORT" sshd-classical)"
     printf 'Test server on 127.0.0.1:%s, host key a, NIST curves and Diffie-Hellman groups only: %s\n' \
         "$NIST_PORT" "$(wait_for_banner "$NIST_PORT" sshd-nist)"
+    if [[ -n $TMUX_COMMAND ]]; then
+        printf 'tmux on 127.0.0.1:%s only: %s, %s\n' "$PORT" "$("$TMUX_COMMAND" -V)" "$TMUX_COMMAND"
+    else
+        printf 'No tmux on this Mac: the tmux tests will skip.\n'
+    fi
     printf 'Sign in as %s with TestServers/keys/client_ed25519.\n' "$(id -un)"
 }
 
@@ -94,6 +111,13 @@ stop() {
             rm -f "$STATE/$name.pid"
         fi
     done
+    # The tmux the servers started, with what still runs in it. Its socket is named: inside the user's
+    # own tmux, $TMUX would point tmux at that one.
+    local socket
+    socket="$STATE/tmux/tmux-$(id -u)/default"
+    if [[ -n $TMUX_COMMAND && -S $socket ]]; then
+        "$TMUX_COMMAND" -S "$socket" kill-server 2>/dev/null || true
+    fi
     printf 'Test servers stopped.\n'
 }
 

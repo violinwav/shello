@@ -26,6 +26,7 @@ final class FakeServer: TabConnector {
         var tries = 0
         var connections: [FakeConnection] = []
         var keepaliveAnswers = true
+        var tmux = FakeTmux.installed("tmux 3.4\n")
     }
 
     private let state = Mutex(State())
@@ -38,6 +39,11 @@ final class FakeServer: TabConnector {
     /// Whether the keepalives of the connections made from now on are answered.
     func setKeepaliveAnswers(_ answers: Bool) {
         state.withLock { $0.keepaliveAnswers = answers }
+    }
+
+    /// How tmux answers on the hidden channels of the connections made from now on.
+    func setTmux(_ tmux: FakeTmux) {
+        state.withLock { $0.tmux = tmux }
     }
 
     var tries: Int { state.withLock(\.tries) }
@@ -65,12 +71,27 @@ final class FakeServer: TabConnector {
             try await Task.sleep(for: .seconds(3600))
         }
         await progress(.signingIn)
-        let connection = FakeConnection(answersKeepalives: state.withLock(\.keepaliveAnswers))
-        state.withLock { $0.connections.append(connection) }
+        let connection = state.withLock { state in
+            let connection = FakeConnection(answersKeepalives: state.keepaliveAnswers, tmux: state.tmux)
+            state.connections.append(connection)
+            return connection
+        }
         return connection
     }
 
     func replaceTrustedKey(_ trusted: TrustedHostKey, with presented: HostKey, of server: Server) async throws {}
+}
+
+/// How tmux answers on a fake connection's hidden channels.
+enum FakeTmux: Sendable {
+    /// `tmux -V` prints this.
+    case installed(String)
+    /// The shell does not find tmux.
+    case missing
+    /// The command never ends, until it is cancelled.
+    case hangs
+    /// The connection fails under the command.
+    case fails(SSHError)
 }
 
 /// A signed-in connection that a test drops when it chooses.
@@ -84,6 +105,11 @@ final class FakeConnection: TabConnection {
         var keepalives = 0
         var shellSizes: [TerminalSize] = []
         var answersKeepalives: Bool
+        var tmux: FakeTmux
+        var commands: [String] = []
+        /// Whether a command was running when the shell was opened.
+        var shellOpenedWhileACommandRan = false
+        var runningCommands = 0
     }
 
     private let state: Mutex<State>
@@ -91,8 +117,8 @@ final class FakeConnection: TabConnection {
     /// The round trip each answered keepalive reports.
     static let roundTrip = Duration.milliseconds(24)
 
-    init(answersKeepalives: Bool) {
-        state = Mutex(State(answersKeepalives: answersKeepalives))
+    init(answersKeepalives: Bool, tmux: FakeTmux = .installed("tmux 3.4\n")) {
+        state = Mutex(State(answersKeepalives: answersKeepalives, tmux: tmux))
         (pathEvents, pathContinuation) = AsyncStream.makeStream()
     }
 
@@ -100,13 +126,41 @@ final class FakeConnection: TabConnection {
     var keepalives: Int { state.withLock(\.keepalives) }
     /// The sizes the shells were opened with.
     var shellSizes: [TerminalSize] { state.withLock(\.shellSizes) }
+    /// The commands run on hidden channels, in order.
+    var commands: [String] { state.withLock(\.commands) }
+    /// Whether the shell was opened while a hidden channel's command still ran: a server that allows
+    /// one session per connection (`MaxSessions 1`) would refuse it.
+    var shellOpenedWhileACommandRan: Bool { state.withLock(\.shellOpenedWhileACommandRan) }
+
+    func run(_ command: String) async throws -> SSHCommandResult {
+        let tmux = state.withLock { state in
+            state.commands.append(command)
+            state.runningCommands += 1
+            return state.tmux
+        }
+        defer { state.withLock { $0.runningCommands -= 1 } }
+        switch tmux {
+        case .installed(let version):
+            return SSHCommandResult(output: Array(version.utf8), errorOutput: [], exitStatus: 0)
+        case .missing:
+            return SSHCommandResult(output: [], errorOutput: Array("sh: tmux: not found\n".utf8), exitStatus: 127)
+        case .hangs:
+            try await Task.sleep(for: .seconds(3600))
+            throw CancellationError()
+        case .fails(let error):
+            throw error
+        }
+    }
 
     var keyExchange: KeyExchange? {
         get async { nil }
     }
 
     func openShell(for host: Host, size: TerminalSize) async throws -> any TerminalByteStream {
-        state.withLock { $0.shellSizes.append(size) }
+        state.withLock { state in
+            state.shellSizes.append(size)
+            if state.runningCommands > 0 { state.shellOpenedWhileACommandRan = true }
+        }
         return shell
     }
 
@@ -180,10 +234,12 @@ final class FakeShell: TerminalByteStream {
 @MainActor
 final class FakeTerminal: TabTerminal {
     private(set) var size = TerminalSize(columns: 80, rows: 24)
-    /// Everything every stream printed, in order.
+    /// Everything every stream printed, and Shello's notes, in order.
     private(set) var text = ""
     private(set) var attachments = 0
     private(set) var preparations = 0
+    /// Shello's notes, in order.
+    private(set) var notes: [String] = []
     private var stream: (any TerminalByteStream)?
     private var reader: Task<Void, Never>?
 
@@ -210,6 +266,11 @@ final class FakeTerminal: TabTerminal {
 
     func prepareForNextConnection() {
         preparations += 1
+    }
+
+    func showNote(_ note: String) {
+        notes.append(note)
+        text += "Shello: \(note)\r\n"
     }
 
     /// The user resized the terminal, as rotating the device does.

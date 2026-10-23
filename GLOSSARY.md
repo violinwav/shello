@@ -74,6 +74,14 @@ _Avoid_: LAN permission, local network prompt (that is iOS's question)
 A session of the tmux program on the server, which keeps running when connections drop. Always written in full.
 _Avoid_: Session (on its own)
 
+**Auto-attach**:
+A host's setting by which each connection of its tabs attaches the host's tmux session once the startup command is typed, and starts it if it is not running, so that a reconnect reattaches it.
+_Avoid_: Auto-connect, tmux mode
+
+**Plain shell**:
+The login shell of a tab that attaches no tmux session: what a host with auto-attach on gets when the server's tmux is missing or too old, which the tab's terminal then says.
+_Avoid_: Bare shell, raw shell
+
 **Hidden channel**:
 An SSH channel Shello opens for its own commands, which never appears in a tab.
 _Avoid_: Side channel, exec channel, background channel

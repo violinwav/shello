@@ -16,6 +16,17 @@ struct AppDatabaseTests {
         #expect(try await reopened.hosts() == [host])
     }
 
+    /// Version 3 adds columns to the hosts' table. A database of version 2 reads its hosts with them
+    /// at once, the hosts being the first thing it reads, as in the app: a connection that read the
+    /// schema before the migration would read the rows without the new columns, and fail.
+    @Test func hostsReadAtOnceAfterTheMigrationAddsTheirColumns() async throws {
+        let migrated = try TestDatabase(fixture: "v2")
+
+        let hosts = try await migrated.repository.hosts()
+
+        #expect(hosts.map(\.name) == ["forge", "prod-api-01"])
+    }
+
     @Test func databaseUsesWriteAheadLogging() async throws {
         let test = try TestDatabase()
 

@@ -297,7 +297,14 @@ Consequences:
 
 - **Hidden channels:** queries run on hidden channels, which are libssh exec channels on the tab's connection, or on the side connection for Mosh tabs.
 - **Commands and parsing:** commands use explicit `-F` format strings with a field separator that cannot appear in tmux names. The parsers are fuzzed.
-- **Version gate:** `tmux -V` decides between the full tmux browser and plain attach. The minimum version is set during testing.
+  - `ShelloTmux` lists sessions with fields separated by a tab, the name last, and `-u`. tmux before 3.7 lists a tab in a name as `\t`, and 3.7 refuses one; with `-u` it passes the format's tabs on, while without it a client whose locale is not UTF-8 turns them into `_`. The unit separator would not do: tmux 3.4 writes it as `\037` even with `-u`. Checked with tmux 3.2a, 3.4 and 3.7c.
+  - The parsers of `tmux -V` and of the session list use the standard library only. `Fuzz/TmuxOutput` fuzzes them, and a seeded test runs them with every build.
+- **Auto-attach (MVP):**
+  - Before a connection's shell opens, a hidden channel runs `tmux -V`, within the host's connect timeout. Before the shell, not beside it: a server that allows one session per connection (`MaxSessions 1`) would refuse the second channel.
+  - With tmux 1.8 or later, the tab types the startup command, then ` tmux -u new-session -A -s '<name>'`, both once the shell shows its prompt. The startup command runs in the login shell, outside tmux: what it sets reaches a tmux session that starts now, and nothing is typed into a program left running in a session that is reattached. The space before the command keeps it out of the shell's history where `HISTCONTROL=ignorespace` or `HIST_IGNORE_SPACE` is set; `-u` because Shello's terminal always takes UTF-8 and libssh sends no locale.
+  - A tmux that is missing, too old or prints no version Shello reads gets a plain shell, and the terminal says why in a line of Shello's own. VoiceOver hears why with the announcement that the tab is connected, which would cut off an announcement of its own.
+  - The check runs with the `PATH` sshd gives a command, as `ssh host tmux -V` does. A tmux that only the login shell's profile puts on the `PATH`, such as Homebrew's on a Mac or Nix's, counts as missing.
+- **Version gate:** auto-attach needs tmux 1.8, which added `new-session -A`. The distributions with OpenSSH 8.8 or later ship tmux 3.2a or later, as Alpine 3.15 and Ubuntu 22.04 do, so the gate turns away little more than servers older than Shello supports. The test servers run 3.4 and 3.7c; 1.8 to 3.1 are not tested. The tmux browser (v1) sets its own minimum, between itself and plain attach.
 - **Control mode (`tmux -CC`):** Later.
 
 ### 7.7 Mosh (README section 4, ADR 0004) — v1

@@ -116,12 +116,15 @@ let package = Package(
         .testTarget(name: "ShelloSecurityTests", dependencies: ["ShelloSecurity"], swiftSettings: core),
         // Most of them sign in to the test server in TestServers/, and skip when it is not running.
         .testTarget(name: "ShelloSSHTests", dependencies: ["ShelloSSH", "ShelloModel"], swiftSettings: core),
-        .testTarget(name: "ShelloTmuxTests", dependencies: ["ShelloTmux"], swiftSettings: core),
+        // The parsers against what tmux printed, and the version check against stand-ins for hidden
+        // channels. ShelloCoreTests run the check against the test servers.
+        .testTarget(
+            name: "ShelloTmuxTests", dependencies: ["ShelloTmux", "ShelloSSH", "ShelloModel"], swiftSettings: core),
         // A real database in a temporary directory, secrets in memory, and the test server in
         // TestServers/, without which the tests that need it skip.
         .testTarget(
             name: "ShelloCoreTests",
-            dependencies: ["ShelloCore", "ShelloModel", "ShelloStorage", "ShelloSecurity", "ShelloSSH"],
+            dependencies: ["ShelloCore", "ShelloModel", "ShelloStorage", "ShelloSecurity", "ShelloSSH", "ShelloTmux"],
             swiftSettings: core
         ),
         .testTarget(

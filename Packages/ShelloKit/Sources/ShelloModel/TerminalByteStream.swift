@@ -49,6 +49,12 @@ public protocol TabTerminal: AnyObject, Sendable {
     /// the programs of the last one turned on, such as the alternate screen, mouse reporting or
     /// bracketed paste, goes back to how a new shell expects it. The scrollback stays.
     func prepareForNextConnection()
+
+    /// Shows `note`, a sentence of Shello's own, on a line of its own after what the terminal shows,
+    /// marked as Shello's: what a connection does that the user may not expect, such as a plain
+    /// shell in place of the host's tmux session. Shown while no stream is attached, before the
+    /// next connection's shell.
+    func showNote(_ note: String)
 }
 
 /// A terminal's size: its grid of character cells, and the pixels those cells cover, which SSH

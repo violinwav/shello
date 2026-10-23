@@ -10,8 +10,11 @@
 # the newer name sntrup761x25519-sha512 to it.
 FROM ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
 
+# tmux for auto-attach, pinned to tmux 3.4 as Ubuntu 24.04 released it, which stays in the archive:
+# an update leaves the archive once a newer one replaces it.
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends openssh-server \
+        tmux=3.4-1build1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY keys/client_ed25519.pub keys/ssh_host_ed25519_key_a keys/ssh_host_ed25519_key_b /tmp/keys/

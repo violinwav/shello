@@ -11,7 +11,9 @@
 FROM alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35
 
 # sshd with PAM, for keyboard-interactive sign-in, and the PAM module that asks for a one-time code.
-RUN apk add --no-cache openssh-server openssh-server-pam google-authenticator
+# tmux for auto-attach (TmuxIntegrationTests), pinned to tmux 3.7c: `~` takes the branch's rebuilds of
+# it (-r0, -r1 …), which are fixes, and nothing newer.
+RUN apk add --no-cache openssh-server openssh-server-pam google-authenticator tmux~3.7c
 
 COPY keys/client_ed25519.pub keys/ssh_host_ed25519_key_a keys/ssh_host_ed25519_key_b /tmp/keys/
 COPY openssh/sshd_config /etc/ssh/sshd_config

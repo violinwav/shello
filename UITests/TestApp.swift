@@ -98,7 +98,7 @@ extension XCUIApplication {
         XCUIApplication(bundleIdentifier: "com.apple.springboard")
     }
 
-    /// `performAccessibilityAudit()`, less two false positives:
+    /// `performAccessibilityAudit()`, less these false positives:
     /// - Its Dynamic Type check reports some SwiftUI text whose font does scale as "partially
     ///   unsupported", seemingly at random, because it looks for UIKit's
     ///   `adjustsFontForContentSizeCategory`, which SwiftUI text does not expose
@@ -109,12 +109,25 @@ extension XCUIApplication {
     ///   of a list one screen long, which the list makes ready before it scrolls into view, as
     ///   black on black. Only that check, and only for an element less than half of which is on
     ///   screen, is let through.
+    /// - Its checks of what the screen shows (contrast, Dynamic Type, clipped text and hit regions)
+    ///   read content that a list scrolled mostly under the navigation bar in front, whose glass
+    ///   fades it on purpose, as failing. Only those checks, and only for an element that is not one
+    ///   of the bar's own, more than half of which the bar covers, are let through.
     ///
     /// Each ignored issue is attached to the test's results.
+    /// - Parameter scrolled: Whether a list is scrolled down, so that its content goes under the
+    ///   navigation bar in front, as a list longer than the screen always has text there: its rows
+    ///   lie closer together than the bar is tall. Element detection and the Dynamic Type check then
+    ///   also report the faded text, as text that no element represents and text whose size does not
+    ///   follow, without an element to say where. Those issues, and only those, are let through.
     @MainActor
-    func auditAccessibility() throws {
+    func auditAccessibility(scrolled: Bool = false) throws {
         var ignored: [String] = []
         let screen = frame
+        // Without a snapshot, nothing counts as under the bar.
+        let bar = try? FrontNavigationBar(self)
+        let shownChecks: XCUIAccessibilityAuditType = [.contrast, .dynamicType, .textClipped, .hitRegion]
+        let fadedTextChecks: XCUIAccessibilityAuditType = [.elementDetection, .dynamicType]
         try audit(XCUIAccessibilityAuditType.all) { issue in
             let isPartiallyUnsupported =
                 issue.auditType == .dynamicType
@@ -122,7 +135,10 @@ extension XCUIApplication {
                 && issue.element?.elementType == .staticText
             let isOffScreen =
                 issue.auditType == .contrast && issue.element.map { Self.isMostlyOffScreen($0.frame, screen) } == true
-            let isFalsePositive = isPartiallyUnsupported || isOffScreen
+            let isUnderTheBar =
+                shownChecks.contains(issue.auditType) && issue.element.map { bar?.hides($0.frame) ?? false } == true
+            let isFadedText = scrolled && issue.element == nil && fadedTextChecks.contains(issue.auditType)
+            let isFalsePositive = isPartiallyUnsupported || isOffScreen || isUnderTheBar || isFadedText
             if isFalsePositive {
                 ignored.append(
                     "\(issue.compactDescription): \(issue.element?.label ?? "?") \(issue.element?.frame ?? .zero)")
@@ -142,6 +158,47 @@ extension XCUIApplication {
         let visible = element.intersection(screen)
         guard !visible.isNull else { return true }
         return visible.width * visible.height < element.width * element.height / 2
+    }
+
+    /// The navigation bar in front, a sheet's when one is up: the last in the screen's order, after
+    /// the bars of the screens behind it. Content that a list scrolls under it shows through its
+    /// glass, faded.
+    private struct FrontNavigationBar {
+        let frame: CGRect
+        /// The frames of the bar's own elements, such as its title and buttons.
+        let itemFrames: [CGRect]
+
+        /// The front bar of the screen as it is now, or nil if it has none. One snapshot of the app,
+        /// read in the screen's order.
+        @MainActor
+        init?(_ app: XCUIApplication) throws {
+            var bars: [any XCUIElementSnapshot] = []
+            var pending = [try app.snapshot()]
+            while let element = pending.popLast() {
+                if element.elementType == .navigationBar {
+                    bars.append(element)
+                } else {
+                    pending += element.children.reversed()
+                }
+            }
+            guard let bar = bars.last else { return nil }
+            frame = bar.frame
+            var items: [CGRect] = []
+            var descendants = bar.children
+            while let element = descendants.popLast() {
+                items.append(element.frame)
+                descendants += element.children
+            }
+            itemFrames = items
+        }
+
+        /// Whether an element at `element` is content more than half under the bar, not one of the
+        /// bar's own.
+        func hides(_ element: CGRect) -> Bool {
+            guard element.width > 0, element.height > 0, !itemFrames.contains(element) else { return false }
+            let covered = element.intersection(frame)
+            return !covered.isNull && covered.width * covered.height > element.width * element.height / 2
+        }
     }
 
     /// `performAccessibilityAudit()` while a system alert shows, without two checks that misreport

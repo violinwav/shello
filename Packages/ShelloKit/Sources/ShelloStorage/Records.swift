@@ -60,6 +60,10 @@ struct HostRecord: StoredRecord, Tombstoned, Identifiable {
     var notesModifiedAt: Date
     var startupCommand: String
     var startupCommandModifiedAt: Date
+    var tmuxAutoAttach: Bool
+    var tmuxAutoAttachModifiedAt: Date
+    var tmuxSessionName: String
+    var tmuxSessionNameModifiedAt: Date
     var terminalType: String
     var terminalTypeModifiedAt: Date
     /// Milliseconds.
@@ -109,6 +113,10 @@ struct HostRecord: StoredRecord, Tombstoned, Identifiable {
         notesModifiedAt = now
         startupCommand = host.startupCommand
         startupCommandModifiedAt = now
+        tmuxAutoAttach = host.tmuxAutoAttach
+        tmuxAutoAttachModifiedAt = now
+        tmuxSessionName = host.tmuxSessionName
+        tmuxSessionNameModifiedAt = now
         terminalType = host.terminalType
         terminalTypeModifiedAt = now
         keepaliveInterval = host.keepaliveInterval.storedMilliseconds
@@ -171,6 +179,14 @@ struct HostRecord: StoredRecord, Tombstoned, Identifiable {
             startupCommand = host.startupCommand
             startupCommandModifiedAt = now
         }
+        if host.tmuxAutoAttach != current.tmuxAutoAttach {
+            tmuxAutoAttach = host.tmuxAutoAttach
+            tmuxAutoAttachModifiedAt = now
+        }
+        if host.tmuxSessionName != current.tmuxSessionName {
+            tmuxSessionName = host.tmuxSessionName
+            tmuxSessionNameModifiedAt = now
+        }
         if host.terminalType != current.terminalType {
             terminalType = host.terminalType
             terminalTypeModifiedAt = now
@@ -209,6 +225,8 @@ struct HostRecord: StoredRecord, Tombstoned, Identifiable {
             tagIDs: tagIDs,
             notes: notes,
             startupCommand: startupCommand,
+            tmuxAutoAttach: tmuxAutoAttach,
+            tmuxSessionName: tmuxSessionName,
             terminalType: terminalType,
             keepaliveInterval: .milliseconds(keepaliveInterval),
             connectTimeout: .milliseconds(connectTimeout),

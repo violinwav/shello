@@ -2,13 +2,13 @@
 
 Disposable OpenSSH servers for Shello's integration and UI tests, so that nobody's own server is needed (docs/spec/STACK.md section 11). They run on this Mac's loopback only, on `localhost`:
 
-| Port | Server | Key exchange Shello negotiates with it |
-| --- | --- | --- |
-| 2222 | OpenSSH 10.3 (Alpine 3.24) | `mlkem768x25519-sha256` |
-| 2223 | OpenSSH 9.6 (Ubuntu 24.04) | `sntrup761x25519-sha512@openssh.com` |
-| 2224 | OpenSSH 10.3 with post-quantum key exchange off | `curve25519-sha256` |
-| 2225 | OpenSSH 8.8 (Alpine 3.15), the oldest OpenSSH Shello supports (README section 4) | `curve25519-sha256` |
-| 2226 | OpenSSH 10.3 with the NIST curves and Diffie-Hellman groups only, as a server in FIPS mode | `ecdh-sha2-nistp256` |
+| Port | Server | Key exchange Shello negotiates with it | tmux |
+| --- | --- | --- | --- |
+| 2222 | OpenSSH 10.3 (Alpine 3.24) | `mlkem768x25519-sha256` | 3.7c |
+| 2223 | OpenSSH 9.6 (Ubuntu 24.04) | `sntrup761x25519-sha512@openssh.com` | 3.4 |
+| 2224 | OpenSSH 10.3 with post-quantum key exchange off | `curve25519-sha256` | 3.7c |
+| 2225 | OpenSSH 8.8 (Alpine 3.15), the oldest OpenSSH Shello supports (README section 4) | `curve25519-sha256` | none |
+| 2226 | OpenSSH 10.3 with the NIST curves and Diffie-Hellman groups only, as a server in FIPS mode | `ecdh-sha2-nistp256` | 3.7c |
 
 Everything here is a test fixture and public: the users, the password, the one-time code's secret and every key in `keys/`. Never use them anywhere else.
 
@@ -43,6 +43,8 @@ Each image is pinned by the digest of its multi-platform image, and takes its pa
 - OpenSSH 9: Ubuntu 24.04 with Ubuntu's `openssh-server` package (OpenSSH 9.6).
 - OpenSSH 8.8: Alpine 3.15, past its end of support, with Alpine's `openssh-server` package (OpenSSH 8.8p1). OpenSSH 8.8 has `sntrup761x25519-sha512@openssh.com` but offers it only when configured to, which 9.0 changed, so Shello negotiates `curve25519-sha256` with it.
 
+tmux, for auto-attach (README section 8), is pinned in the images that have it: Alpine 3.24's `tmux~3.7c`, which takes the branch's rebuilds of 3.7c and nothing newer, and Ubuntu 24.04's `tmux=3.4-1build1`, the version it released with, which stays in its archive. The OpenSSH 8.8 server has no tmux on purpose: it is the server without tmux, where auto-attach falls back to a plain shell.
+
 OpenSSH 9.8 and later refuse an address for a while once its connections fail to sign in, or close before they try (`PerSourcePenalties`). Every test connects from the same address, many of them failing on purpose, so the OpenSSH 10 servers turn that off (`PER_SOURCE_PENALTIES=off`). OpenSSH 9.6 and 8.8 have no such penalties.
 
 ## Key exchange names
@@ -73,11 +75,13 @@ The shell's first line, the message of the day, is `Shello test server`, and on 
 
 From the Mac's terminal: `ssh -p 2222 shello@localhost`. Git does not keep a key's file mode, so make a copy readable only by you before `ssh -i` takes it.
 
-In Shello: add a host with the address `localhost`, port 2222, user `shello` and the method Password, with the password above. Connect asks to trust host key a; its fingerprint is in the table. The terminal's Connection button then shows the key exchange, post-quantum or classical; ports 2223 and 2224 show the others. To see a changed host key blocked, restart the servers with `--host-key b` and connect again; the block sheet then replaces the trusted key. With the method Keyboard-Interactive and the user `shello-otp`, Shello asks the password, then the one-time code.
+In Shello: add a host with the address `localhost`, port 2222, user `shello` and the method Password, with the password above. Connect asks to trust host key a; its fingerprint is in the table. The terminal's Connection button then shows the key exchange, post-quantum or classical; ports 2223 and 2224 show the others. To see a changed host key blocked, restart the servers with `--host-key b` and connect again; the block sheet then replaces the trusted key. With the method Keyboard-Interactive and the user `shello-otp`, Shello asks the password, then the one-time code. With Attach tmux session on, the tab attaches the tmux session `main`, or starts it, and comes back to it after a reconnect; on port 2225, which has no tmux, the terminal says so and the tab runs a plain shell.
 
 ## Without Docker
 
 `TestServers/local-sshd.sh` runs this Mac's own `/usr/sbin/sshd` as you, unprivileged, with host key a: on port 2222 with OpenSSH's defaults, on port 2224 with post-quantum key exchange off, and on port 2226 with the NIST curves and Diffie-Hellman groups only. It lets only you in, with `keys/client_ed25519`: an unprivileged sshd cannot check passwords, nor ask keyboard-interactive questions. There is no OpenSSH 9 or 8.8 without Docker. `TestServers/local-sshd.sh stop` stops all three. CI runs it, because GitHub's macOS runners have no Docker.
+
+tmux: the server on port 2222 puts this Mac's tmux, if it has one (`brew install tmux`), on the `PATH` a command gets, which sshd's default `/usr/bin:/bin:/usr/sbin:/sbin` leaves out, as a Linux server's `/usr/bin` has it. Ports 2224 and 2226 leave it out, as servers without tmux. The tmux they start keeps its socket in the servers' own directory (`TMUX_TMPDIR`), apart from your own tmux sessions, and `stop` ends it. Without tmux on the Mac, the tmux tests skip. GitHub's macOS runner image has no tmux either, so CI installs it with Homebrew first.
 
 The tests need to know the user then. Pass it on through xcodebuild, which hands `TEST_RUNNER_`-prefixed variables to the tests without the prefix:
 
@@ -95,6 +99,7 @@ With `SHELLO_TEST_SERVER_USER` set, the tests that sign in with a password or ke
 - `ShelloSSHTests` (`KeyExchangeTests`): the key exchange libssh negotiates with each server, the classical ones without curve25519 each on its own, the ciphers and MACs, and the server's banner.
 - `ShelloSSHTests` (`KeyboardInteractiveTests`, `AgentAuthenticationTests`): keyboard-interactive sign-in, on ports 2222 and 2225, and signing in through an SSH agent, with a stand-in agent.
 - `ShelloCoreTests` (`HostConnectorTests`, `SignInTests`): the first connection's trust question, a trusted key, a changed one and its replacement; signing in with the SSH key through Shello's SSH agent, keyboard-interactive with the one-time codes, and two-factor sign-in, on ports 2222 and 2225.
+- `ShelloCoreTests` (`TmuxIntegrationTests`): tmux auto-attach, which attaches the same tmux session, with what ran in it, after a dropped connection, on port 2222; the plain shell of a server without tmux, on port 2225 in Docker or 2224 with this Mac's sshd; and the tmux parsers on what tmux 3.7c and 3.4 print, on ports 2222 and 2223. Each test leaves no tmux session behind.
 - `ShelloFeaturesTests` (`SignInPromptTests`): the terminal's sign-in sheet, on port 2222.
 - `ShelloUITests/ConnectionTests`: the trust sheet, the changed host key sheet and its replacement, sign-in with a password, the SSH key and keyboard-interactive to the shell, and the Connection sheet, post-quantum on port 2222 and classical on port 2224.
 

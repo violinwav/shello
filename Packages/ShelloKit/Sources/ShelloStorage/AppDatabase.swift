@@ -34,8 +34,10 @@ public struct AppDatabase: Sendable {
 
         let path = directory.appending(path: Self.fileName, directoryHint: .notDirectory).path(percentEncoded: false)
         writer = try DatabasePool(path: path, configuration: Self.configuration)
-        // An older version must not write to a schema it does not know.
-        if try writer.read(Schema.migrator.hasBeenSuperseded) {
+        // An older version must not write to a schema it does not know. Checked on the writer, before
+        // any reader connection reads the schema: a reader would keep the schema from before the
+        // migration, and read the first rows of a table the migration added columns to without them.
+        if try writer.writeWithoutTransaction(Schema.migrator.hasBeenSuperseded) {
             throw AppDatabaseError.createdByNewerVersion
         }
         try Schema.migrator.migrate(writer)

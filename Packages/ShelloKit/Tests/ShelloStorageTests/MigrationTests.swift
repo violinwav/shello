@@ -16,7 +16,7 @@ import Testing
 /// `v1FixtureKeepsEveryValue`.
 struct MigrationTests {
     /// Each fixture, with the last migration of its schema version.
-    static let fixtures = [("v1", "v1"), ("v2", "v2")]
+    static let fixtures = [("v1", "v1"), ("v2", "v2"), ("v3", "v3")]
 
     @Test(arguments: fixtures)
     func fixtureMigratesToTheCurrentSchema(_ fixture: String, _: String) async throws {
@@ -92,6 +92,41 @@ struct MigrationTests {
             try await migrated.hostKeys.trustedKey(of: Server(address: "forge.lan", port: 22))
                 == TrustedHostKey(
                     key: HostKeyRepositoryTests.keyB, trustedAt: Date(timeIntervalSinceReferenceDate: 800_002_000.25)))
+    }
+
+    /// Version 3 adds tmux auto-attach. The hosts from before get it off, with the session `main`,
+    /// as they behaved, modified at the reference date: older than any change sync could bring.
+    @Test func hostsFromBeforeVersion3DoNotAttachTmux() async throws {
+        let migrated = try TestDatabase(fixture: "v2")
+
+        let hosts = try await migrated.repository.hosts()
+        #expect(hosts.count == 2)
+        #expect(hosts.allSatisfy { !$0.tmuxAutoAttach && $0.tmuxSessionName == "main" })
+        for id in [Self.id("000000000101"), Self.id("000000000102"), Self.id("000000000103")] {
+            let times = try await migrated.modificationTimes(table: "host", id: id)
+            #expect(times["tmuxAutoAttachModifiedAt"] == Date(timeIntervalSinceReferenceDate: 0))
+            #expect(times["tmuxSessionNameModifiedAt"] == Date(timeIntervalSinceReferenceDate: 0))
+        }
+    }
+
+    /// The v3 fixture is the v2 fixture migrated, with prod-api-01 attaching the tmux session
+    /// `deploy-1`.
+    @Test func v3FixtureKeepsEveryValue() async throws {
+        let migrated = try TestDatabase(fixture: "v3")
+        let v2 = try TestDatabase(fixture: "v2")
+        var expected = try await v2.repository.hosts()
+        let index = try #require(expected.firstIndex { $0.id == Self.id("000000000101") })
+        expected[index].tmuxAutoAttach = true
+        expected[index].tmuxSessionName = "deploy-1"
+
+        #expect(try await migrated.repository.hosts() == expected)
+        #expect(try await migrated.repository.groups() == v2.repository.groups())
+        #expect(try await migrated.repository.tags() == v2.repository.tags())
+        #expect(try await migrated.hostKeys.trustedKey(of: Server(address: "10.0.4.21", port: 2222)) != nil)
+        let times = try await migrated.modificationTimes(table: "host", id: Self.id("000000000101"))
+        #expect(times["tmuxAutoAttachModifiedAt"] == Date(timeIntervalSinceReferenceDate: 800_003_000))
+        #expect(times["tmuxSessionNameModifiedAt"] == Date(timeIntervalSinceReferenceDate: 800_003_000))
+        #expect(times["nameModifiedAt"] == Date(timeIntervalSinceReferenceDate: 800_000_500))
     }
 
     /// Every table, index and trigger, with the SQL that creates it.

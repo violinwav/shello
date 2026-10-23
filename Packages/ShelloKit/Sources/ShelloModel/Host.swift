@@ -22,6 +22,12 @@ public struct Host: Identifiable, Hashable, Sendable {
     public var notes: String
     /// Run once the connection is authenticated. Empty for none.
     public var startupCommand: String
+    /// Whether each connection attaches the host's tmux session once its startup command is typed,
+    /// and starts it if it is not running, so that a reconnect reattaches it (README section 8):
+    /// auto-attach.
+    public var tmuxAutoAttach: Bool
+    /// The tmux session auto-attach attaches, a `TmuxSessionName`.
+    public var tmuxSessionName: String
     /// The `TERM` value Shello sends to the server.
     public var terminalType: String
     /// How often Shello checks that the connection is alive. A tab shows the round trip as its
@@ -41,6 +47,8 @@ public struct Host: Identifiable, Hashable, Sendable {
     public static let defaultKeepaliveInterval = Duration.seconds(30)
     /// The connect timeout for new hosts: a starting value, to confirm during the MVP.
     public static let defaultConnectTimeout = Duration.seconds(15)
+    /// The tmux session new hosts attach once auto-attach is on, as in `tmux new -A -s main`.
+    public static let defaultTmuxSessionName = "main"
 
     /// Creates a host. Without a port, the host uses its protocol's default port.
     public init(
@@ -56,6 +64,8 @@ public struct Host: Identifiable, Hashable, Sendable {
         tagIDs: Set<Tag.ID> = [],
         notes: String = "",
         startupCommand: String = "",
+        tmuxAutoAttach: Bool = false,
+        tmuxSessionName: String = Host.defaultTmuxSessionName,
         terminalType: String = Host.defaultTerminalType,
         keepaliveInterval: Duration = Host.defaultKeepaliveInterval,
         connectTimeout: Duration = Host.defaultConnectTimeout,
@@ -74,6 +84,8 @@ public struct Host: Identifiable, Hashable, Sendable {
         self.tagIDs = tagIDs
         self.notes = notes
         self.startupCommand = startupCommand
+        self.tmuxAutoAttach = tmuxAutoAttach
+        self.tmuxSessionName = tmuxSessionName
         self.terminalType = terminalType
         self.keepaliveInterval = keepaliveInterval
         self.connectTimeout = connectTimeout

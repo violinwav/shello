@@ -30,6 +30,20 @@ docker run --rm --volume "$REPO:/shello:ro" --workdir /tmp --env "SECONDS_PER_TA
     "$IMAGE" bash -euo pipefail -c '
     swiftc --version | head -1
 
+    # Runs the target $1 on its corpus, $1-corpus, for SECONDS_PER_TARGET seconds, and fails after
+    # printing each input that made it trap.
+    fuzz() {
+        mkdir -p "$1-crashes"
+        if ! "./$1" -max_total_time="$SECONDS_PER_TARGET" -print_final_stats=1 -artifact_prefix="$1-crashes/" \
+            "$1-corpus"; then
+            for crash in "$1-crashes"/*; do
+                printf "Crashing input %s:\n" "$crash"
+                od -A x -t x1z "$crash"
+            done
+            exit 1
+        fi
+    }
+
     # The SSH agent protocol (STACK section 7.3): the parser and the framing, as they ship, with the
     # target in one module.
     swiftc -sanitize=fuzzer,address -parse-as-library -O -g \
@@ -38,18 +52,30 @@ docker run --rm --volume "$REPO:/shello:ro" --workdir /tmp --env "SECONDS_PER_TA
         -o ssh-agent-protocol
 
     # Seeds: a request for identities and a sign request, framed, and the same unframed.
-    mkdir -p corpus crashes
-    printf "\x00\x00\x00\x01\x0b" >corpus/identities
-    printf "\x00\x00\x00\x14\x0d\x00\x00\x00\x03key\x00\x00\x00\x04data\x00\x00\x00\x00" >corpus/sign
-    printf "\x0b" >corpus/identities-unframed
-    printf "\x0d\x00\x00\x00\x03key\x00\x00\x00\x04data\x00\x00\x00\x02" >corpus/sign-unframed
+    mkdir -p ssh-agent-protocol-corpus
+    printf "\x00\x00\x00\x01\x0b" >ssh-agent-protocol-corpus/identities
+    printf "\x00\x00\x00\x14\x0d\x00\x00\x00\x03key\x00\x00\x00\x04data\x00\x00\x00\x00" \
+        >ssh-agent-protocol-corpus/sign
+    printf "\x0b" >ssh-agent-protocol-corpus/identities-unframed
+    printf "\x0d\x00\x00\x00\x03key\x00\x00\x00\x04data\x00\x00\x00\x02" >ssh-agent-protocol-corpus/sign-unframed
+    fuzz ssh-agent-protocol
 
-    if ! ./ssh-agent-protocol -max_total_time="$SECONDS_PER_TARGET" -print_final_stats=1 \
-        -artifact_prefix=crashes/ corpus; then
-        for crash in crashes/*; do
-            printf "Crashing input %s:\n" "$crash"
-            od -A x -t x1z "$crash"
-        done
-        exit 1
-    fi
+    # tmux output (STACK section 7.6): the parsers of what tmux -V prints and of the sessions that
+    # list-sessions lists in the format Shello gives it, as they ship, with the target in one module.
+    swiftc -sanitize=fuzzer,address -parse-as-library -O -g \
+        /shello/Packages/ShelloKit/Sources/ShelloTmux/TmuxVersion.swift \
+        /shello/Packages/ShelloKit/Sources/ShelloTmux/TmuxSession.swift \
+        /shello/Fuzz/TmuxOutput/FuzzTarget.swift \
+        -o tmux-output
+
+    # Seeds: versions as tmux 3.4, 3.7c and a development build print them, one after a message of
+    # the day, and sessions as tmux 3.4 lists them.
+    mkdir -p tmux-output-corpus
+    printf "tmux 3.4\n" >tmux-output-corpus/version
+    printf "tmux 3.7c\n" >tmux-output-corpus/version-with-letter
+    printf "tmux next-3.6\n" >tmux-output-corpus/version-of-development-build
+    printf "Shello test server\r\ntmux 3.2a\r\n" >tmux-output-corpus/version-after-motd
+    printf "\$0\t1792738688\t0\t3\tmain\n\$1\t1792738688\t1\t1\tz\303\274rich-1\n\$4\t1792738688\t0\t1\tdot_x\n" \
+        >tmux-output-corpus/sessions
+    fuzz tmux-output
 '

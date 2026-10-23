@@ -79,8 +79,8 @@ struct ExportTests {
         #expect(tags.allSatisfy { Set($0.keys) == ["id", "name", "color"] })
         let hostKeys: Set<String> = [
             "id", "name", "address", "port", "protocol", "username", "authMethod", "sshKeyID", "groupID", "tagIDs",
-            "notes", "startupCommand", "terminalType", "keepaliveIntervalMilliseconds", "connectTimeoutMilliseconds",
-            "isFavorite", "lastConnectedAt",
+            "notes", "startupCommand", "tmuxAutoAttach", "tmuxSessionName", "terminalType",
+            "keepaliveIntervalMilliseconds", "connectTimeoutMilliseconds", "isFavorite", "lastConnectedAt",
         ]
         #expect(hosts.allSatisfy { hostKeys.isSuperset(of: $0.keys) })
         // The sample sets every optional field on one host, so each key on the list shows up.
@@ -96,14 +96,15 @@ struct ExportTests {
     }
 
     /// A file this version writes must import into every later version, so its format must not
-    /// change while the schema version stays 1. Fixtures/export-v1.json is the sample's export as
-    /// version 1 wrote it; `ImportTests` imports it.
-    @Test func exportOfTheSampleIsTheVersion1Fixture() async throws {
+    /// change while the schema version stays 2. Fixtures/export-v2.json is the sample's export as
+    /// version 2 writes it, and export-v1.json as version 1 wrote it; `ImportTests` imports both.
+    @Test func exportOfTheSampleIsTheVersion2Fixture() async throws {
         try await ExportSample.store(in: repository)
 
         let data = try await exports.export().encoded()
 
-        let fixture = try Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 1))
+        #expect(ExportFile.currentSchemaVersion == 2)
+        let fixture = try Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 2))
         #expect(try Self.object(data) == Self.object(fixture))
     }
 
@@ -141,12 +142,24 @@ enum ExportSample {
             lastConnectedAt: Date(timeIntervalSinceReferenceDate: 812_345_678.123_456_7)),
         Host(
             id: id("000000000102"), name: "forge", address: "2001:db8::21", protocol: .mosh, username: "dev",
-            authMethod: .keyboardInteractive, groupID: homelab.id, tagIDs: [tags[6].id], terminalType: "xterm",
+            authMethod: .keyboardInteractive, groupID: homelab.id, tagIDs: [tags[6].id], tmuxAutoAttach: true,
+            tmuxSessionName: "dev_work-2", terminalType: "xterm",
             lastConnectedAt: Date(timeIntervalSinceReferenceDate: 800_000_000.000_000_1)),
         Host(
             id: id("000000000103"), name: "Media PC 📺", address: "media-pc.local", protocol: .vnc, username: "",
             authMethod: .password),
     ]
+
+    /// The sample's hosts as a version 1 file holds them: without tmux auto-attach, which version 2
+    /// added.
+    static var version1Hosts: [Host] {
+        hosts.map { host in
+            var host = host
+            host.tmuxAutoAttach = false
+            host.tmuxSessionName = Host.defaultTmuxSessionName
+            return host
+        }
+    }
 
     static func store(in repository: HostRepository) async throws {
         for group in [homelab, work] { try await repository.create(group) }

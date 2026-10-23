@@ -11,6 +11,8 @@
 # end of support, so its packages no longer change.
 FROM alpine:3.15@sha256:19b4bcc4f60e99dd5ebdca0cbce22c503bbcff197549d7e19dab4f22254dc864
 
+# No tmux, unlike the other images: this is the test server without tmux, where auto-attach falls back
+# to a plain shell (TmuxIntegrationTests).
 RUN apk add --no-cache openssh-server openssh-server-pam google-authenticator
 
 COPY keys/client_ed25519.pub keys/ssh_host_ed25519_key_a keys/ssh_host_ed25519_key_b /tmp/keys/
