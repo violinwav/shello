@@ -357,8 +357,69 @@ import UIKit
         #expect(fixture.recorded.announcements.last == "Largest text size")
     }
 
+    /// A connection that dropped while vim was up leaves the alternate screen and mouse reporting on:
+    /// readied for the next connection, the terminal is back on the scrollback, with the cursor
+    /// where it was before vim, and a tap is a tap again, not a click sent to a program that is gone.
+    @Test func readiesForTheNextConnectionAfterAFullScreenProgram() async {
+        let fixture = TerminalFixture()
+        let first = RecordingStream()
+        fixture.controller.attach(first)
+        first.write("shell before vim\r\n$ vim\u{1B}[?1049h\u{1B}[2J\u{1B}[Hvim's screen\u{1B}[?1000h\u{1B}[?1006h")
+        #expect(await fixture.wait { fixture.screen.first == "vim's screen" })
+        #expect(fixture.view.forwardTap(at: fixture.point(column: 2, row: 0)))
+        first.finish(throwing: Dropped())
+        #expect(await fixture.wait { fixture.controller.streamState != .attached })
+
+        fixture.controller.prepareForNextConnection()
+        let second = RecordingStream()
+        fixture.controller.attach(second)
+        second.write("after")
+
+        #expect(await fixture.wait { fixture.screen.prefix(3) == ["shell before vim", "$ vim", "after"] })
+        #expect(!fixture.view.forwardTap(at: fixture.point(column: 2, row: 0)))
+    }
+
+    /// Without a full-screen program, the reset leaves the cursor where it is: the next connection's
+    /// output starts on the next line.
+    @Test func readiesForTheNextConnectionOnTheNextLine() async {
+        let fixture = TerminalFixture()
+        let first = RecordingStream()
+        fixture.controller.attach(first)
+        first.write("one\r\ntwo\r\n$ ")
+        #expect(await fixture.wait { fixture.screen.prefix(3) == ["one", "two", "$"] })
+        first.finish(throwing: Dropped())
+        #expect(await fixture.wait { fixture.controller.streamState != .attached })
+
+        fixture.controller.prepareForNextConnection()
+        let second = RecordingStream()
+        fixture.controller.attach(second)
+        second.write("after")
+
+        #expect(await fixture.wait { fixture.screen.prefix(4) == ["one", "two", "$", "after"] })
+    }
+
+    /// A program's window title names the tab, cleaned of what could make it read as something else.
+    @Test(arguments: [
+        ("vim compose.yml", "vim compose.yml"),
+        ("deploy@prod-api-01: ~", "deploy@prod-api-01: ~"),
+        ("two\nlines\t and\u{1B} controls", "two lines and controls"),
+        ("\u{202E}lmth.exe", "lmth.exe"),
+        (String(repeating: "x", count: 200), String(repeating: "x", count: 64)),
+    ])
+    func windowTitleNamesTheTab(_ title: String, shown: String) async {
+        let fixture = TerminalFixture()
+        let stream = RecordingStream()
+        fixture.controller.attach(stream)
+
+        fixture.controller.setTerminalTitle(source: fixture.view, title: title)
+
+        #expect(fixture.controller.title == shown)
+        fixture.controller.prepareForNextConnection()
+        #expect(fixture.controller.title.isEmpty)
+    }
+
     /// When a stream ends, the terminal keeps its screen, and attaches to the next stream with its
-    /// size: the way a tab reconnects (#28).
+    /// size: the way a tab reconnects.
     @Test func outlivesItsStreams() async {
         let fixture = TerminalFixture()
         let first = RecordingStream()
@@ -392,3 +453,6 @@ import UIKit
         #expect(fixture.view.diagnostics.batches >= 100_000 / TerminalController.maximumFeedBytes)
     }
 }
+
+/// A connection that dropped under the terminal's stream.
+private struct Dropped: Error {}

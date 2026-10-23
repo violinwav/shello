@@ -57,8 +57,8 @@ struct ConnectionPromptsTests {
     }
 }
 
-/// The terminal's model while it asks the server's keyboard-interactive questions, against the
-/// Docker test server, whose sshd asks `shello` for its password. Skipped without it, as in CI.
+/// A tab while it asks the server's keyboard-interactive questions, against the Docker test
+/// server, whose sshd asks `shello` for its password. Skipped without it, as in CI.
 @Suite(.serialized, .timeLimit(.minutes(1)))
 @MainActor
 struct SignInPromptTests {
@@ -74,39 +74,44 @@ struct SignInPromptTests {
     func signInSheetAsksAndSignsIn() async throws {
         let model = try await Self.model(test: test, secrets: secrets)
 
-        model.start()
-        await waitUntil { model.signInQuestion != nil || model.phase != .connecting }
+        model.connect(to: Self.host)
+        let tab = try #require(model.selectedTab)
+        await waitUntil { tab.signInQuestion != nil || !tab.state.isConnecting }
 
-        #expect(model.prompt == .signIn)
-        let question = try #require(model.signInQuestion)
+        #expect(tab.prompt == .signIn)
+        let question = try #require(tab.signInQuestion)
         #expect(question.challenge.prompts.map(\.text) == ["Password:"])
-        model.answerSignIn([Secret(utf8: "shello-test-password")])
-        #expect(model.prompt == .signIn)
-        await waitUntil { model.phase != .connecting }
-        #expect(model.phase == .attached)
-        #expect(model.prompt == nil)
-        model.close()
+        tab.answerSignIn([Secret(utf8: "shello-test-password")])
+        #expect(tab.prompt == .signIn)
+        await waitUntil { !tab.state.isConnecting }
+        #expect(tab.state == .active)
+        #expect(tab.prompt == nil)
+        model.close(tab)
     }
 
-    /// Cancelling the questions closes the screen, as declining a host key does.
+    /// Cancelling the questions closes the tab, which never connected, as declining a host key does.
     @Test(.enabled(Self.notRunning) { await Self.serverAsksQuestions })
-    func cancellingTheQuestionsClosesTheScreen() async throws {
+    func cancellingTheQuestionsClosesTheTab() async throws {
         let model = try await Self.model(test: test, secrets: secrets)
 
-        model.start()
-        await waitUntil { model.signInQuestion != nil || model.phase != .connecting }
-        model.dismissPrompt()
-        await waitUntil { model.phase != .connecting }
+        model.connect(to: Self.host)
+        let tab = try #require(model.selectedTab)
+        await waitUntil { tab.signInQuestion != nil || !tab.state.isConnecting }
+        tab.dismissPrompt()
+        await waitUntil { !tab.state.isConnecting }
 
-        #expect(model.phase == .stopped)
-        #expect(model.prompt == nil)
+        #expect(tab.state == .closed)
+        #expect(tab.prompt == nil)
+        #expect(model.tabs.tabs.isEmpty)
     }
 
-    /// A keyboard-interactive host for the Docker test server, whose host key is trusted.
-    private static func model(test: TestDatabase, secrets: TestSecrets) async throws -> HostTerminalModel {
-        let host = Host(
-            name: "test server", address: "localhost", port: 2222, username: "shello",
-            authMethod: .keyboardInteractive, connectTimeout: .seconds(30))
+    /// A keyboard-interactive host for the Docker test server.
+    static let host = Host(
+        name: "test server", address: "localhost", port: 2222, username: "shello",
+        authMethod: .keyboardInteractive, connectTimeout: .seconds(30))
+
+    /// Tabs on the test database, where the Docker test server's host key is trusted.
+    private static func model(test: TestDatabase, secrets: TestSecrets) async throws -> TerminalTabsModel {
         let hostKeyA = HostKey(
             algorithm: "ssh-ed25519",
             wireRepresentation: Data(
@@ -114,7 +119,7 @@ struct SignInPromptTests {
             fingerprint: "SHA256:lgFemmffoQcpnsIrUqaSgDH/p2JSkANqAb3Qm8/avRY")
         try await test.hostKeys.trust(hostKeyA, of: host.server)
         let connector = HostConnector(hostKeys: test.hostKeys, secrets: secrets.store)
-        return HostTerminalModel(host: host, connector: connector, controller: TerminalController())
+        return TerminalTabsModel(connector: connector, hosts: nil, settings: nil)
     }
 
     static let notRunning: Comment =

@@ -1,3 +1,4 @@
+import ShelloCore
 import ShelloModel
 import SwiftUI
 import UIKit
@@ -5,7 +6,7 @@ import UIKit
 /// The first connection to a server: its host key's type and fingerprint, to trust or not (README
 /// section 3). Trusting covers every host that points at the server.
 struct HostKeyTrustSheet: View {
-    let question: HostTerminalModel.TrustQuestion
+    let question: TrustQuestion
     let answer: (Bool) -> Void
 
     var body: some View {
@@ -51,7 +52,7 @@ struct HostKeyTrustSheet: View {
 /// can replace the trusted key with it: an explicit action, which asks for confirmation, then Face
 /// ID, Touch ID or the passcode (STACK section 7.2). Shello then connects again.
 struct HostKeyChangedSheet: View {
-    let change: HostTerminalModel.HostKeyChange
+    let change: HostKeyChange
     /// Whether the user is being asked to authenticate for the replacement.
     let isReplacing: Bool
     /// Why the last replacement did not happen.

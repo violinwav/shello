@@ -98,6 +98,26 @@ _Avoid_: Recover, reconnect (for Mosh)
 Recreating the last open tabs after the app was terminated.
 _Avoid_: Relaunch restore, recover
 
+**Startup command**:
+The lines a host types into the shell of each of its connections once the shell is ready, reconnects included.
+_Avoid_: Login script, init command
+
+**Keepalive**:
+A request Shello sends the server over a connection at the host's keepalive interval, and which the server answers. A server that stops answering loses the connection, and the tab reconnects.
+_Avoid_: Ping, heartbeat
+
+**Latency**:
+The round trip of a tab's last keepalive, shown in the tab while its connection works.
+_Avoid_: Ping, lag
+
+**Background time**:
+The short time iOS lets Shello run after it leaves the screen. Connections stay open for it, then Shello closes them cleanly, and the tab on screen reconnects when Shello returns.
+_Avoid_: Grace period, background task
+
+**Live**:
+The host list's section of the window's open tabs, each with how its connection is. A tap shows the tab.
+_Avoid_: Sessions, open connections
+
 **Foreground command**:
 The program in the foreground of a tab's terminal, or of the active tmux pane in it.
 _Avoid_: Current process, running app

@@ -47,6 +47,9 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
     private var bellFlash: UIView?
     /// Whether the cursor stays steady, read by SwiftTerm's thread when a program changes the cursor.
     private nonisolated let keepsCursorSteady = Mutex(false)
+    /// Whether the alternate screen shows, as a full-screen program such as vim switches to it,
+    /// written by SwiftTerm's thread as it does.
+    private nonisolated let showsAlternateScreen = Mutex(false)
 
     init(
         preferences: TerminalPreferences, theme: TerminalTheme, typeface: TerminalTypeface, renderer: TerminalRenderer
@@ -551,6 +554,18 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
         let style = keepsCursorSteady.withLock { $0 } ? newStyle.steady : newStyle
         super.cursorStyleChanged(source: source, newStyle: style)
     }
+
+    // MARK: - The alternate screen
+
+    /// A program switched between the normal screen and the alternate one.
+    public nonisolated override func bufferActivated(source: Terminal) {
+        let isAlternate = source.isCurrentBufferAlternate
+        showsAlternateScreen.withLock { $0 = isAlternate }
+        super.bufferActivated(source: source)
+    }
+
+    /// Whether the alternate screen shows: a full-screen program, such as vim or less, is on it.
+    var isShowingAlternateScreen: Bool { showsAlternateScreen.withLock { $0 } }
 
     // MARK: - Assistive technologies
 

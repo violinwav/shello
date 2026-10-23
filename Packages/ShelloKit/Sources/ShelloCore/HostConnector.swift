@@ -45,16 +45,19 @@ public struct HostConnector: Sendable {
     /// Opens a connection to `host`'s server and signs in.
     /// - Parameters:
     ///   - overrides: The host's own algorithm lists. Shello has no screen for them yet (v1).
+    ///   - progress: Told when the host key is checked and when signing in starts, for the screen.
     ///   - askToTrust: Asks the user whether to trust the server's host key, on the first
     ///     connection to the server, and returns their answer. Only then is the key trusted.
     ///   - answer: Asks the user a round of keyboard-interactive questions, and returns their
     ///     answers, one for each question, or nil if they cancelled.
     /// - Returns: The connection, signed in. The caller closes it.
     /// - Throws: `ConnectError`; `SSHError` for the connection itself; `UnlockWindowClosed` while app
-    ///   lock is engaged; `KeychainError`; or `CancellationError`.
+    ///   lock is engaged; `KeychainError`; or `CancellationError`. Cancelling never waits for the
+    ///   user, not even for Face ID for an SSH key that signs on every use: its prompt goes.
     @concurrent
     public func connect(
         to host: Host, algorithms overrides: AlgorithmOverrides = .none,
+        progress: @Sendable (ConnectStep) async -> Void = { _ in },
         askToTrust: @Sendable (Server, HostKey) async -> Bool,
         answer: @Sendable (KeyboardInteractiveChallenge) async -> [Secret]? = { _ in nil }
     ) async throws -> SSHConnection {
@@ -68,6 +71,7 @@ public struct HostConnector: Sendable {
                 server: server, username: host.username, connectTimeout: host.connectTimeout, algorithms: policy)
             do {
                 let presented = try await connection.connect()
+                await progress(.verifyingHostKey)
                 if let trusted = try await hostKeys.trustedKey(of: server) {
                     guard trusted.key == presented else {
                         Self.logger.notice("Host key changed for \(server, privacy: .private)")
@@ -79,6 +83,7 @@ public struct HostConnector: Sendable {
                     try await hostKeys.trust(presented, of: server)
                     trustedJustNow = true
                 }
+                await progress(.signingIn)
                 try await signIn(connection, as: host, with: host.authMethod, sshKey: sshKey, answer: answer)
                 return connection
             } catch let error as SSHError where trustedJustNow && error.isConnectionLost {
@@ -166,14 +171,24 @@ public struct HostConnector: Sendable {
 
     /// Signs in with `key` through an SSH agent of its own, which offers that key only, and goes
     /// once the sign-in is done. A key that signs on every use asks the user, naming the host.
+    ///
+    /// libssh waits for the agent's answers on the connection's queue, and the agent waits for the
+    /// user while Face ID is up, so cancelling closes the agent: libssh reads the end of its socket,
+    /// the prompt goes, and closing the tab or leaving the foreground never waits for the user.
     private func authenticate(
         _ connection: SSHConnection, with key: SSHKey, of keys: SSHKeyStore, as host: Host
     ) async throws {
         let agent = SSHAgent(keys: keys, identities: [key], reason: "Sign in to \(host.name) with “\(key.comment)”.")
         defer { agent.close() }
         do {
-            try await connection.authenticate(agentSocket: try agent.listen())
+            let socket = try agent.listen()
+            try await withTaskCancellationHandler {
+                try await connection.authenticate(agentSocket: socket)
+            } onCancel: {
+                agent.close()
+            }
         } catch SSHError.signingFailed {
+            try Task.checkCancellation()
             // libssh only knows that the agent did not sign; the agent knows why.
             switch agent.signingFailure {
             case let error as UnlockError where error == .cancelled: throw ConnectError.signInCancelled

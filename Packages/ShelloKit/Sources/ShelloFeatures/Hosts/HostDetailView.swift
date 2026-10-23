@@ -4,7 +4,8 @@ import ShelloStorage
 import SwiftUI
 
 /// One host's details, with Connect, Edit, Favorite and Delete. It is the detail column in a split
-/// view, and the screen a row pushes in a navigation stack.
+/// view, and the screen a row pushes in a navigation stack. Connect opens a tab for the host, on the
+/// window's terminal screen.
 struct HostDetailView: View {
     @State private var model: HostDetailModel
     /// Called once the host no longer exists, so that the caller can close the details.
@@ -12,13 +13,11 @@ struct HostDetailView: View {
 
     @State private var editsHost: Host?
     @State private var confirmsDelete = false
-    /// The host whose terminal is open.
-    @State private var connectsHost: Host?
     /// The host whose first connection to the local network the Local Network sheet explains.
     @State private var explainsLocalNetwork: Host?
     /// The host to connect to once the Local Network sheet has gone.
     @State private var connectsAfterExplanation: Host?
-    @Environment(\.hostConnector) private var connector
+    @Environment(TerminalTabsModel.self) private var tabs: TerminalTabsModel?
     @Environment(\.localNetworkNotice) private var localNetworkNotice
 
     init(
@@ -71,14 +70,13 @@ struct HostDetailView: View {
         .sheet(item: $editsHost, onDismiss: { model.loadSSHKeys() }) { host in
             HostEditorView(repository: model.repository, secrets: model.secrets, keys: model.keys, host: host)
         }
-        .fullScreenCover(item: $connectsHost) { host in
-            HostTerminalView(host: host)
-        }
         // The terminal opens once the sheet has gone: one presentation at a time.
         .sheet(
             item: $explainsLocalNetwork,
             onDismiss: {
-                connectsHost = connectsAfterExplanation
+                if let host = connectsAfterExplanation {
+                    tabs?.connect(to: host)
+                }
                 connectsAfterExplanation = nil
             }
         ) { host in
@@ -122,7 +120,7 @@ struct HostDetailView: View {
                     if localNetworkNotice?.explainsBeforeConnecting(to: host) == true {
                         explainsLocalNetwork = host
                     } else {
-                        connectsHost = host
+                        tabs?.connect(to: host)
                     }
                 } label: {
                     Label("Connect", systemImage: "play.fill")
@@ -131,7 +129,7 @@ struct HostDetailView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .accentFill()
-                .disabled(connector == nil || host.protocol == .vnc)
+                .disabled(tabs == nil || host.protocol == .vnc)
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
             } footer: {

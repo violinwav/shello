@@ -8,7 +8,9 @@ import Synchronization
 /// queue, so it must be answered from elsewhere.
 ///
 /// The socket is closed once the client closes its end, sends what is not a message, or `close()`
-/// is called.
+/// is called. Closing also cancels the request being answered, such as a signature that waits for
+/// Face ID, whose prompt then goes: the client reads the end of the socket at once, and never waits
+/// for the user.
 final class SSHAgentListener: Sendable {
     private let socket: Int32
     private let queue = DispatchQueue(label: "ch.shello.ssh-agent", qos: .userInitiated)
@@ -19,6 +21,8 @@ final class SSHAgentListener: Sendable {
         var frames = SSHAgentFrames()
         /// Whether a request is being answered: the next waits for its reply.
         var isAnswering = false
+        /// The answer being worked out, which closing cancels.
+        var answering: Task<Void, Never>?
         var source: (any DispatchSourceRead)?
         var isClosed = false
     }
@@ -53,15 +57,20 @@ final class SSHAgentListener: Sendable {
         }
     }
 
-    /// Stops answering and closes the socket. Safe from any thread, more than once.
+    /// Stops answering, cancels the answer being worked out, and closes the socket. Safe from any
+    /// thread, more than once.
     func close() {
-        let source = state.withLock { state -> (any DispatchSourceRead)? in
-            guard !state.isClosed else { return nil }
+        let (source, answering) = state.withLock { state -> ((any DispatchSourceRead)?, Task<Void, Never>?) in
+            guard !state.isClosed else { return (nil, nil) }
             state.isClosed = true
-            defer { state.source = nil }
-            return state.source
+            defer {
+                state.source = nil
+                state.answering = nil
+            }
+            return (state.source, state.answering)
         }
         source?.cancel()
+        answering?.cancel()
     }
 
     // MARK: - On the queue
@@ -123,9 +132,16 @@ final class SSHAgentListener: Sendable {
             close()
         case .answer(let message):
             let answer = answer
-            Task {
+            let task = Task {
                 let reply = await answer(message)
                 self.queue.async { self.send(reply) }
+            }
+            let isClosed = state.withLock { state in
+                state.answering = task
+                return state.isClosed
+            }
+            if isClosed {
+                task.cancel()
             }
         }
     }

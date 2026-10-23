@@ -66,6 +66,68 @@ final class TestAuthentication: Authentication {
     }
 }
 
+/// LocalAuthentication's stand-in whose prompts stay up, as Face ID's does while the user looks
+/// away, until their context is invalidated: then they end as cancelled, as LocalAuthentication's
+/// do.
+final class PendingAuthentication: Authentication {
+    private struct State {
+        var waiting: [ObjectIdentifier: CheckedContinuation<Void, Never>] = [:]
+        var invalidated: Set<ObjectIdentifier> = []
+        var prompts = 0
+    }
+
+    private let state = Mutex(State())
+
+    /// How often the user was asked.
+    var promptCount: Int { state.withLock { $0.prompts } }
+
+    /// The prompts still up.
+    var openPromptCount: Int { state.withLock { $0.waiting.count } }
+
+    func makeContext() -> sending LAContext {
+        let context = LAContext()
+        // A freed context's address, and so its identifier, could come back for the next one.
+        _ = unsafe Unmanaged.passRetained(context)
+        return context
+    }
+
+    func capability(of context: LAContext) -> AuthenticationCapability {
+        .available(.faceID)
+    }
+
+    func authenticate(_ context: LAContext, reason: String) async throws(UnlockError) {
+        let id = ObjectIdentifier(context)
+        await withCheckedContinuation { continuation in
+            let isInvalidated = state.withLock { state in
+                state.prompts += 1
+                guard !state.invalidated.contains(id) else { return true }
+                state.waiting[id] = continuation
+                return false
+            }
+            if isInvalidated {
+                continuation.resume()
+            }
+        }
+        throw .cancelled
+    }
+
+    func invalidate(_ context: LAContext) {
+        let id = ObjectIdentifier(context)
+        let waiting = state.withLock { state in
+            state.invalidated.insert(id)
+            return state.waiting.removeValue(forKey: id)
+        }
+        waiting?.resume()
+    }
+
+    /// Returns once a prompt is up.
+    func waitForPrompt() async {
+        while openPromptCount == 0 {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+}
+
 /// A `MemoryKeychain` that notes the context of every read, and whether that context could still
 /// have asked the user anything.
 final class RecordingKeychain: Keychain {

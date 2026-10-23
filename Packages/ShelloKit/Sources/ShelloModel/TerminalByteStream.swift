@@ -1,5 +1,5 @@
 /// The bytes between a terminal and what it is connected to, in both directions: an SSH channel
-/// (#28), or the terminal demo that runs on the device. It is the seam between the terminal view in
+/// behind a tab, or the terminal demo that runs on the device. It is the seam between the terminal view in
 /// ShelloTerminalUI and the connections in ShelloCore, so it lives here, where both can reach it
 /// without either depending on the other.
 ///
@@ -28,6 +28,27 @@ public protocol TerminalByteStream: Sendable {
     /// Reports the terminal's new size, such as SSH's window-change request. Like `send(_:)`, it
     /// returns at once.
     func resize(to size: TerminalSize)
+}
+
+/// A terminal as its tab sees it (GLOSSARY): it shows one connection's stream at a time, and keeps
+/// what it shows, its scrollback included, while connections come and go. ShelloTerminalUI's
+/// terminal is one; the tabs in ShelloCore attach each new connection's shell to it.
+@MainActor
+public protocol TabTerminal: AnyObject, Sendable {
+    /// The terminal's grid, for the pseudo-terminal of the next connection's shell.
+    var size: TerminalSize { get }
+
+    /// Shows `stream`, after the stream before: the terminal reads its output, sends it the user's
+    /// input, and reports its size to it, at once and on every change.
+    func attach<Stream: TerminalByteStream>(_ stream: Stream)
+
+    /// Stops showing the stream. What the terminal shows stays.
+    func detach()
+
+    /// Readies the terminal for the next connection's shell, after the last connection dropped: what
+    /// the programs of the last one turned on, such as the alternate screen, mouse reporting or
+    /// bracketed paste, goes back to how a new shell expects it. The scrollback stays.
+    func prepareForNextConnection()
 }
 
 /// A terminal's size: its grid of character cells, and the pixels those cells cover, which SSH

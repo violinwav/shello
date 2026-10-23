@@ -124,6 +124,35 @@ struct SSHAgentTests {
         #expect(client.receiveMessage() == nil)
     }
 
+    /// Closing the agent while an every-use key waits for Face ID ends the prompt and the request at
+    /// once: the client reads the end of the socket. libssh waits for the answer on the connection's
+    /// queue, so closing a tab, or the app going to the background, never waits for the user.
+    @Test(.timeLimit(.minutes(1)))
+    func closingWhileFaceIDIsUpEndsThePromptAndTheRequest() async throws {
+        let authentication = PendingAuthentication()
+        let window = UnlockWindow(authentication: authentication)
+        window.openWithoutAuthentication()
+        let store = SSHKeyStore.inMemory(unlockWindow: window, authentication: authentication)
+        let key = try await store.generate(.ed25519, comment: "work", signingPolicy: .everyUse)
+        let agent = SSHAgent(keys: store, identities: [key], reason: "Sign in to nas.")
+        let client = try SocketClient(socket: agent.listen())
+        defer { client.close() }
+        try client.send(SSHAgentFrames.frame(Self.signRequest(key, [1, 2, 3])))
+        await authentication.waitForPrompt()
+
+        let clock = ContinuousClock()
+        let closed = clock.now
+        agent.close()
+
+        #expect(client.receiveMessage() == nil)
+        #expect(clock.now - closed < .seconds(2))
+        while authentication.openPromptCount > 0, clock.now - closed < .seconds(5) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(authentication.openPromptCount == 0, "The Face ID prompt is still up")
+        #expect(authentication.promptCount == 1)
+    }
+
     /// A message longer than the agent reads ends the conversation: nothing after it can be read.
     @Test(.timeLimit(.minutes(1)))
     func closesOnAMessageTooLongToRead() throws {

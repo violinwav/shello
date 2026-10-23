@@ -99,20 +99,29 @@ enum TestServer {
 final class TestConnector: Sendable {
     let connector: HostConnector
     let hostKeys: HostKeyRepository
+    /// The hosts, in the same database, where tabs record their connections.
+    let hosts: HostRepository
     let keychain = CountingKeychain()
     let unlockWindow = UnlockWindow()
     let authentication = TestAuthentication()
     let keys: SSHKeyStore
     private let directory = URL.temporaryDirectory.appending(path: "ShelloCoreTests-\(UUID().uuidString)")
 
-    /// A connector whose key store holds the client key, signing as `clientKeyPolicy` says.
-    init(clientKeyPolicy: SigningPolicy = .whileUnlocked) throws {
-        hostKeys = HostKeyRepository(try AppDatabase(directory: directory))
+    /// A connector whose key store holds the client key, signing as `clientKeyPolicy` says. Keys that
+    /// sign on every use ask `faceID`, if given, whose prompts wait; or else `authentication`.
+    init(clientKeyPolicy: SigningPolicy = .whileUnlocked, faceID: PendingAuthentication? = nil) throws {
+        let database = try AppDatabase(directory: directory)
+        hostKeys = HostKeyRepository(database)
+        hosts = HostRepository(database)
         unlockWindow.openWithoutAuthentication()
         let clientKey = SSHKeyStore.FixtureKey(
             privateKey: TestServer.clientKey.privateKey, comment: TestServer.clientKey.comment,
             signingPolicy: clientKeyPolicy)
-        keys = .inMemory(unlockWindow: unlockWindow, authentication: authentication, fixtureKeys: [clientKey])
+        if let faceID {
+            keys = .inMemory(unlockWindow: unlockWindow, authentication: faceID, fixtureKeys: [clientKey])
+        } else {
+            keys = .inMemory(unlockWindow: unlockWindow, authentication: authentication, fixtureKeys: [clientKey])
+        }
         connector = HostConnector(
             hostKeys: hostKeys, secrets: SecretStore(keychain: keychain, unlockWindow: unlockWindow), keys: keys,
             authentication: authentication)

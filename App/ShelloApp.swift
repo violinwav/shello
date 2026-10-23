@@ -66,6 +66,7 @@ struct ShelloApp: App {
                             .environment(\.terminalSettings, terminalSettings)
                             .environment(\.hostConnector, services.hostConnector)
                             .environment(\.localNetworkNotice, localNetworkNotice)
+                            .environment(\.backgroundConnectionTime, Launch.backgroundConnectionTime)
                     case .success(let services):
                         Color.clear.task {
                             await Launch.addTestData(to: services.hostKeyRepository)
@@ -171,6 +172,12 @@ private enum Launch {
         /// app inactive, which is when the cover shows.
         static var showsPrivacyCoverOnly: Bool { environment["SHELLO_UI_TESTING_PRIVACY_COVER"] == "1" }
 
+        /// A UI test about the background has the connections close after this many seconds in it,
+        /// rather than at the end of the time iOS grants, about half a minute.
+        static var backgroundConnectionTime: Duration? {
+            environment["SHELLO_UI_TESTING_BACKGROUND_SECONDS"].flatMap(Double.init).map { .seconds($0) }
+        }
+
         /// A UI test about a changed host key starts with another key trusted for its server:
         /// "address port algorithm key-in-base64 fingerprint".
         private static var trustedHostKey: (server: Server, key: HostKey)? {
@@ -212,6 +219,7 @@ private enum Launch {
         static let blinksCursor = true
         static let colorScheme: ColorScheme? = nil
         static let showsPrivacyCoverOnly = false
+        static let backgroundConnectionTime: Duration? = nil
         static let settings = UserDefaults.standard
         static let addsTestData = false
         static func addTestData(to hostKeys: HostKeyRepository) async {}

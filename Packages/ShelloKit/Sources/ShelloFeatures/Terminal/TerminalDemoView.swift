@@ -2,9 +2,9 @@ import ShelloTerminalUI
 import SwiftUI
 
 /// Settings, Diagnostics, Terminal Demo: the terminal attached to the terminal demo, which runs on
-/// the device (GLOSSARY), until connecting to a server comes with tabs (#28). The Demo menu runs
-/// the demo's commands: the colour, attribute and Unicode screens, the alternate screen, mouse
-/// reporting, the bell and the 10 MB output test.
+/// the device (GLOSSARY), to try the terminal without connecting. The Demo menu runs the demo's
+/// commands: the colour, attribute and Unicode screens, the alternate screen, mouse reporting, the
+/// bell and the 10 MB output test.
 struct TerminalDemoView: View {
     @Environment(\.terminalSettings) private var settings
     @State private var demo = TerminalDemo()

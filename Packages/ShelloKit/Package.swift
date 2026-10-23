@@ -60,11 +60,14 @@ let package = Package(
         // policy is data that ships with it (README section 14).
         .target(
             name: "ShelloSSH",
-            dependencies: ["ShelloModel", "libssh", "libcrypto"],
+            dependencies: ["ShelloModel", "libssh", "CLibSSHInternal", "libcrypto"],
             resources: [.copy("Resources/AlgorithmPolicy.json")],
             swiftSettings: core,
             linkerSettings: [.linkedLibrary("z")]
         ),
+        // Declarations of the libssh functions that libssh's installed headers leave out, such as
+        // the global request a keepalive needs. No code: the functions are in libssh's binary target.
+        .systemLibrary(name: "CLibSSHInternal", path: "Sources/CLibSSHInternal"),
         // tmux queries and parsers over hidden channels.
         .target(name: "ShelloTmux", dependencies: ["ShelloModel", "ShelloSSH"], swiftSettings: core),
         // Tabs and connections lifecycle, reconnect and reattach, detection, multi-host run.

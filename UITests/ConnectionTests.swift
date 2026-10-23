@@ -14,8 +14,9 @@ final class ConnectionTests: XCTestCase {
     }
 
     /// The first connection asks to trust the host key, with its type and fingerprint; Cancel closes
-    /// the terminal and trusts nothing, so the next connection asks again. Once trusted, a connection
-    /// asks nothing. A password the server refuses fails the sign-in, which the terminal screen says.
+    /// the tab, which never connected, and trusts nothing, so the next connection asks again. Once
+    /// trusted, a connection asks nothing. A password the server refuses fails the sign-in, which the
+    /// terminal screen says.
     @MainActor
     func testFirstConnectionAsksToTrustTheHostKey() throws {
         try XCTSkipUnless(TestServer.isRunning, TestServer.notRunning)
@@ -42,18 +43,18 @@ final class ConnectionTests: XCTestCase {
         let refused = app.connectionStatus(containing: "didn’t accept")
         XCTAssertTrue(refused.waitForExistence(timeout: 15))
         try app.auditAccessibility()
-        app.navigationBars[TestServer.hostName].buttons["Close"].tap()
+        app.closeTab()
 
         // Trusted now: the second connection goes straight to signing in.
         app.buttons["Connect"].tap()
         XCTAssertTrue(refused.waitForExistence(timeout: 15))
         XCTAssertFalse(trustSheet.exists)
-        app.navigationBars[TestServer.hostName].buttons["Close"].tap()
+        app.closeTab()
         XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 5))
     }
 
     /// Another key is trusted for the server than the one it presents: the connection is blocked,
-    /// and the sheet shows both keys. Closing it closes the terminal too. Replacing the trusted key
+    /// and the sheet shows both keys. Closing it closes the tab too. Replacing the trusted key
     /// (README section 3) takes a confirmation, then Face ID, and connects again: past the host key
     /// now, the password, never sent before, is refused.
     @MainActor
@@ -81,7 +82,7 @@ final class ConnectionTests: XCTestCase {
 
         blockSheet.buttons["Close"].tap()
         XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.navigationBars[TestServer.hostName].buttons["Close"].exists)
+        XCTAssertFalse(app.buttons["Close Tab"].exists)
 
         app.buttons["Connect"].tap()
         XCTAssertTrue(blockSheet.waitForExistence(timeout: 15))
@@ -95,7 +96,7 @@ final class ConnectionTests: XCTestCase {
         app.confirmWithFaceID(until: blockSheet)
 
         XCTAssertTrue(app.connectionStatus(containing: "didn’t accept").waitForExistence(timeout: 15))
-        app.navigationBars[TestServer.hostName].buttons["Close"].tap()
+        app.closeTab()
         XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
     }
 
@@ -119,7 +120,7 @@ final class ConnectionTests: XCTestCase {
         app.openConnectionSheet(marked: "Post-Quantum Key Exchange")
         app.navigationBars["Connection"].buttons["Close"].tap()
 
-        app.navigationBars[TestServer.hostName].buttons["Close"].tap()
+        app.closeTab()
         XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
     }
 
@@ -157,7 +158,7 @@ final class ConnectionTests: XCTestCase {
 
         XCTAssertTrue(signIn.waitForNonExistence(timeout: 15))
         XCTAssertTrue(app.waitForTerminalText("Shello test server"))
-        app.navigationBars[TestServer.hostName].buttons["Close"].tap()
+        app.closeTab()
         XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
     }
 
@@ -183,13 +184,13 @@ final class ConnectionTests: XCTestCase {
         explanation.buttons["Continue"].tap()
         let terminal = app.navigationBars[TestServer.hostName]
         XCTAssertTrue(terminal.waitForExistence(timeout: 10))
-        terminal.buttons["Close"].tap()
+        app.closeTab()
 
         XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
         app.buttons["Connect"].tap()
         XCTAssertTrue(terminal.waitForExistence(timeout: 10))
         XCTAssertFalse(explanation.exists)
-        terminal.buttons["Close"].tap()
+        app.closeTab()
         XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
     }
 
@@ -216,7 +217,7 @@ final class ConnectionTests: XCTestCase {
         app.openConnectionSheet(marked: "Post-Quantum Key Exchange")
         XCTAssertEqual(app.keyExchangeAlgorithm.value as? String, "mlkem768x25519-sha256")
         try app.auditAccessibility()
-        // Command-W closes the sheet, not the terminal behind it. The simulator drops the first key
+        // Command-W closes the sheet, not the tab behind it. The simulator drops the first key
         // from a hardware keyboard after the on-screen keyboard typed, here the search: Shift goes
         // first (TerminalTests).
         app.typeKey(XCUIKeyboardKey.shift.rawValue, modifierFlags: [])
@@ -240,7 +241,7 @@ final class ConnectionTests: XCTestCase {
         XCTAssertTrue(app.connectionStatus(containing: "Connection closed").waitForExistence(timeout: 10))
         XCTAssertFalse(app.navigationBars[TestServer.hostName].buttons["Connection"].exists)
 
-        app.navigationBars[TestServer.hostName].buttons["Close"].tap()
+        app.closeTab()
         XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
     }
 
@@ -264,7 +265,7 @@ final class ConnectionTests: XCTestCase {
         XCTAssertEqual(app.keyExchangeAlgorithm.value as? String, "curve25519-sha256")
         app.navigationBars["Connection"].buttons["Close"].tap()
         XCTAssertTrue(app.navigationBars["Connection"].waitForNonExistence(timeout: 5))
-        app.navigationBars[TestServer.hostName].buttons["Close"].tap()
+        app.closeTab()
         XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
     }
 }
@@ -374,12 +375,12 @@ extension XCUIApplication {
         saveAndOpenTestServerHost(address: address, port: port, user: TestServer.user)
     }
 
-    /// Adds the host `test-server` for the test server, signing in with the SSH key
-    /// `shello-test-client`, which the launch option `SHELLO_UI_TESTING_SSH_KEY` keeps in memory, and
-    /// opens its details. SSH Key is a new host's method; the key goes first, before the keyboard is
-    /// up.
+    /// Adds the host `test-server` for the test server at `address` and `port`, signing in with the
+    /// SSH key `shello-test-client`, which the launch option `SHELLO_UI_TESTING_SSH_KEY` keeps in
+    /// memory, and opens its details. SSH Key is a new host's method; the key goes first, before the
+    /// keyboard is up.
     @MainActor
-    func addKeyHost() {
+    func addKeyHost(address: String = TestServer.address, port: Int = TestServer.port) {
         buttons["Add Host"].firstMatch.tap()
         let sshKey = picker("SSH Key")
         reveal(sshKey)
@@ -388,7 +389,7 @@ extension XCUIApplication {
         buttons["shello-test-client"].tap()
         XCTAssertTrue(navigationBars["New Host"].waitForExistence(timeout: 5))
         XCTAssertEqual(picker("SSH Key").label, "SSH Key, shello-test-client")
-        saveAndOpenTestServerHost(address: TestServer.address, port: TestServer.port, user: TestServer.user)
+        saveAndOpenTestServerHost(address: address, port: port, user: TestServer.user)
     }
 
     /// Adds the host `test-server` for the test server as `user`, signing in with keyboard-interactive,
@@ -413,6 +414,15 @@ extension XCUIApplication {
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         row.tap()
         XCTAssertTrue(navigationBars[TestServer.hostName].waitForExistence(timeout: 5))
+    }
+
+    /// Closes the selected tab with its Close Tab button. Closing the last tab closes the terminal
+    /// screen.
+    @MainActor
+    func closeTab(file: StaticString = #filePath, line: UInt = #line) {
+        let close = buttons["Close Tab"].firstMatch
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "There is no tab to close", file: file, line: line)
+        close.tap()
     }
 
     /// Puts the keyboard away by dragging the sheet's list down, as a user does, and waits until it

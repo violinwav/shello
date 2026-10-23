@@ -34,4 +34,8 @@ extension EnvironmentValues {
     /// Whether iOS's Local Network question has been explained. Without it, Connect explains
     /// nothing.
     @Entry public var localNetworkNotice: LocalNetworkNotice? = nil
+
+    /// How long the tabs' connections stay once Shello is in the background, before they close
+    /// cleanly: nil for the short time iOS grants (README section 4). The UI tests make it short.
+    @Entry public var backgroundConnectionTime: Duration? = nil
 }

@@ -29,6 +29,11 @@ enum Palette {
 
     // Status
     static let statusError = color("StatusError")
+    /// A live connection: the UI design's filled dot, beside words that say it.
+    static let statusOnline = color("StatusOnline")
+    /// No connection: the UI design's hollow ring, beside words that say it. As dark as tertiary
+    /// text in light mode, so that the ring stands out from the bar at 3:1.
+    static let statusOffline = color("StatusOffline")
 
     static func tag(_ tagColor: Tag.Color) -> Color {
         color(assetName(of: tagColor))

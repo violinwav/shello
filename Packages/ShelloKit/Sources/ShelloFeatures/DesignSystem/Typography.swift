@@ -24,4 +24,9 @@ enum Typography {
         FontFace.jetBrainsMonoSemiBold.postScriptName, size: 12, relativeTo: .caption)
     /// The protocol on a host's badge.
     static let badge = Font.custom(FontFace.jetBrainsMonoSemiBold.postScriptName, size: 10, relativeTo: .caption2)
+    /// A tab's name in the tab bar.
+    static let tab = Font.custom(FontFace.jetBrainsMonoRegular.postScriptName, size: 13, relativeTo: .footnote)
+    /// The selected tab's name in the tab bar.
+    static let selectedTab = Font.custom(
+        FontFace.jetBrainsMonoSemiBold.postScriptName, size: 13, relativeTo: .footnote)
 }

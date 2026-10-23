@@ -205,4 +205,50 @@ struct HostRepositoryTests {
             try await repository.deleteHost(id: id)
         }
     }
+
+    // MARK: - Connections
+
+    /// A connection records when it signed in, for Recents (README section 3). Only that field and
+    /// its modification time change: an edit made meanwhile, which the tab never saw, stays.
+    @Test func recordingAConnectionChangesOnlyTheLastConnection() async throws {
+        let host = Host(name: "nas", address: "nas.lan", username: "admin")
+        try await repository.create(host)
+        var edited = host
+        edited.notes = "Edited while a tab was open."
+        try await repository.update(edited)
+        let connectedAt = Date(timeIntervalSinceReferenceDate: 800_000_120)
+        test.clock.set(connectedAt.addingTimeInterval(1))
+
+        try await repository.recordConnection(toHost: host.id, at: connectedAt)
+
+        edited.lastConnectedAt = connectedAt
+        #expect(try await repository.host(id: host.id) == edited)
+        let times = try await test.modificationTimes(table: "host", id: host.id)
+        #expect(times["lastConnectedAtModifiedAt"] == connectedAt.addingTimeInterval(1))
+    }
+
+    /// The host connected to last comes first among the recents.
+    @Test func lastConnectedHostComesFirstAmongTheRecents() async throws {
+        let nas = Host(name: "nas", address: "nas.lan", username: "admin")
+        let web = Host(name: "web", address: "web.lan", username: "deploy")
+        try await repository.create(nas)
+        try await repository.create(web)
+
+        try await repository.recordConnection(toHost: nas.id, at: Date(timeIntervalSinceReferenceDate: 800_000_000))
+        try await repository.recordConnection(toHost: web.id, at: Date(timeIntervalSinceReferenceDate: 800_000_060))
+
+        #expect(try await repository.hosts(HostQuery(order: .recents)).map(\.name) == ["web", "nas"])
+    }
+
+    /// A host deleted while its tab was open is not brought back by its connection.
+    @Test func recordingAConnectionToADeletedHostThrows() async throws {
+        let host = Host(name: "nas", address: "nas.lan", username: "admin")
+        try await repository.create(host)
+        try await repository.deleteHost(id: host.id)
+
+        await #expect(throws: HostRepositoryError.hostNotFound(host.id)) {
+            try await repository.recordConnection(toHost: host.id, at: .now)
+        }
+        #expect(try await test.hostRecord(id: host.id)?.lastConnectedAt == nil)
+    }
 }

@@ -1,3 +1,4 @@
+import ShelloCore
 import ShelloSSH
 import ShelloSecurity
 import SwiftUI
@@ -13,7 +14,7 @@ import SwiftUI
 /// none of them.
 struct SignInSheet: View {
     /// The round to answer, or nil while the server checks the last answers.
-    let question: HostTerminalModel.SignInQuestion?
+    let question: SignInQuestion?
     let hostName: String
     let answer: ([Secret]) -> Void
     let cancel: () -> Void
@@ -55,7 +56,7 @@ struct SignInSheet: View {
 
 /// One round of questions, each with its field, and Sign In.
 private struct SignInQuestions: View {
-    let question: HostTerminalModel.SignInQuestion
+    let question: SignInQuestion
     let answer: ([Secret]) -> Void
     @State private var answers: [String]
     @FocusState private var focus: Int?
@@ -68,7 +69,7 @@ private struct SignInQuestions: View {
         case field(Int)
     }
 
-    init(question: HostTerminalModel.SignInQuestion, answer: @escaping ([Secret]) -> Void) {
+    init(question: SignInQuestion, answer: @escaping ([Secret]) -> Void) {
         self.question = question
         self.answer = answer
         _answers = State(initialValue: Array(repeating: "", count: question.challenge.prompts.count))

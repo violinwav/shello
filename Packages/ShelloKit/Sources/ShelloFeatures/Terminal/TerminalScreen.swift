@@ -1,8 +1,8 @@
 import ShelloTerminalUI
 import SwiftUI
 
-/// A terminal on screen (README section 5), whatever it is attached to: the terminal demo here,
-/// an SSH connection behind a tab once tabs come (#28). Search is a bar under the terminal, above
+/// A terminal on screen (README section 5), whatever it is attached to: a tab's connection, or the
+/// terminal demo. Search is a bar under the terminal, above
 /// the keyboard, where the system's find bar goes; a paste of more lines asks first; a new font
 /// size shows the grid's new size for a moment; Control and Alt show over the terminal's corner
 /// while they are on.
@@ -236,7 +236,7 @@ private struct FindBar: View {
 }
 
 /// A plain button whose touch target is at least 44 by 44 points.
-private struct MinimumTargetButtonStyle: PrimitiveButtonStyle {
+struct MinimumTargetButtonStyle: PrimitiveButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         Button(role: configuration.role, action: configuration.trigger) {
             configuration.label

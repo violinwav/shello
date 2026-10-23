@@ -43,6 +43,10 @@ public final class TerminalController {
             if isVisible { hasUnseenBell = false }
         }
     }
+    /// The window title the program in the terminal set (OSC 0 or 2), on one line and without
+    /// control characters, since it comes from the server; empty while there is none. A tab shows
+    /// it as its name.
+    public private(set) var title = ""
     /// A paste of more than one line that waits for the user to confirm it.
     public private(set) var pendingPaste: PendingPaste?
     /// Whether the screen shows its search bar. Closing it ends the search, and gives the
@@ -186,6 +190,28 @@ public final class TerminalController {
         stream = nil
         streamState = .detached
     }
+
+    /// Readies the terminal for the next connection's shell, after the last connection dropped
+    /// (`TabTerminal`): it leaves the alternate screen a program may have been in, back to the
+    /// scrollback, turns off mouse reporting, bracketed paste and focus reports, resets the other
+    /// modes and the attributes (DECSTR), and starts a new line. The scrollback stays.
+    public func prepareForNextConnection() {
+        var reset = view.isShowingAlternateScreen ? Self.leaveAlternateScreen : []
+        reset += Self.resetModes
+        view.feedSender.feed(byteArray: reset[...])
+        title = ""
+    }
+
+    /// Back to the normal screen, with the cursor where it was before the program entered the
+    /// alternate one. Only sent while the alternate screen shows: elsewhere it would move the cursor
+    /// to a position saved long before.
+    nonisolated static let leaveAlternateScreen = Array("\u{1B}[?1049l".utf8)
+
+    /// Soft reset, then mouse reporting (X10, button, any-event, SGR and urxvt encodings), bracketed
+    /// paste and focus reports off, and a new line.
+    nonisolated static let resetModes = Array(
+        ("\u{1B}[!p" + "\u{1B}[?1000l\u{1B}[?1002l\u{1B}[?1003l\u{1B}[?1006l\u{1B}[?1015l"
+            + "\u{1B}[?2004l\u{1B}[?1004l\r\n").utf8)
 
     /// Feeds the stream's output to the terminal until the stream ends or the task is cancelled.
     @concurrent
@@ -441,15 +467,41 @@ extension TerminalController: TerminalViewDelegate {
         }
     }
 
-    // SwiftTerm's other events: a tab's title and working directory, and links, come with tabs
-    // and shell integration (#28, v1). OSC 52 stays off, so clipboardCopy keeps its default,
-    // which does nothing, and clipboardRead its default, which refuses (README section 5).
-    public func setTerminalTitle(source: TerminalView, title: String) {}
+    /// The program set the window title, which the tab shows.
+    public func setTerminalTitle(source: TerminalView, title: String) {
+        self.title = Self.displayableTitle(title)
+    }
+
+    /// The most characters of a window title a tab shows.
+    nonisolated static let maximumTitleLength = 64
+
+    /// `title` as a tab can show it: the server's text, without the control characters and
+    /// bidirectional overrides that could make it read as something else, on one line, at most
+    /// `maximumTitleLength` characters long.
+    nonisolated static func displayableTitle(_ title: String) -> String {
+        let scalars = title.unicodeScalars.map { scalar -> Unicode.Scalar in
+            switch scalar.properties.generalCategory {
+            case .control, .lineSeparator, .paragraphSeparator: " "
+            case .format where (0x202A...0x202E).contains(scalar.value) || (0x2066...0x2069).contains(scalar.value):
+                " "
+            default: scalar
+            }
+        }
+        let words = String(String.UnicodeScalarView(scalars)).split(whereSeparator: \.isWhitespace)
+        return String(words.joined(separator: " ").prefix(maximumTitleLength))
+    }
+
+    // SwiftTerm's other events: the working directory and links come with shell integration (v1).
+    // OSC 52 stays off, so clipboardCopy keeps its default, which does nothing, and clipboardRead its
+    // default, which refuses (README section 5).
     public func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
     public func scrolled(source: TerminalView, position: Double) {}
     public func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {}
     public func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
 }
+
+/// A tab attaches each new connection's shell to its terminal, which keeps its scrollback.
+extension TerminalController: TabTerminal {}
 
 extension TerminalController: TerminalHostViewEvents {
     func terminalView(_ view: TerminalHostView, wantsToPaste text: String) {

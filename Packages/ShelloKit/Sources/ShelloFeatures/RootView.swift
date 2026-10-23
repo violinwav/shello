@@ -1,3 +1,4 @@
+import ShelloCore
 import ShelloModel
 import ShelloSecurity
 import ShelloStorage
@@ -5,19 +6,28 @@ import SwiftUI
 import UIKit
 
 /// The app's first screen: the host list. It takes the hosts from the environment's
-/// `hostRepository`, their passwords from its `secretStore`, and the SSH keys to choose from its
-/// `sshKeyStore`, which the composition root sets.
+/// `hostRepository`, their passwords from its `secretStore`, the SSH keys to choose from its
+/// `sshKeyStore`, and connects with its `hostConnector`, which the composition root sets.
 public struct RootView: View {
     @Environment(\.hostRepository) private var repository
     @Environment(\.secretStore) private var secrets
     @Environment(\.sshKeyStore) private var keys
+    @Environment(\.hostConnector) private var connector
+    @Environment(\.terminalSettings) private var terminalSettings
+    @Environment(\.backgroundConnectionTime) private var backgroundConnectionTime
 
     public init() {}
 
     public var body: some View {
         Group {
             if let repository {
-                HostsScreen(repository: repository, secrets: secrets, keys: keys)
+                HostsScreen(
+                    repository: repository, secrets: secrets, keys: keys,
+                    tabs: connector.map {
+                        TerminalTabsModel(
+                            connector: $0, hosts: repository, settings: terminalSettings,
+                            backgroundTime: backgroundConnectionTime)
+                    })
             } else {
                 EmptyStateView(
                     title: "Hosts Unavailable", systemImage: "externaldrive.badge.exclamationmark",
@@ -31,17 +41,49 @@ public struct RootView: View {
 }
 
 /// The host list with the selected host's details: side by side in a split view on iPad, pushed
-/// onto a navigation stack on iPhone (STACK section 7.13).
+/// onto a navigation stack on iPhone (STACK section 7.13). The window's tabs show over it, on the
+/// terminal screen, and follow the window's foreground and background, and app lock.
 struct HostsScreen: View {
     @State private var model: HostListModel
+    @State private var tabs: TerminalTabsModel?
     @State private var selection: Host.ID?
     @State private var path: [Host.ID] = []
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.appLock) private var appLock
 
-    init(repository: HostRepository, secrets: SecretStore?, keys: SSHKeyStore?) {
+    /// The host list of `repository`, whose hosts connect in `tabs`, a window's own; without them,
+    /// they cannot connect.
+    init(repository: HostRepository, secrets: SecretStore?, keys: SSHKeyStore?, tabs: TerminalTabsModel? = nil) {
         _model = State(initialValue: HostListModel(repository: repository, secrets: secrets, keys: keys))
+        _tabs = State(initialValue: tabs)
     }
 
     var body: some View {
+        hosts
+            .environment(tabs)
+            .fullScreenCover(
+                isPresented: Binding(
+                    get: { tabs?.isShowingTerminals ?? false }, set: { tabs?.isShowingTerminals = $0 })
+            ) {
+                if let tabs {
+                    TerminalTabsView(model: tabs)
+                }
+            }
+            // The terminal screen's tabs and terminal, for the shortcuts, from here: the commands
+            // do not see what views in a full-screen cover publish.
+            .focusedSceneValue(\.terminalTabs, showsTerminals ? tabs : nil)
+            .focusedSceneValue(\.terminal, showsTerminals ? tabs?.selectedTab?.terminal : nil)
+            .onChange(of: scenePhase, initial: true) { _, phase in
+                tabs?.scenePhaseChanged(phase)
+            }
+            .onChange(of: appLock?.isLocked ?? false, initial: true) { _, isLocked in
+                tabs?.lockChanged(isLocked: isLocked)
+            }
+    }
+
+    private var showsTerminals: Bool { tabs?.isShowingTerminals ?? false }
+
+    @ViewBuilder private var hosts: some View {
         if UIDevice.current.userInterfaceIdiom == .pad {
             NavigationSplitView {
                 HostListView(model: model, selection: $selection)

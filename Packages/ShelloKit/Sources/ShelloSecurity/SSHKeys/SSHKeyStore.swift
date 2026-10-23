@@ -170,7 +170,8 @@ public struct SSHKeyStore: Sendable {
     /// to RSA keys.
     ///
     /// A key that signs on every use asks the user first, giving `reason`, or a sentence that names
-    /// the key; a key that signs while Shello is unlocked asks nobody.
+    /// the key; a key that signs while Shello is unlocked asks nobody. Cancelling the task ends the
+    /// prompt, as when the SSH agent closes for a tab that closes.
     /// - Throws: `SSHKeyError.keyNotFound` for a key that is not on this device;
     ///   `UnlockWindowClosed` while app lock is engaged, for a key that signs while Shello is
     ///   unlocked; `UnlockError` if the user does not authenticate, for a key that signs on every
@@ -190,8 +191,14 @@ public struct SSHKeyStore: Sendable {
         case .everyUse:
             let context = authentication.makeContext()
             defer { authentication.invalidate(context) }
-            try await authentication.authenticate(
-                context, reason: reason ?? "Sign in with the SSH key “\(key.comment)”.")
+            let authentication = authentication
+            let prompt = PromptContext(context)
+            try await withTaskCancellationHandler {
+                try await authentication.authenticate(
+                    context, reason: reason ?? "Sign in with the SSH key “\(key.comment)”.")
+            } onCancel: {
+                authentication.invalidate(prompt.context)
+            }
             // The signature takes the authentication just given, and asks nothing more.
             context.interactionNotAllowed = true
             return try Self.signature(for: data, by: key, items: items, enclave: enclave, context: context)
@@ -223,5 +230,16 @@ public struct SSHKeyStore: Sendable {
             }
             return SSHSignature.ed25519(try privateKey.signature(for: data))
         }
+    }
+}
+
+/// The context a signature asks the user on, which is not sendable, in a box that the task's
+/// cancellation handler can reach: it only invalidates the context, which LocalAuthentication allows
+/// from any thread, and which ends the prompt.
+private final class PromptContext: @unchecked Sendable {
+    let context: LAContext
+
+    init(_ context: LAContext) {
+        self.context = context
     }
 }

@@ -59,6 +59,25 @@ public struct HostRepository: Sendable {
         try await writeTombstone(HostRecord.self, id: id, ifMissing: .hostNotFound(id))
     }
 
+    /// Records that Shello connected to the host `hostID` at `date`, for Recents (README section 3).
+    /// Only `lastConnectedAt` changes, on the host as it is stored now, so that the write never
+    /// undoes a change made while the connection was being made.
+    /// - Throws: `HostRepositoryError.hostNotFound` if there is no such host, or it was deleted.
+    public func recordConnection(toHost hostID: Host.ID, at date: Date) async throws {
+        try await database.writer.write { db in
+            guard let record = try Self.liveRecord(HostRecord.self, id: hostID, db),
+                let current = try Self.fetchHosts(db, HostRecord.filter(id: hostID)).first
+            else {
+                throw HostRepositoryError.hostNotFound(hostID)
+            }
+            var connected = current
+            connected.lastConnectedAt = date
+            var updated = record
+            updated.apply(connected, changedFrom: current, at: now())
+            try updated.updateChanges(db, from: record)
+        }
+    }
+
     /// The host with this identifier, or nil if there is none.
     public func host(id: Host.ID) async throws -> Host? {
         try await database.writer.read { db in

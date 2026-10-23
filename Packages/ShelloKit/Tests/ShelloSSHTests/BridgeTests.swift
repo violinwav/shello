@@ -115,7 +115,7 @@ struct NetworkStateTests {
         #expect(change == .waitingForLocalNetwork)
     }
 
-    /// Refused, no route, no network: waiting for a better path belongs to reconnecting (#28).
+    /// Refused, no route, no network: waiting for a better path belongs to the tab's reconnecting.
     @Test(arguments: [NWPath.UnsatisfiedReason.notAvailable, .cellularDenied, .wifiDenied, nil])
     func waitingForAnythingElseFailsAFirstConnection(_ reason: NWPath.UnsatisfiedReason?) {
         let change = SSHConnection.change(

@@ -20,6 +20,8 @@ The script writes two static XCFrameworks to `Vendor/build/xcframeworks/`, which
 
 Each XCFramework has two libraries: iOS with arm64 and arm64e in one fat library (Enhanced Security needs arm64e), and the iOS Simulator on arm64. Only `ShelloSSH` links them, and Swift sees libssh as the `CLibSSH` module (`libssh/module.modulemap`).
 
+One function `ShelloSSH` calls is not in libssh's public headers: `ssh_global_request`, which sends the keepalive (`keepalive@openssh.com`) and waits for its answer. libssh exports it, and `Packages/ShelloKit/Sources/CLibSSHInternal/libssh_internal.h` declares it as libssh's `channels.h` does.
+
 ## Files
 
 | File | What it is |
@@ -54,5 +56,6 @@ The iOS Simulator has no arm64e, but macOS on Apple silicon runs arm64e processe
 2. Download the new tarball and `.asc`. Check that the signing key is the project's: OpenSSL's `doc/fingerprints.txt` and source page, or libssh's get-it page. If the key changed, update `keys/` and the signer in `lib.sh`, and say why in the pull request.
 3. Replace the line in `sources.sha256` with `shasum -a 256 <tarball>`.
 4. Check each patch: does it still apply, and is it still needed?
-5. Run `Vendor/build.sh` and `Vendor/test-openssl-arm64e.sh`, then the app's tests.
-6. Update docs/spec/STACK.md section 8.
+5. Check that `Packages/ShelloKit/Sources/CLibSSHInternal/libssh_internal.h` still matches the new libssh's declaration of `ssh_global_request` in `include/libssh/channels.h`, and that the library still exports it.
+6. Run `Vendor/build.sh` and `Vendor/test-openssl-arm64e.sh`, then the app's tests.
+7. Update docs/spec/STACK.md section 8.

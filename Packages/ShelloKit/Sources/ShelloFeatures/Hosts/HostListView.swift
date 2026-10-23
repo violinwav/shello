@@ -1,8 +1,11 @@
+import ShelloCore
 import ShelloModel
+import ShelloTerminalUI
 import SwiftUI
 
-/// The host list (README section 3): search, tag filters, and sections for favourites, recents and
-/// groups. Each row opens the host's details.
+/// The host list (README section 3): search, tag filters, the window's open tabs under Live, and
+/// sections for favourites, recents and groups. Each host's row opens the host's details; each
+/// tab's row shows the tab on the terminal screen.
 struct HostListView: View {
     @Bindable var model: HostListModel
     /// The selected host in a split view. Nil in a navigation stack, where a row pushes the details.
@@ -11,6 +14,7 @@ struct HostListView: View {
     @State private var editorRoute: EditorRoute?
     @State private var showsSettings = false
     @State private var hostToDelete: Host?
+    @Environment(TerminalTabsModel.self) private var tabs: TerminalTabsModel?
 
     var body: some View {
         list
@@ -80,6 +84,16 @@ struct HostListView: View {
                 TagFilterBar(tags: model.tags, selection: $model.tagFilter)
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
+            }
+        }
+        if let tabs, !tabs.tabs.tabs.isEmpty {
+            Section {
+                ForEach(tabs.tabs.tabs) { tab in
+                    LiveTabRow(tab: tab, name: tabs.name(of: tab)) { tabs.show(tab) }
+                        .listRowBackground(Palette.cell)
+                }
+            } header: {
+                SectionHeader("Live")
             }
         }
         ForEach(model.sections) { section in
@@ -172,4 +186,47 @@ struct HostListView: View {
 struct EditorRoute: Identifiable {
     let id = UUID()
     let host: Host?
+}
+
+/// An open tab under Live: how its connection is, its name, and its protocol with its latency, or
+/// what its connection does. A tap shows it on the terminal screen.
+private struct LiveTabRow: View {
+    let tab: TerminalTab<TerminalController>
+    let name: String
+    let show: () -> Void
+
+    var body: some View {
+        Button(action: show) {
+            HStack(spacing: 12) {
+                TabStatusSymbol(state: tab.state)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(name)
+                        .font(Typography.rowTitle)
+                        .foregroundStyle(Palette.textPrimary)
+                    Text(summary)
+                        .font(Typography.dataCaption)
+                        .foregroundStyle(Palette.textTertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.vertical, 4)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(name)
+        .accessibilityValue(TabStatusSymbol.spokenStatus(of: tab, name: name))
+    }
+
+    /// "ssh · 24 ms" while the connection works, or what it does.
+    private var summary: String {
+        switch tab.state {
+        case .active: (["ssh"] + (tab.latency.map { [$0.latencyText] } ?? [])).joined(separator: " · ")
+        case .connecting: "Connecting…"
+        case .reconnecting: "Reconnecting…"
+        case .suspended: "Disconnected in the background"
+        case .ended: "Connection closed"
+        case .disconnected: "Disconnected"
+        case .closed: "Closed"
+        }
+    }
 }

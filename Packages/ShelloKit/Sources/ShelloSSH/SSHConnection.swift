@@ -1,4 +1,5 @@
 import CLibSSH
+import CLibSSHInternal
 import Dispatch
 import Foundation
 import Network
@@ -20,7 +21,8 @@ import os
 /// caller to check before anything about the user is sent; then one or more of
 /// `authenticate(password:)`, `authenticate(keyboardInteractive:)`,
 /// `authenticate(privateKey:passphrase:)` and `authenticate(agentSocket:)`; then `run(_:)` on hidden
-/// channels, and `openShell` for a terminal. `close()` ends it all.
+/// channels, and `openShell` for a terminal. `keepalive()` checks that the server still answers, and
+/// `pathEvents` tells what happens to the network under the connection. `close()` ends it all.
 public actor SSHConnection {
     /// The server the connection is to.
     public nonisolated let server: Server
@@ -34,6 +36,11 @@ public actor SSHConnection {
     /// The key exchange the connection negotiated with the server, once `connect()` has: the first
     /// of `algorithms`' key exchanges that the server supports too.
     public private(set) var keyExchange: KeyExchange?
+    /// What happens to the network under the connection once it is open (STACK section 7.1): the
+    /// `NWConnection`'s viability and better-path updates, in their order. It finishes when the
+    /// connection is closed. The tab behind the connection decides whether to reconnect.
+    public nonisolated let pathEvents: AsyncStream<PathEvent>
+    private let pathEventsContinuation: AsyncStream<PathEvent>.Continuation
 
     private let queue: DispatchSerialQueue
     private let executor: QueueExecutor
@@ -107,6 +114,7 @@ public actor SSHConnection {
         self.username = username
         self.connectTimeout = connectTimeout
         self.algorithms = algorithms
+        (pathEvents, pathEventsContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(16))
         queue = DispatchSerialQueue(label: "ch.shello.ssh.connection", qos: .userInitiated)
         executor = QueueExecutor(queue: queue)
         queue.setSpecific(key: Self.queueKey, value: ObjectIdentifier(queue))
@@ -510,6 +518,39 @@ public actor SSHConnection {
         return SSHCommandResult(output: output, errorOutput: errorOutput, exitStatus: exitStatus)
     }
 
+    // MARK: - Keepalive
+
+    /// The global request a keepalive sends: OpenSSH's own, which its client sends every
+    /// `ServerAliveInterval`.
+    static let keepaliveRequest = "keepalive@openssh.com"
+
+    /// Checks that the server still answers (README section 4): sends OpenSSH's
+    /// `keepalive@openssh.com` request, and returns its round trip once the server has answered,
+    /// which a tab shows as its latency. A server answers a request it does not know with a failure,
+    /// which is an answer all the same. libssh waits for one global request at a time, so a
+    /// keepalive while another waits shares its answer.
+    /// - Throws: `SSHError`, or `CancellationError`.
+    public func keepalive() async throws -> Duration {
+        let clock = ContinuousClock()
+        let start = clock.now
+        try await perform { session in
+            switch unsafe ssh_global_request(session.pointer, Self.keepaliveRequest, nil, 1) {
+            case SSH_OK: return ()
+            case SSH_AGAIN: return nil
+            default:
+                if let failure { throw failure }
+                // libssh reports the server's failure answer as an error of its own, while the
+                // connection stays up.
+                let code = unsafe ssh_get_error_code(UnsafeMutableRawPointer(session.pointer))
+                guard code == Int32(SSH_REQUEST_DENIED.rawValue), unsafe ssh_is_connected(session.pointer) != 0 else {
+                    throw libsshError(session)
+                }
+                return ()
+            }
+        }
+        return clock.now - start
+    }
+
     // MARK: - Shells
 
     /// Opens a channel with a pseudo-terminal of `terminalType` and `size`, starts the user's login
@@ -693,8 +734,14 @@ public actor SSHConnection {
         channels.removeAll()
         shells.removeAll()
         var closesLibsshSocket = true
+        var goodbye: [UInt8] = []
         if let session {
             if let event {
+                // libssh writes only once a poll has found room in its socket, and after each write
+                // it waits for the next poll. Without one, the disconnect message would stay in
+                // libssh's buffer, which `ssh_disconnect` then empties, and the server would see a
+                // connection that dropped.
+                unsafe ssh_event_dopoll(event.pointer, 0)
                 unsafe ssh_event_remove_session(event.pointer, session.pointer)
                 unsafe ssh_event_free(event.pointer)
                 self.event = nil
@@ -705,7 +752,7 @@ public actor SSHConnection {
                 closesLibsshSocket = unsafe ssh_get_fd(session.pointer) == sockets?.libssh
             }
             unsafe ssh_disconnect(session.pointer)
-            _ = sendLibsshOutput()
+            goodbye = takeLibsshOutput()
             // Closes the SSH agent's socket too, if it has one.
             unsafe ssh_free(session.pointer)
             self.session = nil
@@ -719,12 +766,13 @@ public actor SSHConnection {
             self.sockets = nil
         }
         if let network {
-            network.cancel()
+            end(network, after: goodbye)
             self.network = nil
         }
         if failure == nil {
             failure = .closed
         }
+        pathEventsContinuation.finish()
         progress += 1
         wakeWaiters()
     }
@@ -812,8 +860,32 @@ public actor SSHConnection {
         network.stateUpdateHandler = { [weak self] state in
             self?.assumeIsolated { $0.networkStateChanged(state) }
         }
+        network.viabilityUpdateHandler = { [weak self] isViable in
+            self?.assumeIsolated { $0.pathChanged(.viable(isViable)) }
+        }
+        network.betterPathUpdateHandler = { [weak self] isAvailable in
+            self?.assumeIsolated { $0.pathChanged(.betterPathAvailable(isAvailable)) }
+        }
         self.network = network
         network.start(queue: queue)
+    }
+
+    /// What can happen to the network under an open connection (STACK section 7.1).
+    public enum PathEvent: Equatable, Sendable {
+        /// Whether the connection can send and receive. A connection that is not viable, as when
+        /// the Wi-Fi it went over drops, may become viable again, or never.
+        case viable(Bool)
+        /// Whether a path that the system prefers to the connection's own is available, such as
+        /// cellular when the Wi-Fi under the connection has gone, or Wi-Fi again after cellular.
+        case betterPathAvailable(Bool)
+    }
+
+    /// Passes a change of the connection's path on, once the connection is open: before that, the
+    /// connect timeout covers it.
+    private func pathChanged(_ event: PathEvent) {
+        guard isNetworkReady, failure == nil else { return }
+        Self.logger.notice("Network path: \(String(describing: event), privacy: .public)")
+        pathEventsContinuation.yield(event)
     }
 
     private func networkStateChanged(_ state: NWConnection.State) {
@@ -854,8 +926,8 @@ public actor SSHConnection {
 
     /// What `state` means, with the reason the connection's path gives when it cannot be used, and
     /// whether the connection was ready before. A first connection that waits for another reason,
-    /// such as a refused connection or no route, fails at once: waiting for a better path belongs
-    /// to reconnecting (#28).
+    /// such as a refused connection or no route, fails at once: waiting for the network belongs to
+    /// the tab's reconnecting, which `NWPathMonitor` drives (ShelloCore's `TerminalTabs`).
     static func change(
         for state: NWConnection.State, unsatisfiedReason: NWPath.UnsatisfiedReason?, isReady: Bool
     ) -> NetworkChange {
@@ -928,6 +1000,34 @@ public actor SSHConnection {
                 }
             })
         return true
+    }
+
+    /// Everything libssh wrote to its socket that the bridge has not sent yet, as the connection
+    /// closes: its disconnect message comes last.
+    private func takeLibsshOutput() -> [UInt8] {
+        guard let sockets, isNetworkReady else { return [] }
+        var bytes: [UInt8] = []
+        while true {
+            let count = unsafe buffer.withUnsafeMutableBytes { buffer in
+                unsafe Darwin.read(sockets.bridge, buffer.baseAddress, buffer.count)
+            }
+            guard count > 0 else { return bytes }
+            bytes += buffer.prefix(count)
+        }
+    }
+
+    /// Ends the TCP connection once `goodbye`, libssh's last bytes, is out: the server reads a clean
+    /// disconnect, not a connection that dropped. A network that has not sent them within a second
+    /// is cancelled all the same.
+    private func end(_ network: NWConnection, after goodbye: [UInt8]) {
+        guard isNetworkReady, !goodbye.isEmpty else {
+            network.cancel()
+            return
+        }
+        network.send(
+            content: Data(goodbye), contentContext: .finalMessage, isComplete: true,
+            completion: .contentProcessed { _ in network.cancel() })
+        queue.asyncAfter(deadline: .now() + 1) { network.cancel() }
     }
 
     /// Writes the server's bytes that libssh's socket had no room for. Returns whether it wrote any.
