@@ -20,13 +20,33 @@ _Avoid_: Machine, box, remote
 The key a server proves its identity with. Trust in a host key belongs to the server, so it covers every host that points at that server.
 _Avoid_: Server key, fingerprint (the fingerprint is how a host key is shown)
 
+**Trusted host key**:
+The host key the user accepted for a server on the first connection to it, kept in Shello's own trust store. Every later connection to the server must present it: a different host key is a changed host key, which blocks the connection.
+_Avoid_: Known host (OpenSSH's `known_hosts` file, which Shello does not use), saved fingerprint
+
+**Jump host**:
+A saved SSH host that Shello connects through to reach another host's server, as OpenSSH's `ProxyJump` does. A host's jump hosts are an ordered list; each checks its own host key and signs in its own way. A jump host that was deleted stays in the list as a missing one, and the host does not connect until the list changes.
+_Avoid_: Bastion (one kind of jump host), proxy, gateway
+
+**Route**:
+The hosts a connection goes through to reach a host's server, in order: the route to its first jump host, then its other jump hosts, then the host itself. Each host on a route is a hop: Shello reaches the first from the device, and each of the others through the connection to the one before. A host without jump hosts is a route of its own, reached directly.
+_Avoid_: Path, chain (a host's jump hosts are its own part of the route), tunnel (what each hop runs through)
+
 **Group**:
 The one group a host belongs to, if any. New hosts in a group inherit its defaults. Groups do not nest.
 _Avoid_: Folder, category
 
 **Tag**:
-A label on a host. A host can have any number of tags.
+A label on a host, with a name and a colour. A host can have any number of tags.
 _Avoid_: Label, category
+
+**Favourite**:
+A host the user marked to list before the others.
+_Avoid_: Starred, pinned, bookmark
+
+**Recents**:
+The hosts Shello connected to last, newest first.
+_Avoid_: History, last used
 
 **Production host**:
 A host with at least one tag marked production. Shello asks for extra confirmation before risky actions on it.
@@ -42,9 +62,33 @@ _Avoid_: Session, window, terminal
 The live SSH or Mosh link behind a tab. Connections drop and are replaced while the tab stays.
 _Avoid_: Session, link
 
+**Key exchange**:
+How a connection and the server agree, as it starts, on the keys that encrypt it, using an algorithm both offer, such as `mlkem768x25519-sha256`. Shello offers the algorithms of its algorithm policy in order, and the connection uses the first one that the server also offers.
+_Avoid_: Handshake, kex, key agreement
+
+**Post-quantum key exchange**:
+A key exchange built to resist a quantum computer, so that traffic recorded today cannot be decrypted by one later: the hybrids `mlkem768x25519-sha256` and `sntrup761x25519-sha512`. Any other key exchange, such as `curve25519-sha256`, is classical.
+_Avoid_: Quantum-safe, quantum-proof, PQC
+
+**Algorithm policy**:
+The algorithms Shello offers a server, most preferred first, and which of them are post-quantum: key exchanges, ciphers, MACs, host key algorithms and the algorithms SSH keys sign in with. It is data that ships with the app and carries a version, not code (README section 14). A host can have lists of its own in place of the policy's.
+_Avoid_: Crypto settings, cipher suite
+
+**Local Network access**:
+iOS's permission for Shello to reach servers on the local network, which iOS asks the user for once, on the first connection to such a server. Shello explains the question just before it appears.
+_Avoid_: LAN permission, local network prompt (that is iOS's question)
+
 **tmux session**:
 A session of the tmux program on the server, which keeps running when connections drop. Always written in full.
 _Avoid_: Session (on its own)
+
+**Auto-attach**:
+A host's setting by which each connection of its tabs attaches the host's tmux session once the startup command is typed, and starts it if it is not running, so that a reconnect reattaches it.
+_Avoid_: Auto-connect, tmux mode
+
+**Plain shell**:
+The login shell of a tab that attaches no tmux session: what a host with auto-attach on gets when the server's tmux is missing or too old, which the tab's terminal then says.
+_Avoid_: Bare shell, raw shell
 
 **Hidden channel**:
 An SSH channel Shello opens for its own commands, which never appears in a tab.
@@ -70,15 +114,71 @@ _Avoid_: Recover, reconnect (for Mosh)
 Recreating the last open tabs after the app was terminated.
 _Avoid_: Relaunch restore, recover
 
+**Startup command**:
+The lines a host types into the shell of each of its connections once the shell is ready, reconnects included.
+_Avoid_: Login script, init command
+
+**Keepalive**:
+A request Shello sends the server over a connection at the host's keepalive interval, and which the server answers. A server that stops answering loses the connection, and the tab reconnects.
+_Avoid_: Ping, heartbeat
+
+**Latency**:
+The round trip of a tab's last keepalive, shown in the tab while its connection works.
+_Avoid_: Ping, lag
+
+**Background time**:
+The short time iOS lets Shello run after it leaves the screen. Connections stay open for it, then Shello closes them cleanly, and the tab on screen reconnects when Shello returns.
+_Avoid_: Grace period, background task
+
+**Live**:
+The host list's section of the window's open tabs, each with how its connection is. A tap shows the tab.
+_Avoid_: Sessions, open connections
+
 **Foreground command**:
 The program in the foreground of a tab's terminal, or of the active tmux pane in it.
 _Avoid_: Current process, running app
+
+**Terminal**:
+The screen inside a tab that draws what the server sends and sends what the user types, as xterm does. A tab keeps its terminal, and the terminal its scrollback, while connections come and go.
+_Avoid_: Console, shell (the shell is the program on the server), tab
+
+**Scrollback**:
+The lines that have scrolled off the top of a terminal, which it keeps to scroll back to and to search: 10,000 by default.
+_Avoid_: History (that is the shell's), buffer
+
+**Terminal demo**:
+A terminal attached to a stand-in for a server that runs on the device, under Settings, Diagnostics, to try the terminal without connecting. It is not a shell: Shello has no local shell.
+_Avoid_: Local shell, sandbox, playground
 
 ## Keyboard
 
 **Key**:
 A key the user presses: on the Shello keyboard, the extra keys row, a pad or a hardware keyboard. Never an SSH key or a host key.
 _Avoid_: Button
+
+**Shello keyboard**:
+The keyboard Shello shows in place of the system keyboard in a terminal, in three layers, under the extra keys row. One key on the row switches to the system keyboard and back.
+_Avoid_: Custom keyboard, soft keyboard, on-screen keyboard (the system keyboard is one too)
+
+**Layer**:
+One of the Shello keyboard's sets of keys, shown one at a time: letters, symbols or function keys.
+_Avoid_: Page, mode, plane
+
+**Letters layout**:
+The arrangement of the letters layer: QWERTY or QWERTZ, and AZERTY in v1. Unless the user chooses one, it is that of the first keyboard in the Settings app.
+_Avoid_: Keyboard layout, locale
+
+**Flick**:
+Pulling a key down before letting go, which types the symbol in its corner.
+_Avoid_: Swipe (that is the swipe key's), slide
+
+**Alternates**:
+The characters a long-press on a key offers, such as its accented letters.
+_Avoid_: Accents, variants, popup
+
+**Sticky modifier**:
+Control or Alt on the extra keys row, which stays down for the user: one tap arms it for the next key, a double tap, or holding it on its own, locks it until it is tapped again. It applies to the next key of the system keyboard too.
+_Avoid_: Latching key, toggle key
 
 **Extra keys row**:
 The scrollable row of terminal keys above whichever keyboard is active.
@@ -93,7 +193,7 @@ A named set of keys for the extra keys row.
 _Avoid_: Layout, key profile
 
 **Swipe key**:
-The key in the extra keys row that sends arrow keys while the user drags across it.
+The key in the extra keys row that sends arrow keys while the user drags across it, or one arrow for a tap on that arrow.
 _Avoid_: Swipe pad, trackpad, joystick
 
 **Pad**:
@@ -114,16 +214,56 @@ An SSH key Shello created on this device. It never leaves the device.
 _Avoid_: Device key, local key
 
 **Imported key**:
-An SSH key the user brought into Shello from elsewhere.
+An SSH key the user brought into Shello from elsewhere, by pasting its private key or picking its file. Shello keeps the private key in the Keychain, on this device only, and signs with it as with a generated key.
 _Avoid_: External key
 
+**Passphrase**:
+The secret that encrypts a private key's file. Shello asks for an imported key's passphrase once, to read the key, and keeps the key, never the passphrase.
+_Avoid_: Password (for a key), PIN
+
+**Install on host**:
+Adding an SSH key's public key to the server's `authorized_keys`, for the user a host signs in as, over the open connection of a tab, as `ssh-copy-id` does: from then on the key signs in to the host.
+_Avoid_: Deploy, upload, copy (Copy puts the public key on the clipboard)
+
+**Secure Enclave key**:
+A generated key inside the device's Secure Enclave: ECDSA P-256, the only kind the Secure Enclave makes, and the default. Not even Shello can read its private key.
+_Avoid_: Hardware key (a FIDO2 security key is one too), device key
+
+**Public key**:
+The half of an SSH key that a server holds in its `authorized_keys` to let the user in. Shello shows, copies and shares it; the private key of a generated key never leaves the device.
+_Avoid_: Key (on its own), identity
+
+**Fingerprint**:
+The SHA-256 hash of a public key or a host key, written as `ssh-keygen` writes it (`SHA256:…`), to compare keys by eye.
+_Avoid_: Hash, key ID
+
+**Signing policy**:
+When an SSH key may sign: while Shello is unlocked, inside the unlock window, or on every use, after Face ID, Touch ID or the passcode for that one signature.
+_Avoid_: Unlock policy, key lock
+
 **SSH agent**:
-Shello holding the user's SSH keys and signing for servers on request, for agent forwarding and key-based sudo.
+Shello holding the user's SSH keys and signing with them on request: for its own sign-in with an SSH key, and later for agent forwarding and key-based sudo.
 _Avoid_: Agent (on its own), key agent
+
+**Keyboard-interactive**:
+A way of signing in in which the server asks questions, such as a password or a one-time code, round after round, and the user answers them in Shello's sign-in sheet. Servers with two-factor sign-in ask it after the SSH key or the password.
+_Avoid_: Challenge-response, interactive authentication, 2FA prompt
+
+**App lock**:
+Face ID, Touch ID or the device passcode before Shello shows anything: when it opens, and when it returns after app lock's timeout in the background. Passing it opens the unlock window.
+_Avoid_: Passcode lock, screen lock, PIN
 
 **Unlock window**:
 The time after the user passes app lock during which Shello and its SSH keys work without another prompt. It ends when app lock re-engages.
 _Avoid_: Grace period, session, unlock (for buying Pro)
+
+**Secret**:
+A password or passphrase, which Shello keeps in the Keychain only, never in the database or an export. A secret belongs to a host or an SSH key and is found by its owner's identifier.
+_Avoid_: Credential, key (for a password)
+
+**Privacy cover**:
+What the app switcher shows of Shello: its logo, over every screen and sheet, whenever Shello is not the active app.
+_Avoid_: Splash screen, blur
 
 **Auto sudo**:
 Shello answering sudo password prompts on a host, in one of three modes: off, confirm or automatic.
@@ -146,6 +286,12 @@ _Avoid_: Multi-host snippets, fan-out
 **Broadcast typing**:
 Sending the user's keystrokes to several open tabs at once.
 _Avoid_: Sync typing, synchronized panes
+
+## Data
+
+**Export**:
+The JSON file with all of Shello's non-secret data: its hosts, groups and tags, and later its snippets, presets and settings. Importing an export adds its records and replaces those already in Shello with the same identifier.
+_Avoid_: Backup (the encrypted full backup also holds passwords and imported keys), dump
 
 ## Buying Shello
 

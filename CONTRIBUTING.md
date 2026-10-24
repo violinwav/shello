@@ -25,17 +25,22 @@ When two of these disagree, do not silently pick one. Say so in the issue or pul
 
 ## Building and testing
 
-Open `Shello.xcodeproj` in Xcode 26.6 and use the `Shello` scheme: it runs the app and, with Product → Test, every `ShelloKit` unit test plus the UI tests. From the command line, the same checks CI runs (`.github/workflows/ci.yml`):
+First build libssh and OpenSSL from verified source with `Vendor/build.sh` (needs `brew install cmake gnupg`). The output is not in git. Rerun the script after `Vendor/` changes; it does nothing when the libraries are current. See `Vendor/README.md`.
+
+Open `Shello.xcodeproj` in Xcode 26.6 and use the `Shello` scheme: it runs the app and, with Product → Test, every `ShelloKit` unit test plus the UI tests. The first build asks you to trust SwiftTerm's build plugin, which writes its version information and its terminfo table into SwiftTerm's sources; SwiftTerm is pinned exactly, so the plugin only changes with the pin. From the command line, the same checks CI runs (`.github/workflows/ci.yml`), where `-skipPackagePluginValidation` stands in for that prompt:
 
 ```sh
-xcrun swift-format lint --strict --recursive --parallel App UITests Packages/ShelloKit
-xcodebuild test -project Shello.xcodeproj -scheme Shello -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'
+xcrun swift-format lint --strict --recursive --parallel App AppTests UITests Packages/ShelloKit
+xcodebuild test -project Shello.xcodeproj -scheme Shello -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' -skipPackagePluginValidation
 ```
+
+The SSH integration tests and the connection UI tests sign in to a disposable OpenSSH 10 server, which `TestServers/ssh-server.sh` starts with Docker in one command. Without it they skip; CI uses the runner's own sshd instead. See `TestServers/README.md`.
 
 Build settings live in `Configurations/*.xcconfig`, not in the Xcode project. Set them there so both developers see the change in review.
 
 ## Branches and pull requests
 
+- **Early development exception (from Oct 20, 2026):** the MVP slices (#19 and its sub-issues, plus spike tickets #8–#10) and, from Oct 24, 2026, the v1 slices (#34 and its sub-issues) land directly on the `dev` branch without review, one commit per issue. Each commit passes the same checks as CI before it is pushed, and CI also runs on every push to `dev`. `dev` reaches `main` through one pull request, reviewed as a whole. The rules below still apply to everything else.
 - Nothing is pushed to `main` directly, documents included. Every change goes through a pull request.
 - The other developer is asked for a review automatically (`.github/CODEOWNERS`). Approval is not required: the author may merge their own pull request.
 - Pull requests are squash-merged, so the pull request title becomes the commit on `main`. Write it as one.

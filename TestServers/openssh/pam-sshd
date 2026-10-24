@@ -1,0 +1,16 @@
+#%PAM-1.0
+# PAM for the Alpine test servers' sshd, which asks its keyboard-interactive questions through it
+# (TestServers/README.md):
+# - shello: its password;
+# - shello-otp: its password, then a one-time code;
+# - shello-2fa: a one-time code only, once its key was accepted (sshd_config.two-factor).
+# The one-time code is a TOTP code (RFC 6238) of the secret in google_authenticator, which
+# pam_google_authenticator shows as it is typed (echo_verification_code). The password method asks
+# the same stack, so it signs shello-otp in only with a code too, which it cannot give.
+auth     [success=1 default=ignore] pam_succeed_if.so user = shello-2fa quiet
+auth     required                   pam_unix.so
+auth     [success=1 default=ignore] pam_succeed_if.so user = shello quiet
+auth     required                   pam_google_authenticator.so echo_verification_code
+account  required                   pam_unix.so
+password required                   pam_unix.so
+session  required                   pam_unix.so

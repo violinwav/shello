@@ -1,0 +1,270 @@
+import ShelloModel
+import ShelloSecurity
+import ShelloStorage
+import SwiftUI
+
+/// One host's details, with Connect, Edit, Favorite and Delete. It is the detail column in a split
+/// view, and the screen a row pushes in a navigation stack. Connect opens a tab for the host, on the
+/// window's terminal screen.
+struct HostDetailView: View {
+    @State private var model: HostDetailModel
+    /// Called once the host no longer exists, so that the caller can close the details.
+    private let onGone: () -> Void
+
+    @State private var editsHost: Host?
+    @State private var confirmsDelete = false
+    /// The first connection to the local network that the Local Network sheet explains.
+    @State private var explainsLocalNetwork: LocalNetworkExplanation?
+    /// The host to connect to once the Local Network sheet has gone.
+    @State private var connectsAfterExplanation: Host?
+    @Environment(TerminalTabsModel.self) private var tabs: TerminalTabsModel?
+    @Environment(\.localNetworkNotice) private var localNetworkNotice
+
+    init(
+        repository: HostRepository, secrets: SecretStore?, keys: SSHKeyStore?, hostID: Host.ID,
+        onGone: @escaping () -> Void
+    ) {
+        _model = State(
+            initialValue: HostDetailModel(repository: repository, secrets: secrets, keys: keys, hostID: hostID))
+        self.onGone = onGone
+    }
+
+    var body: some View {
+        Group {
+            if let host = model.host {
+                details(host)
+            } else if model.isGone {
+                EmptyStateView(title: "Host Deleted", systemImage: "trash", description: "This host no longer exists.")
+            } else {
+                ProgressView("Loading the host")
+                    .labelsHidden()
+            }
+        }
+        .background(Palette.ground)
+        .navigationTitle(model.host?.name ?? "")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let host = model.host {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Edit", systemImage: "pencil") { editsHost = host }
+                }
+                ToolbarItem(placement: .secondaryAction) {
+                    Button(
+                        host.isFavorite ? "Remove from Favorites" : "Add to Favorites",
+                        systemImage: host.isFavorite ? "star.fill" : "star"
+                    ) {
+                        Task {
+                            if await model.setFavorite(!host.isFavorite) {
+                                announce(host.isFavorite ? "Removed from Favorites" : "Added to Favorites")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .task { await model.observe() }
+        .onChange(of: model.isGone) { _, isGone in
+            if isGone { onGone() }
+        }
+        // The editor can make an SSH key, which the details then name.
+        .sheet(item: $editsHost, onDismiss: { model.loadSSHKeys() }) { host in
+            HostEditorView(repository: model.repository, secrets: model.secrets, keys: model.keys, host: host)
+        }
+        // The terminal opens once the sheet has gone: one presentation at a time.
+        .sheet(
+            item: $explainsLocalNetwork,
+            onDismiss: {
+                if let host = connectsAfterExplanation {
+                    tabs?.connect(to: host)
+                }
+                connectsAfterExplanation = nil
+            }
+        ) { explanation in
+            LocalNetworkSheet(
+                host: explanation.firstHop,
+                destination: explanation.firstHop.id == explanation.host.id ? nil : explanation.host.name
+            ) {
+                localNetworkNotice?.markExplained()
+                connectsAfterExplanation = explanation.host
+                explainsLocalNetwork = nil
+            } cancel: {
+                explainsLocalNetwork = nil
+            }
+        }
+        .confirmationDialog(
+            "Delete “\(model.host?.name ?? "")”?", isPresented: $confirmsDelete, titleVisibility: .visible
+        ) {
+            Button("Delete Host", role: .destructive) {
+                // The details close once the host is gone, so the name is taken first.
+                let name = model.host?.name ?? ""
+                Task {
+                    if await model.delete() { announce("Deleted \(name)") }
+                }
+            }
+        } message: {
+            // The hosts that jump through it keep it as a missing jump host (README section 3).
+            Text(JumpHostDisplay.deletionMessage(users: model.hostsJumpingThrough))
+        }
+        .alert(
+            "Couldn’t Change the Host",
+            isPresented: Binding(get: { model.actionError != nil }, set: { if !$0 { model.actionError = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.actionError ?? "")
+        }
+    }
+
+    private func details(_ host: Host) -> some View {
+        List {
+            Section {
+                Button {
+                    connect(host)
+                } label: {
+                    Label("Connect", systemImage: "play.fill")
+                        .font(Typography.rowTitle)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .accentFill()
+                .disabled(tabs == nil || host.protocol == .vnc)
+                // The route's problem is further down, under the route.
+                .accessibilityHint(
+                    model.routeProblem == nil
+                        ? "" : "Doesn’t connect until its route changes, as the problem under Route says."
+                )
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            } footer: {
+                switch host.protocol {
+                case .ssh: EmptyView()
+                case .mosh: FooterText("Mosh comes later: this host connects over SSH.")
+                case .vnc: FooterText("Remote desktop comes later.")
+                }
+            }
+
+            Section {
+                valueRow("Protocol", host.protocol.displayName)
+                dataRow("Address", host.address)
+                dataRow("Port", String(host.port))
+                dataRow("User", host.username.isEmpty ? nil : host.username)
+                // Through the jump hosts, if any, to the host (README section 3).
+                LabeledContent("Route") {
+                    ValueText(model.routeSummary, font: host.jumpHostIDs.isEmpty ? nil : Typography.data)
+                        .multilineTextAlignment(.trailing)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Route")
+                .accessibilityValue(model.spokenRouteSummary)
+                if let problem = model.routeProblem {
+                    // In a list, a long problem would wrap under its icon.
+                    ProblemText(problem: problem)
+                        .labelStyle(.row)
+                }
+                valueRow("Authentication", host.authMethod.displayName)
+                if host.authMethod == .sshKey {
+                    valueRow("SSH Key", model.sshKeySummary)
+                }
+            } header: {
+                SectionHeader("Connection")
+            }
+            .listRowBackground(Palette.cell)
+
+            Section {
+                valueRow("Group", model.groupName ?? "None")
+                LabeledContent("Tags") {
+                    if model.hostTags.isEmpty {
+                        ValueText("None")
+                    } else {
+                        TagLine(tags: model.hostTags)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            } header: {
+                SectionHeader("Organize")
+            }
+            .listRowBackground(Palette.cell)
+
+            Section {
+                dataRow("Startup command", host.startupCommand.isEmpty ? nil : host.startupCommand)
+                // The session auto-attach attaches, after the startup command (README section 8).
+                dataRow("tmux session", host.tmuxAutoAttach ? host.tmuxSessionName : nil)
+                dataRow("Terminal type", host.terminalType)
+                valueRow("Keepalive", host.keepaliveInterval.formattedSeconds)
+                    .accessibilityValue(host.keepaliveInterval.spokenSeconds)
+                valueRow("Connect timeout", host.connectTimeout.formattedSeconds)
+                    .accessibilityValue(host.connectTimeout.spokenSeconds)
+            } header: {
+                SectionHeader("On Connect")
+            }
+            .listRowBackground(Palette.cell)
+
+            if !host.notes.isEmpty {
+                Section {
+                    Text(host.notes)
+                } header: {
+                    SectionHeader("Notes")
+                }
+                .listRowBackground(Palette.cell)
+            }
+
+            Section {
+                Button("Delete Host", role: .destructive) { confirmsDelete = true }
+                    .destructiveStyle()
+            }
+            .listRowBackground(Palette.cell)
+        }
+        .font(Typography.body)
+        .scrollContentBackground(.hidden)
+    }
+
+    /// Opens a tab for `host`. iOS asks for Local Network access on the first connection to a server
+    /// on the local network, which Shello explains first (README section 3). Only the first host of
+    /// the route is reached from the device, so only it counts.
+    private func connect(_ host: Host) {
+        if case .success(let route)? = model.route, localNetworkNotice?.explainsBeforeConnecting(along: route) == true {
+            explainsLocalNetwork = LocalNetworkExplanation(firstHop: route.firstHop, host: host)
+        } else {
+            tabs?.connect(to: host)
+        }
+    }
+
+    private func valueRow(_ label: String, _ value: String) -> some View {
+        LabeledContent(label) {
+            ValueText(value)
+        }
+    }
+
+    /// A value the user reads exactly, such as an address, in the data font. Nil shows "None".
+    private func dataRow(_ label: String, _ value: String?) -> some View {
+        LabeledContent(label) {
+            if let value {
+                ValueText(value, font: Typography.data)
+                    .textSelection(.enabled)
+            } else {
+                ValueText("None")
+            }
+        }
+    }
+}
+
+/// The first connection to the local network that the Local Network sheet explains: to the first
+/// host of a route, `firstHop`, on the way to `host`, which the tab opens for.
+private struct LocalNetworkExplanation: Identifiable {
+    let firstHop: Host
+    let host: Host
+
+    var id: Host.ID { host.id }
+}
+
+extension Duration {
+    /// Whole seconds, such as "30 secs".
+    var formattedSeconds: String {
+        formatted(.units(allowed: [.seconds], width: .abbreviated))
+    }
+
+    /// Whole seconds as VoiceOver reads them, such as "30 seconds".
+    var spokenSeconds: String {
+        formatted(.units(allowed: [.seconds], width: .wide))
+    }
+}

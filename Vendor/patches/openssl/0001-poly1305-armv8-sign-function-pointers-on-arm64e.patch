@@ -1,0 +1,29 @@
+Sign Poly1305's function pointers on arm64e
+
+poly1305_init stores the addresses of poly1305_blocks and poly1305_emit (or
+their NEON variants) in ctx->func, and poly1305.c calls them through C function
+pointers. On arm64e every indirect call authenticates the pointer with the IA
+key and a zero discriminator, so the unsigned addresses crash on first use.
+This breaks every Poly1305 user, including ChaCha20-Poly1305.
+
+paciza signs them the way the compiler signs C function pointers. No other
+aarch64 assembly in OpenSSL 3.5.9 stores code addresses for C to call.
+Found and tested for Shello (Vendor/test-openssl-arm64e.sh).
+
+--- a/crypto/poly1305/asm/poly1305-armv8.pl
++++ b/crypto/poly1305/asm/poly1305-armv8.pl
+@@ -108,6 +108,14 @@
+ 
+ 	csel	$d0,$d0,$r0,eq
+ 	csel	$d1,$d1,$r1,eq
++
++#ifdef	__arm64e__
++	// poly1305.c calls these through C function pointers, which arm64e
++	// authenticates with the IA key and a zero discriminator. Sign them
++	// the same way, or the first call crashes.
++	paciza	$d0
++	paciza	$d1
++#endif
+ 
+ #ifdef	__ILP32__
+ 	stp	w12,w13,[$len]

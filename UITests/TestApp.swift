@@ -1,0 +1,761 @@
+import XCTest
+import notify
+
+extension XCUIApplication {
+    /// Launches Shello with an empty database and settings of its own, so that every test starts
+    /// from no hosts. Debug builds only; see App/ShelloApp.swift.
+    /// - Parameters:
+    ///   - appearance: How the screens look, whatever the simulator's appearance. A test cannot
+    ///     rely on `XCUIDevice.appearance`: CI's simulators stayed light with it set to dark.
+    ///   - appLock: Whether app lock asks at launch and after its timeout. Off, Shello opens
+    ///     unlocked, whatever the simulator's Face ID.
+    ///   - environment: Further debug options of App/ShelloApp.swift.
+    @MainActor
+    static func launchWithEmptyDatabase(
+        arguments: [String] = [], appearance: XCUIDevice.Appearance = .light, appLock: Bool = false,
+        environment: [String: String] = [:]
+    ) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["SHELLO_UI_TESTING"] = "1"
+        app.launchEnvironment["SHELLO_UI_TESTING_APPEARANCE"] = appearance == .dark ? "dark" : "light"
+        app.launchEnvironment["SHELLO_UI_TESTING_APP_LOCK"] = appLock ? "1" : "0"
+        app.launchEnvironment.merge(environment) { _, option in option }
+        app.launchArguments += arguments
+        app.launch()
+        return app
+    }
+
+    /// Checks from a screenshot that the screen is drawn in `appearance`, and attaches it: the
+    /// design's dark ground is nearly black, its light ground nearly white.
+    @MainActor
+    func assertAppearance(_ appearance: XCUIDevice.Appearance, file: StaticString = #filePath, line: UInt = #line) {
+        let screenshot = screenshot()
+        XCTContext.runActivity(named: "The screen in \(appearance == .dark ? "dark" : "light") mode") { activity in
+            let attachment = XCTAttachment(screenshot: screenshot)
+            attachment.lifetime = .keepAlways
+            activity.add(attachment)
+        }
+        let brightness = screenshot.image.averageBrightness
+        if appearance == .dark {
+            XCTAssertLessThan(brightness, 0.3, "The screen is not dark", file: file, line: line)
+        } else {
+            XCTAssertGreaterThan(brightness, 0.7, "The screen is not light", file: file, line: line)
+        }
+    }
+
+    // MARK: - App lock
+
+    /// The locked screen's title, which shows while app lock is engaged.
+    @MainActor
+    var lockedScreen: XCUIElement {
+        staticTexts["Shello Is Locked"]
+    }
+
+    /// Shows the enrolled face to the Face ID prompt until Shello unlocks. The face only counts while
+    /// the prompt looks for one, so it is shown again every second.
+    ///
+    /// When Shello says it could not ask, it offers Unlock, which this taps, as the user would. In a
+    /// CI run, the system put up no prompt as Shello came back to the foreground, and
+    /// LocalAuthentication answered with its internal error -1000. Shello must have tried first: Unlock
+    /// is only tapped once the locked screen shows the problem.
+    @MainActor
+    func unlockWithFaceID(file: StaticString = #filePath, line: UInt = #line) {
+        let deadline = Date.now.addingTimeInterval(30)
+        let problem = staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Shello couldn’t")).firstMatch
+        let unlock = buttons["Unlock"]
+        while lockedScreen.exists, Date.now < deadline {
+            if problem.exists, unlock.isEnabled {
+                unlock.tap()
+            }
+            SimulatedFaceID.match()
+            _ = lockedScreen.waitForNonExistence(timeout: 1)
+        }
+        XCTAssertFalse(lockedScreen.exists, "Face ID does not unlock Shello", file: file, line: line)
+    }
+
+    /// Ends the Face ID prompt without unlocking, as a user who changes their mind does: a face that
+    /// does not match, then Cancel in LocalAuthentication's alert. Shello stays locked and offers
+    /// Unlock.
+    ///
+    /// When Shello says it could not ask, there is no alert to cancel: as in `unlockWithFaceID`, this
+    /// taps Unlock, which asks again. In a CI run, LocalAuthentication answered the launch's request
+    /// with its internal error -1000 and put up no prompt.
+    @MainActor
+    func cancelFaceID(file: StaticString = #filePath, line: UInt = #line) {
+        // The alert's button holds a button of the same name.
+        let cancel = Self.springboard.buttons["com.apple.localauthentication.ax.authentication.button.cancel"]
+            .firstMatch
+        let problem = staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Shello couldn’t")).firstMatch
+        let unlock = buttons["Unlock"]
+        let deadline = Date.now.addingTimeInterval(30)
+        while !cancel.exists, Date.now < deadline {
+            if problem.exists, unlock.isEnabled {
+                unlock.tap()
+            }
+            SimulatedFaceID.failToMatch()
+            _ = cancel.waitForExistence(timeout: 1)
+        }
+        cancel.tap()
+        XCTAssertTrue(
+            unlock.wait(for: \.isEnabled, toEqual: true, timeout: 10), "Unlock stays disabled", file: file,
+            line: line)
+    }
+
+    @MainActor
+    static var springboard: XCUIApplication {
+        XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    }
+
+    /// `performAccessibilityAudit()`, less these false positives:
+    /// - Its Dynamic Type check reports some SwiftUI text whose font does scale as "partially
+    ///   unsupported", seemingly at random, because it looks for UIKit's
+    ///   `adjustsFontForContentSizeCategory`, which SwiftUI text does not expose
+    ///   (https://developer.apple.com/forums/thread/828525). Only static text is let through:
+    ///   controls, and text in a font that does not scale, which is reported as "unsupported",
+    ///   still fail. `testTextGrowsWithDynamicType` checks the scaling directly.
+    /// - Its contrast check reads an element that is mostly below the screen, such as the footer
+    ///   of a list one screen long, which the list makes ready before it scrolls into view, as
+    ///   black on black. Only that check, and only for an element less than half of which is on
+    ///   screen, is let through.
+    /// - Its checks of what the screen shows (contrast, Dynamic Type, clipped text and hit regions)
+    ///   read content that a list scrolled mostly under the navigation bar in front, whose glass
+    ///   fades it on purpose, as failing. Only those checks, and only for an element that is not one
+    ///   of the bar's own, more than half of which lies under the bar or above it, or, in a list
+    ///   scrolled under the bar, just below it, where the glass's soft edge still fades it, are let
+    ///   through.
+    ///
+    /// Each ignored issue is attached to the test's results.
+    /// - Parameter scrolled: Whether a list is scrolled down, so that its content goes under the
+    ///   navigation bar in front, as a list longer than the screen always has text there: its rows
+    ///   lie closer together than the bar is tall. Element detection and the Dynamic Type check then
+    ///   also report the faded text, as text that no element represents and text whose size does not
+    ///   follow, without an element to say where. Those issues, and only those, are let through.
+    @MainActor
+    func auditAccessibility(scrolled: Bool = false) throws {
+        var ignored: [String] = []
+        let screen = frame
+        // Without a snapshot, nothing counts as under the bar.
+        let bar = try? FrontNavigationBar(self)
+        let shownChecks: XCUIAccessibilityAuditType = [.contrast, .dynamicType, .textClipped, .hitRegion]
+        let fadedTextChecks: XCUIAccessibilityAuditType = [.elementDetection, .dynamicType]
+        try audit(XCUIAccessibilityAuditType.all) { issue in
+            let isPartiallyUnsupported =
+                issue.auditType == .dynamicType
+                && issue.compactDescription == "Dynamic Type font sizes are partially unsupported"
+                && issue.element?.elementType == .staticText
+            let isOffScreen =
+                issue.auditType == .contrast && issue.element.map { Self.isMostlyOffScreen($0.frame, screen) } == true
+            let isUnderTheBar =
+                shownChecks.contains(issue.auditType)
+                && issue.element.map { bar?.hides($0.frame, scrolled: scrolled) ?? false } == true
+            let isFadedText = scrolled && issue.element == nil && fadedTextChecks.contains(issue.auditType)
+            let isFalsePositive = isPartiallyUnsupported || isOffScreen || isUnderTheBar || isFadedText
+            if isFalsePositive {
+                ignored.append(
+                    "\(issue.compactDescription): \(issue.element?.label ?? "?") \(issue.element?.frame ?? .zero)")
+            }
+            return isFalsePositive
+        }
+        if !ignored.isEmpty {
+            XCTContext.runActivity(named: "Ignored audit issues") { activity in
+                activity.add(XCTAttachment(string: ignored.joined(separator: "\n")))
+            }
+        }
+    }
+
+    /// Whether less than half of `element` is on `screen`.
+    private static func isMostlyOffScreen(_ element: CGRect, _ screen: CGRect) -> Bool {
+        guard element.width > 0, element.height > 0 else { return false }
+        let visible = element.intersection(screen)
+        guard !visible.isNull else { return true }
+        return visible.width * visible.height < element.width * element.height / 2
+    }
+
+    /// The navigation bar in front, a sheet's when one is up: the last in the screen's order, after
+    /// the bars of the screens behind it. Content that a list scrolls under it shows through its
+    /// glass, faded.
+    private struct FrontNavigationBar {
+        let frame: CGRect
+        /// The frames of the bar's own elements, such as its title and buttons.
+        let itemFrames: [CGRect]
+
+        /// The front bar of the screen as it is now, or nil if it has none. One snapshot of the app,
+        /// read in the screen's order.
+        @MainActor
+        init?(_ app: XCUIApplication) throws {
+            var bars: [any XCUIElementSnapshot] = []
+            var pending = [try app.snapshot()]
+            while let element = pending.popLast() {
+                if element.elementType == .navigationBar {
+                    bars.append(element)
+                } else {
+                    pending += element.children.reversed()
+                }
+            }
+            guard let bar = bars.last else { return nil }
+            frame = bar.frame
+            var items: [CGRect] = []
+            var descendants = bar.children
+            while let element = descendants.popLast() {
+                items.append(element.frame)
+                descendants += element.children
+            }
+            itemFrames = items
+        }
+
+        /// How far below the bar's lower edge its glass still fades a list scrolled under it: the
+        /// soft edge of the scroll edge effect, which shows only once content is under the bar. In
+        /// iOS 26.5's simulator, the ground under a sheet's bar was still lightened about 30 points
+        /// below the bar's buttons, and a row's label there failed the contrast check.
+        static let softEdgeDepth: CGFloat = 32
+
+        /// Whether an element at `element` is content more than half under the bar, or above it, not
+        /// one of the bar's own. The glass fades content from the top of the screen, or of the sheet,
+        /// down to the bar's lower edge: a sheet's bar starts below the sheet's top, and a list
+        /// scrolled to put a row's top half above the bar's frame failed the contrast check. In a
+        /// list `scrolled` under the bar, the fade reaches `softEdgeDepth` further down.
+        func hides(_ element: CGRect, scrolled: Bool) -> Bool {
+            guard element.width > 0, element.height > 0, !itemFrames.contains(element) else { return false }
+            let bottom = frame.maxY + (scrolled ? Self.softEdgeDepth : 0)
+            let faded = CGRect(x: frame.minX, y: 0, width: frame.width, height: bottom)
+            let covered = element.intersection(faded)
+            return !covered.isNull && covered.width * covered.height > element.width * element.height / 2
+        }
+    }
+
+    /// `performAccessibilityAudit()` while a system alert shows, without two checks that misreport
+    /// the alert UIKit draws and would fail `auditAccessibility()` on it:
+    /// - Dynamic Type: the alert scales its title, message and buttons, yet each of its labels is
+    ///   reported as "partially unsupported", the buttons' on an element the audit cannot name.
+    /// - Element detection: the import confirmation is reported as showing "potentially inaccessible
+    ///   text" on an element the audit cannot name, although its title, message and buttons are all
+    ///   elements.
+    ///
+    /// Contrast, hit regions, descriptions, clipped text and traits are still checked. The screen
+    /// behind the alert gets the full audit before and after it.
+    @MainActor
+    func auditAlertAccessibility() throws {
+        try audit(XCUIAccessibilityAuditType.all.subtracting([.dynamicType, .elementDetection])) { _ in false }
+    }
+
+    /// `performAccessibilityAudit(for:_:)` for `types`, a batch at a time. A single audit of every
+    /// check failed in CI with "Audit failed to complete in time" on the host editor, the longest
+    /// screen, on a slow runner. The two checks that try each text size take the longest, so each
+    /// runs on its own, after the others, which read the screen at its own size.
+    @MainActor
+    private func audit(
+        _ types: XCUIAccessibilityAuditType, ignoring isIgnored: @escaping (XCUIAccessibilityAuditIssue) -> Bool
+    ) throws {
+        // The audit reads the screen as it is drawn: a push or a sheet still moving in shows up as
+        // low contrast or clipped text, on a slow CI runner especially. Give it time to settle.
+        settle(for: 2)
+        defer { settleAfterAudit() }
+        let sizeChecks: [XCUIAccessibilityAuditType] = [.textClipped, .dynamicType]
+        let batches = [types.subtracting([.textClipped, .dynamicType])] + sizeChecks.filter { types.contains($0) }
+        for (index, batch) in batches.enumerated() where !batch.isEmpty {
+            // A check that tried the text sizes puts the screen back at its own size as it ends.
+            if index > 1 { settleAfterAudit() }
+            try auditInTime(batch, ignoring: isIgnored)
+        }
+    }
+
+    /// The audit's checks on iOS, each of which can run on its own.
+    private static let auditChecks: [XCUIAccessibilityAuditType] = [
+        .contrast, .elementDetection, .hitRegion, .sufficientElementDescription, .dynamicType, .textClipped, .trait,
+    ]
+
+    /// `performAccessibilityAudit(for:_:)` for `batch`, or, if that does not finish in time, for
+    /// each of its checks on its own. Even the batch without the text sizes did not, once, on a slow
+    /// CI runner: "Audit failed to complete in time" after 26 seconds on the Host Key Changed sheet.
+    /// Running out of time is not a finding, and a single check does less.
+    @MainActor
+    private func auditInTime(
+        _ batch: XCUIAccessibilityAuditType, ignoring isIgnored: @escaping (XCUIAccessibilityAuditIssue) -> Bool
+    ) throws {
+        do {
+            try performAccessibilityAudit(for: batch, isIgnored)
+        } catch let error as NSError
+            where error.domain == "com.apple.xcode.xctest.accessibilityAudit" && error.code == -56
+        {
+            let checks = Self.auditChecks.filter { batch.contains($0) }
+            guard checks.count > 1 else { throw error }
+            for check in checks {
+                settleAfterAudit()
+                try performAccessibilityAudit(for: check, isIgnored)
+            }
+        }
+    }
+
+    /// Waits for moving views to come to rest, which XCUITest does not wait for in the system's file
+    /// pickers, nor for an accessibility audit to finish.
+    @MainActor
+    func settle(for seconds: TimeInterval = 1) {
+        _ = XCTWaiter.wait(for: [XCTestExpectation(description: "The screen settles")], timeout: seconds)
+    }
+
+    /// The audit makes the text larger while it runs and puts it back at the end. A tap while the
+    /// screen lays out again can miss what it aims at.
+    @MainActor
+    private func settleAfterAudit() {
+        settle(for: 1)
+    }
+
+    /// Fills in the host sheet's text fields that have a value here, and saves.
+    @MainActor
+    func addHost(name: String, address: String, port: String? = nil, user: String? = nil) {
+        buttons["Add Host"].firstMatch.tap()
+        enter(name, into: textFields["Name"])
+        enter(address, into: textFields["Address"])
+        if let port {
+            replace(with: port, in: textFields["Port"])
+        }
+        if let user {
+            enter(user, into: textFields["User"])
+        }
+        navigationBars["New Host"].buttons["Save"].tap()
+        XCTAssertTrue(navigationBars["Hosts"].waitForExistence(timeout: 5))
+    }
+
+    /// Opens the Settings sheet from the host list. On a slow CI runner the tap on Settings, just
+    /// after the app came back to the foreground, took 13.5 seconds to arrive, and a 5-second wait
+    /// for the sheet ran out. This waits longer, and taps again while the sheet is not up, at most
+    /// three times.
+    @MainActor
+    func openSettings(file: StaticString = #filePath, line: UInt = #line) {
+        let sheet = navigationBars["Settings"]
+        for _ in 0..<3 {
+            buttons["Settings"].tap()
+            if sheet.waitForExistence(timeout: 15) {
+                return
+            }
+        }
+        XCTFail("The Settings sheet does not open", file: file, line: line)
+    }
+
+    @MainActor
+    func enter(_ text: String, into field: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(field.waitForExistence(timeout: 5), file: file, line: line)
+        focus(field, file: file, line: line) { field.tap() }
+        field.typeText(text)
+    }
+
+    /// Taps a text field until it has the keyboard focus, at most three times: XCUITest types only
+    /// into a field that has it, and a tap does not always leave it there. In one CI run the app's
+    /// main thread stalled for 8 seconds just after a tap gave a field the focus, while the
+    /// simulator's keyboard service looked up language data. SpringBoard dropped the app's keyboard
+    /// connection meanwhile, and once the app ran again UIKit took the focus away from the field.
+    @MainActor
+    private func focus(_ field: XCUIElement, file: StaticString, line: UInt, by tap: () -> Void) {
+        let focused = NSPredicate(format: "hasKeyboardFocus == true")
+        for _ in 0..<3 {
+            tap()
+            let expectation = XCTNSPredicateExpectation(predicate: focused, object: field)
+            if XCTWaiter.wait(for: [expectation], timeout: 5) == .completed {
+                return
+            }
+        }
+        XCTFail("\(field) does not take the keyboard focus", file: file, line: line)
+    }
+
+    /// Scrolls the screen, a little at a time, until the whole of `element` lies where a tap reaches
+    /// it (`TapArea`): `isHittable` alone is not enough. In a CI run, a row whose centre lay 3 points
+    /// above the bottom of the window counted as hittable, and its tap went to the home indicator.
+    /// Lists create rows only as they scroll into view, so an element that is not there yet is looked
+    /// for further down; one that went up under the navigation bar is brought back down.
+    @MainActor
+    func reveal(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        var scrolled = false
+        var previous: CGRect?
+        for _ in 0..<16 {
+            guard let area = try? TapArea(self) else {
+                XCTFail("The screen cannot be read", file: file, line: line)
+                return
+            }
+            // At most this far per drag, so that a drag never carries the element past the area.
+            let step = area.height * 0.4
+            guard element.exists, element.isHittable else {
+                scroll(by: -step)
+                scrolled = true
+                previous = nil
+                continue
+            }
+            let frame = element.frame
+            // An element taller than the area needs only its centre in it.
+            let fits = frame.height <= area.height
+            let top = fits ? frame.minY : frame.midY
+            let bottom = fits ? frame.maxY : frame.midY
+            // The last drag up did not move the element: the list ends there.
+            let isAtTheEnd = previous.map { abs($0.minY - frame.minY) < 1 } ?? false
+            if bottom > area.bottom, !(isAtTheEnd && frame.midY <= area.lowest) {
+                scroll(by: -min(bottom - area.bottom + 20, step))
+            } else if top < area.top {
+                scroll(by: min(area.top - top + 20, step))
+            } else {
+                if scrolled { settle() }
+                return
+            }
+            previous = frame
+            scrolled = true
+        }
+        XCTFail("\(element) does not come wholly into view", file: file, line: line)
+    }
+
+    /// Where a tap reaches the screen's content: below the lowest navigation bar, which is a sheet's
+    /// when one is up, or else below the status bar; and 100 points above the bottom of the window,
+    /// clear of the home indicator, or above the keyboard while it is up.
+    private struct TapArea {
+        let top: CGFloat
+        let bottom: CGFloat
+        /// How far down the centre of a list's last element may lie, when the list cannot scroll it
+        /// higher: still clear of the home indicator.
+        let lowest: CGFloat
+
+        var height: CGFloat { bottom - top }
+
+        /// The area on the screen as it is now. The bars' frames come from one snapshot of the app:
+        /// a query for each would take a snapshot of its own, which is slow on a slow CI runner.
+        @MainActor
+        init(_ app: XCUIApplication) throws {
+            let screen = try app.snapshot()
+            let window = screen.frame
+            var navigationBarBottoms: [CGFloat] = []
+            var keyboardTops: [CGFloat] = []
+            var pending = [screen]
+            while let element = pending.popLast() {
+                switch element.elementType {
+                case .navigationBar: navigationBarBottoms.append(element.frame.maxY)
+                case .keyboard: keyboardTops.append(element.frame.minY)
+                default: pending += element.children
+                }
+            }
+            top = navigationBarBottoms.max() ?? window.minY + 62
+            if let keyboardTop = keyboardTops.min() {
+                bottom = min(window.maxY - 100, keyboardTop)
+                lowest = bottom
+            } else {
+                bottom = window.maxY - 100
+                lowest = window.maxY - 50
+            }
+        }
+    }
+
+    /// Drags the screen's content `distance` points down, or up when it is negative, from the middle
+    /// of the window. The drag starts at once, since holding first could pick up what it starts on,
+    /// and holds still at its end, so that the list stops there: one that glides on would leave the
+    /// element elsewhere, and a tap on a gliding list only stops it.
+    @MainActor
+    private func scroll(by distance: CGFloat) {
+        let start = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(
+            forDuration: 0, thenDragTo: start.withOffset(CGVector(dx: 0, dy: distance)), withVelocity: .slow,
+            thenHoldForDuration: 0.3)
+    }
+
+    /// The menu picker labelled `label`: a button that reads the label, then the chosen value, such
+    /// as "Method, SSH Key".
+    @MainActor
+    func picker(_ label: String) -> XCUIElement {
+        buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "\(label), ")).firstMatch
+    }
+
+    /// Chooses `option` in the menu of the picker labelled `label`.
+    @MainActor
+    func choose(_ option: String, in label: String) {
+        let picker = picker(label)
+        reveal(picker)
+        picker.tap()
+        let item = buttons[option]
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        item.tap()
+        XCTAssertTrue(item.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(picker.label, "\(label), \(option)")
+    }
+
+    /// Replaces a text field's value with `text`. The tap goes to the field's end: a field that wraps
+    /// puts the cursor where the tap lands, and the deletes must start after the last character.
+    ///
+    /// A text field that still shows its old value five seconds later never got the keys, which are
+    /// typed once more. In a CI run, a field had the focus 20 seconds before the keyboard came up;
+    /// what XCUITest typed just as it came up was lost, while the tap on Save right after arrived. A
+    /// secure field shows only dots, and is not checked.
+    @MainActor
+    func replace(with text: String, in field: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(field.waitForExistence(timeout: 5), file: file, line: line)
+        for attempt in 1...2 {
+            focus(field, file: file, line: line) {
+                field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.9)).tap()
+            }
+            let old = field.value as? String ?? ""
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + text)
+            guard attempt == 1, field.elementType == .textField, old != text.filter({ !$0.isNewline }) else {
+                return
+            }
+            let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value != %@", old), object: field)
+            if XCTWaiter.wait(for: [changed], timeout: 5) == .completed {
+                return
+            }
+        }
+    }
+
+    /// Turns the switch `toggle` on with a tap on the switch itself, and taps again while it stays
+    /// off, at most three times. In CI, a tap on a switch in the host sheet after the keyboard had
+    /// been up sometimes changed nothing, the screen recording showing no reaction (see
+    /// `addTaggedFavorite`): on Attach tmux session, a second after the list had come to rest, with
+    /// the switch still off when the test failed five seconds later.
+    @MainActor
+    func turnOn(_ toggle: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let isOn = NSPredicate(format: "value == %@", "1")
+        for _ in 0..<3 {
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+            let turnedOn = XCTNSPredicateExpectation(predicate: isOn, object: toggle)
+            if XCTWaiter.wait(for: [turnedOn], timeout: 5) == .completed {
+                return
+            }
+        }
+        XCTFail("\(toggle) stays off", file: file, line: line)
+    }
+
+    /// Adds `nas`, a favourite in the new group Homelab with the new tag Staging.
+    @MainActor
+    func addTaggedFavorite() {
+        buttons["Add Host"].firstMatch.tap()
+        // The switch comes first, before the keyboard has been up. In three CI runs, the tap on it
+        // right after Return had put the keyboard away changed nothing, and the screen recordings
+        // show no reaction at all. A tap in the middle of the switch's row can land on its label;
+        // tap the switch itself.
+        let favorite = switches["Favorite"].firstMatch
+        reveal(favorite)
+        favorite.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(favorite.value as? String, "1")
+
+        enter("nas", into: textFields["Name"])
+        enter("nas.lan", into: textFields["Address"])
+        // Return in the last field of the section puts the keyboard away.
+        enter("admin\n", into: textFields["User"])
+        reveal(buttons["New Group…"])
+        buttons["New Group…"].tap()
+        enter("Homelab", into: alerts["New Group"].textFields.firstMatch)
+        alerts["New Group"].buttons["Add"].tap()
+
+        reveal(buttons["New Tag…"])
+        buttons["New Tag…"].tap()
+        // The keyboard can cover the colours: put it away, choose the colour, then type the name.
+        textFields["Tag Name"].typeText("\n")
+        buttons["Purple"].tap()
+        XCTAssertTrue(buttons["Purple"].isSelected)
+        enter("Staging", into: textFields["Tag Name"])
+        navigationBars["New Tag"].buttons["Add"].tap()
+        XCTAssertTrue(buttons["Staging"].waitForExistence(timeout: 5))
+        XCTAssertTrue(buttons["Staging"].isSelected)
+
+        navigationBars["New Host"].buttons["Save"].tap()
+        XCTAssertTrue(buttons["nas"].firstMatch.waitForExistence(timeout: 5))
+    }
+
+    // MARK: - Files
+
+    /// The system's file exporter or importer, once it shows.
+    @MainActor
+    var filePicker: XCUIElement {
+        filePickerBars.firstMatch
+    }
+
+    /// The bars of the file picker's screens. A folder's screen is pushed onto the list of
+    /// locations, so there can be more than one.
+    @MainActor
+    private var filePickerBars: XCUIElementQuery {
+        navigationBars.matching(identifier: "FullDocumentManagerViewControllerNavigationBar")
+    }
+
+    /// Taps Export Data in the open Settings sheet and saves the file in On My iPhone under the name
+    /// the app suggests, which has the time in it. Returns the file's name as the app's result line
+    /// gives it: the exporter's name field is not always in the accessibility tree.
+    @MainActor
+    func exportData() -> String {
+        buttons["Export Data…"].tap()
+        showOnMyIPhone()
+        // Save is enabled once the picker has opened the folder, which takes a while on a slow runner.
+        // It is the enabled one of the bars' Save buttons.
+        let save = filePickerBars.buttons
+            .matching(NSPredicate(format: "label == %@ AND isEnabled == true", "Save")).firstMatch
+        XCTAssertTrue(save.waitForExistence(timeout: 30), "Save stays disabled")
+        save.tap()
+        XCTAssertTrue(filePicker.waitForNonExistence(timeout: 30))
+        // "Exported 1 host to “Shello Export 2026-10-21 14.05.09.json”."
+        let result = staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Exported ")).firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 10))
+        guard let name = result.label.firstMatch(of: /“(.+)”/)?.1 else {
+            XCTFail("\(result.label) does not name the file")
+            return ""
+        }
+        return String(name)
+    }
+
+    /// Taps Import Data in the open Settings sheet and picks the file `name` in On My iPhone.
+    @MainActor
+    func importData(named name: String) {
+        showImporterOnMyIPhone()
+        // A picked file closes the importer at once, once Files knows it (see
+        // `prepareFilesForPicking()`). A file the importer still shows is tapped again every ten
+        // seconds, for up to three minutes.
+        let deadline = Date.now.addingTimeInterval(180)
+        repeat {
+            if pickOnce(named: name) { return }
+        } while Date.now < deadline && cells.containing(.staticText, identifier: name).firstMatch.exists
+        XCTFail("The file importer does not pick \(name)")
+    }
+
+    /// Makes sure that the importer can pick what the exporter saves in On My iPhone. A new
+    /// simulator, which CI starts each run with, does not allow that for minutes: until Files' first
+    /// indexing pass, picking a file there does nothing at all. The importer stays, and the app logs
+    /// "Could not resolve bookmark … The file doesn’t exist." On a Mac the pass came one to three
+    /// minutes after the first file was saved, while the importer kept trying. In CI it came only
+    /// once Shello had left the screen: an importer kept open for ten minutes never picked its file,
+    /// while the next test's file, a minute after Shello closed, was picked at once.
+    ///
+    /// So this saves an empty export and tries to import it. As long as the importer cannot pick it,
+    /// it closes Shello, waits half a minute and tries again in a new launch. A simulator whose
+    /// On My iPhone is already indexed picks the file at once.
+    @MainActor
+    static func prepareFilesForPicking() {
+        var app = launchWithEmptyDatabase()
+        app.openSettings()
+        let name = app.exportData()
+        for _ in 0..<12 {
+            app.showImporterOnMyIPhone()
+            if app.pickOnce(named: name) {
+                let alert = app.alerts["Nothing to Import"]
+                XCTAssertTrue(alert.waitForExistence(timeout: 10))
+                alert.buttons["OK"].tap()
+                app.terminate()
+                return
+            }
+            app.terminate()
+            _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Files indexes On My iPhone")], timeout: 30)
+            app = launchWithEmptyDatabase()
+            app.openSettings()
+        }
+        XCTFail("The file importer never picks \(name)")
+    }
+
+    /// Opens the file importer on On My iPhone from the open Settings sheet.
+    @MainActor
+    private func showImporterOnMyIPhone() {
+        buttons["Import Data…"].tap()
+        // The importer opens on the recent files; the exporter's files are under Browse.
+        let browse = tabBars["DOC.browsingModeTabBar"].buttons["Browse"]
+        XCTAssertTrue(browse.waitForExistence(timeout: 30))
+        browse.tap()
+        showOnMyIPhone()
+    }
+
+    /// Taps the file `name` in the open importer, and returns whether the importer picked it.
+    @MainActor
+    private func pickOnce(named name: String) -> Bool {
+        let file = cells.containing(.staticText, identifier: name).firstMatch
+        // The file's icon, at the top of its cell.
+        let icon = CGVector(dx: 0.5, dy: 0.25)
+        scrollClearOfTheBars(file, at: icon)
+        file.coordinate(withNormalizedOffset: icon).tap()
+        return filePicker.waitForNonExistence(timeout: 10)
+    }
+
+    /// Scrolls the file picker until the point `offset` of `file` lies between the picker's bars,
+    /// which the files scroll under: a tap there would otherwise land on the search field or a tab.
+    /// Files are sorted by name, so a new export comes after the earlier ones, and the picker makes
+    /// cells only as they scroll into view. While the file has no cell yet, a flick passes many files
+    /// at once, however many earlier runs left. Then each drag starts at once, since holding a file
+    /// first picks it up to move it, and holds still at its end, so that the list stops at once: a
+    /// tap on a gliding list only stops it.
+    @MainActor
+    private func scrollClearOfTheBars(_ file: XCUIElement, at offset: CGVector) {
+        let clear = (filePicker.frame.maxY + 20)...(tabBars["DOC.browsingModeTabBar"].frame.minY - 20)
+        for _ in 0..<40 {
+            let point = file.exists ? file.frame.minY + file.frame.height * offset.dy : nil
+            if let point, clear.contains(point) { return }
+            guard let point else {
+                swipeUp(velocity: .fast)
+                settle(for: 2)
+                continue
+            }
+            // A drag up brings later files into view, a drag down earlier ones.
+            let (start, distance): (CGFloat, CGFloat) = point < clear.lowerBound ? (0.45, 200) : (0.75, -200)
+            let from = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: start))
+            from.press(
+                forDuration: 0, thenDragTo: from.withOffset(CGVector(dx: 0, dy: distance)), withVelocity: .slow,
+                thenHoldForDuration: 0.3)
+        }
+        XCTFail("\(file) does not come clear of the file picker's bars")
+    }
+
+    /// Moves the file picker to On My iPhone, the simulator's own files: every test run can write
+    /// there, signed in to iCloud or not.
+    @MainActor
+    private func showOnMyIPhone() {
+        // The picker can take more than ten seconds to show while a new simulator is still busy.
+        XCTAssertTrue(filePicker.waitForExistence(timeout: 30))
+        // The title is text, or a button for the folder's menu, "On My iPhone, Actions Menu".
+        let title = filePickerBars.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "On My iPhone")).firstMatch
+        if !title.waitForExistence(timeout: 2) {
+            let location = cells["DOC.sidebar.item.On My iPhone"]
+            // In a folder, the back button leads to the list of locations.
+            if !location.exists {
+                filePicker.buttons["BackButton"].tap()
+            }
+            XCTAssertTrue(location.waitForExistence(timeout: 10))
+            location.tap()
+            XCTAssertTrue(title.waitForExistence(timeout: 10))
+        }
+        // Let the folder's screen come to rest before the next tap.
+        settle()
+    }
+}
+
+extension UIImage {
+    /// The image's mean brightness, from 0 for black to 1 for white.
+    var averageBrightness: CGFloat {
+        guard let image = cgImage else { return 0 }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        pixel.withUnsafeMutableBytes { bytes in
+            let context = CGContext(
+                data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            context?.interpolationQuality = .medium
+            context?.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
+        return CGFloat(Int(pixel[0]) + Int(pixel[1]) + Int(pixel[2])) / (3 * 255)
+    }
+}
+
+/// Face ID in the simulator, driven through the notifications that its simulated biometry listens
+/// to, as the simulator's Features menu does.
+enum SimulatedFaceID {
+    /// Enrols a face, so that LocalAuthentication can ask for Face ID.
+    static func enroll() {
+        setEnrolled(true)
+    }
+
+    /// Removes the face, as a new simulator has none.
+    static func unenroll() {
+        setEnrolled(false)
+    }
+
+    /// The face in front of the camera matches.
+    static func match() {
+        notify_post("com.apple.BiometricKit_Sim.pearl.match")
+    }
+
+    /// The face in front of the camera does not match.
+    static func failToMatch() {
+        notify_post("com.apple.BiometricKit_Sim.pearl.nomatch")
+    }
+
+    private static func setEnrolled(_ isEnrolled: Bool) {
+        var token: Int32 = 0
+        notify_register_check("com.apple.BiometricKit.enrollmentChanged", &token)
+        notify_set_state(token, isEnrolled ? 1 : 0)
+        notify_post("com.apple.BiometricKit.enrollmentChanged")
+        notify_cancel(token)
+    }
+}

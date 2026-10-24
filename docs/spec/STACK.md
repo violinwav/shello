@@ -135,7 +135,7 @@ Xcode 26's [Enhanced Security capability](https://developer.apple.com/documentat
 
 Consequences:
 
-- The arm64e slice is only added when `ARCHS` is left at `ARCHS_STANDARD`, so the `Vendor/` scripts build libssh, OpenSSL and Mosh for **arm64e as well as arm64**. Whether OpenSSL's assembly works on arm64e is a spike item (section 13). Disabling OpenSSL assembly would be the last resort, because it costs a lot of throughput.
+- The arm64e slice is only added when `ARCHS` is left at `ARCHS_STANDARD`, so the `Vendor/` scripts build libssh, OpenSSL and Mosh for **arm64e as well as arm64**. OpenSSL's assembly works on arm64e with one patch (spike item 7, section 13). Poly1305's assembly hands C unsigned code pointers, which pointer authentication rejects, so ChaCha20-Poly1305 crashed. `Vendor/patches/openssl/` signs them. `Vendor/test-openssl-arm64e.sh` runs OpenSSL's test suite as arm64e on macOS, where pointer authentication is enforced too. Disabling OpenSSL assembly would have been the last resort, because it costs a lot of throughput.
 - Swift package targets do not inherit the project's build settings, so `ShelloKit` would build without arm64e and the device build fails. The workspace setting `iOSPackagesShouldBuildARM64e`, in `Shello.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings`, makes Xcode build packages for arm64e too ([BrowserEngineKit: build for pointer authentication](https://developer.apple.com/documentation/browserenginekit/creating-browser-extensions-in-xcode#Build-for-pointer-authentication)). CI checks both slices.
 - Memory tagging only works on A19 and later and is not available in the Simulator. Address Sanitizer [cannot be combined with it](https://developer.apple.com/documentation/xcode-release-notes/xcode-26_1-release-notes), so sanitizer runs use a separate build configuration.
 
@@ -143,21 +143,22 @@ Consequences:
 
 - C: `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=2`, `-ftrivial-auto-var-init=zero`, plus the typed allocators above. Shello's own C shims also get `ENABLE_C_BOUNDS_SAFETY = YES` (`-fbounds-safety`); upstream libraries are not annotated for it.
 - C++ (Mosh, protobuf, Abseil): `CLANG_CXX_STANDARD_LIBRARY_HARDENING = fast` in Release and `extensive` in Debug and tests (`_LIBCPP_HARDENING_MODE`, [Xcode 16](https://developer.apple.com/documentation/xcode-release-notes/xcode-16-release-notes)).
-- OpenSSL is configured with only what libssh, Mosh and the backup need: libcrypto, no libssl, and `no-shared no-engine no-comp no-legacy no-apps no-docs no-tests`. The exact option list is fixed in the spike.
+- OpenSSL is configured with only what libssh, Mosh and the backup need: libcrypto, no libssl, and `no-shared no-engine no-comp no-legacy no-apps no-docs no-tests no-autoload-config`. The spike added `no-autoload-config`, because an app has no `openssl.cnf` to load. `Vendor/README.md` lists the libssh options.
 
 ## 6. Concurrency and performance model
 
-**Connections.** Each connection is an `actor` whose executor is its own `DispatchSerialQueue` (`nonisolated var unownedExecutor { queue.asUnownedSerialExecutor() }`, [SE-0392](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0392-custom-actor-executors.md); `DispatchSerialQueue` conforms to `SerialExecutor` from iOS 17). The same queue runs the `NWConnection` callbacks, the socketpair pump and every libssh call. libssh is therefore never touched from two threads (ADR 0002), and the compiler rejects code that tries.
+**Connections.** Each connection is an `actor` whose executor is its own `DispatchSerialQueue` ([SE-0392](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0392-custom-actor-executors.md)). The same queue runs the `NWConnection` callbacks, the socketpair pump and every libssh call. libssh is therefore never touched from two threads (ADR 0002), and the compiler rejects code that tries; every libssh operation also checks that it runs on the queue (`dispatchPrecondition`). The executor (`QueueExecutor`) puts each of the actor's jobs on the queue as a block, as Network.framework puts its callbacks, and each block keeps the executor alive until its job has run: a connection's isolated deinit is a job on its own executor, and the jump host's connection it releases deinits right then, while the runtime looks at the executor it runs on. `DispatchSerialQueue`'s own executor (`queue.asUnownedSerialExecutor()`) hands jobs to libdispatch past the functions Thread Sanitizer watches: with it, Thread Sanitizer reported every variable the jobs and the callbacks share as a race (39 reports in the ShelloSSH and ShelloCore tests, none with `QueueExecutor`).
 
-**Input path** (budget: keystroke to network send under 10 ms). Key event on the main actor, one hop to the connection actor, `ssh_channel_write`, then the socketpair and `NWConnection.send`. No allocation-heavy work and no main-thread round trip on the way.
+**Input path** (budget: keystroke to network send under 10 ms). Key event on the main actor, one hop to the connection actor, `ssh_channel_write`, then the socketpair and `NWConnection.send`. No allocation-heavy work and no main-thread round trip on the way. A key of the Shello keyboard reaches the terminal's stream before the keyboard draws or gives feedback: in the simulator, with no output, its keys took 0.1 ms (median) and 7.4 ms (95th percentile) from the moment the touch was queued on the main thread (`TerminalPerformanceTests`). The keyboard's own part, from the touch reaching it to the stream, is the signpost interval "Key".
 
 **Output path** (budget: a 10 MB log never freezes input).
 
 - libssh output is read in chunks and handed to the terminal in batches, coalesced to the display refresh.
 - When the terminal falls behind, Shello stops reading the channel. The SSH window then fills and the server slows down. Nothing is dropped and memory stays bounded.
 - Input is never queued behind output.
+- The terminal is attached to a connection through a byte stream (`TerminalByteStream` in `ShelloModel`). It parses the stream's output off the main actor, 4 KiB at a time: SwiftTerm's terminal lock is fair, so the main thread waits for at most one slice when it registers a key or prepares a frame.
 
-**Rendering.** SwiftTerm draws with CoreText by default and has an optional Metal renderer (`setUseMetal(true)`). The spike measures both against the 120 Hz and 10 MB targets and picks one.
+**Rendering.** SwiftTerm draws with CoreText by default and has an optional Metal renderer (`setUseMetal(true)`). Shello uses CoreText (`TerminalRenderer.standard`). In the 10 MB test (`TerminalPerformanceTests`, iPhone 17 simulator, debug build) both printed the 10 MB equally fast, but typing stayed responsive only with CoreText: keystroke latency median 9 ms and p95 30 ms, against 113 ms and 502 ms with Metal. The measurement on devices (below) confirms or reverses the choice; switching is one line.
 
 **Memory** (budget: 10 tabs with full scrollback under 200 MB). Ten tabs of 10,000 lines at 80 or more columns is 8 million cells or more. At SwiftTerm's per-cell size this is close to the budget, so it is measured in the spike. If it is over, older scrollback is compacted.
 
@@ -173,8 +174,8 @@ Consequences:
 - **Network changes:** `NWPathMonitor` plus the connection's viability and better-path handlers drive the "reconnecting" state and backoff.
 - **Reachability probes (v1):** a TCP connect with a short timeout through `NWConnection`, at most once per minute per host, and only while the host list is visible.
 - **Local Network privacy:**
-  - `NSLocalNetworkUsageDescription` is set, and Shello explains the prompt before the first local connect ([TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy)).
-  - Denial shows up as `.waiting` with `unsatisfiedReason == .localNetworkDenied`.
+  - `NSLocalNetworkUsageDescription` is set, and Shello explains the prompt before the first local connect ([TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy)). Whether a server is local is a guess from its address (`Server.isOnLocalNetwork`): private and link-local addresses, `.local` and the suffixes home networks use, and names of one label. Through jump hosts, only the route's first host is reached from the device, so only it counts: a host behind a jump host never brings the explanation, whatever its address.
+  - Denial shows up as `.waiting` with `unsatisfiedReason == .localNetworkDenied`, and so does the time while the prompt is up. The connection keeps waiting then, since iOS retries it once access is granted; at the connect timeout it fails with `SSHError.localNetworkDenied`, which says where to allow access. A `.waiting` for any other reason fails a first connection at once.
   - The Simulator does not enforce this, so it is tested on a device.
 - **Port forwarding (v1):**
   - Local and dynamic forwards listen through `NWListener` bound to `127.0.0.1` only, never to all interfaces.
@@ -191,6 +192,10 @@ Consequences:
 - **SSH agent:** `SSH_OPTIONS_FD`, `ssh_userauth_agent`, `ssh_set_agent_channel`, `ssh_set_agent_socket`, and `ssh_channel_request_auth_agent` for agent forwarding.
 - **Authentication:** keyboard-interactive (`ssh_userauth_kbdint*`); OpenSSH certificates (`ssh_pki_import_cert_*`, `ssh_pki_copy_cert_to_privkey`).
 - **ProxyJump:** `SSH_OPTIONS_PROXYJUMP` exists, but Shello builds jump chains itself. Each hop is a `direct-tcpip` channel, so every hop gets Shello's own host-key check and credentials.
+  - A route (`Route` in `ShelloModel`) is the route to the first jump host, through its own jump hosts as OpenSSH applies them, then the other jump hosts, then the host. Shello refuses one that reaches a host twice, has a jump host that is missing or not an SSH host, or has more than 8 jump hosts (`Route.maximumJumpHosts`; OpenSSH sets no limit).
+  - The channel is a byte stream, `SSHTunnel` (`SSHConnection.openTunnel(to:port:)`), which local forwards and VNC's tunnel use too. What the far end sends is read only as fast as the reader asks; what Shello sends goes into the channel as the far end's window allows, and `drain()` waits for it. Either side's end of input (EOF) and close pass through.
+  - The next hop's connection is an `SSHConnection` of its own, on its own queue, whose libssh talks on its own socketpair, as a direct one's does. Its bridge sends what libssh writes into the jump host's tunnel instead of an `NWConnection`, and holds no more than 1 MiB that the tunnel has not taken; the jump host's connection writes it into the channel on its own queue. A jump host's connection that ends ends the connections after it, as lost.
+  - `HostConnector.connect(along:…)` connects hop by hop, each host key checked under the hop's own server, the address and port as the hop before reaches them, and each hop signing in with its own host's method. A tab's connection is the whole route (`RouteConnection`): the shell, hidden channels and keepalive use the last connection, and the network events come from the first.
 - **SFTP:** the async API (`sftp_aio_begin_read/write`, `sftp_aio_wait_*`, since 0.11.0) pipelines requests, which is what makes transfers fast on high-latency links.
 - **Fuzzing:** libssh is fuzzed in [OSS-Fuzz](https://github.com/google/oss-fuzz/tree/master/projects/libssh).
 - **Licence:** LGPL-2.1-or-later, with an OpenSSL linking exception. Some newer files are LGPL-2.1-only, which is still GPLv3-compatible because LGPL 2.1 section 3 allows relicensing to the GPL.
@@ -202,18 +207,21 @@ Consequences:
 - **iOS support:** iOS is a [community-tier](https://openssl-library.org/policies/general-supplemental/platforms/index.html) OpenSSL platform. Shello builds with the upstream `ios64-xcrun` and `iossimulator-arm64-xcrun` targets and adds arm64e.
 - **mbedTLS** is not a real fallback anymore. libssh 0.12 does not support mbedTLS 4.x, and mbedTLS 3.6 LTS ends in March 2027 (section 15).
 
-**Algorithm policy as data** (README section 14). The preferred lists for key exchange, ciphers, MACs and host keys ship as a bundled, versioned resource. They are applied through `ssh_options_set` (`SSH_OPTIONS_KEY_EXCHANGE`, `SSH_OPTIONS_CIPHERS_C_S`, `SSH_OPTIONS_HMAC_C_S`, `SSH_OPTIONS_HOSTKEYS` …) and can be overridden per host. MVP default order:
+**Algorithm policy as data** (README section 14). The preferred lists for key exchange, ciphers, MACs, host keys and the SSH keys' signatures ship as a bundled, versioned resource, `Packages/ShelloKit/Sources/ShelloSSH/Resources/AlgorithmPolicy.json` (version 2), with the names of the post-quantum key exchanges that mark a connection post-quantum or classical. They are applied through `ssh_options_set` (`SSH_OPTIONS_KEY_EXCHANGE`, `SSH_OPTIONS_CIPHERS_C_S` and `_S_C`, `SSH_OPTIONS_HMAC_C_S` and `_S_C`, `SSH_OPTIONS_HOSTKEYS`, `SSH_OPTIONS_PUBLICKEY_ACCEPTED_TYPES`). A host's own lists (`AlgorithmOverrides`) replace the policy's; their screen and their storage come with v1. The host key algorithms of the server's trusted host key go first, as OpenSSH orders them for a server in `known_hosts`, so that a server with several host keys presents the trusted one. Settings, Diagnostics shows what the policy offers. MVP default order:
 
-- Key exchange: `mlkem768x25519-sha256`, `sntrup761x25519-sha512`, `curve25519-sha256`.
-- Ciphers: `chacha20-poly1305`, AES-GCM, AES-CTR.
-- MACs: HMAC-SHA2 encrypt-then-MAC.
-- Off: SHA-1, CBC and DSA.
+- Key exchange: `mlkem768x25519-sha256`, `sntrup761x25519-sha512`, `curve25519-sha256`, then the classical ones without SHA-1 that a server without curve25519, such as one in FIPS mode, may have: `ecdh-sha2-nistp256`, `ecdh-sha2-nistp384`, `ecdh-sha2-nistp521`, `diffie-hellman-group16-sha512`, `diffie-hellman-group18-sha512`, `diffie-hellman-group14-sha256`. sntrup is offered under its vendor name `sntrup761x25519-sha512@openssh.com` too, the only one OpenSSH before 9.9 knows.
+- Ciphers: `chacha20-poly1305@openssh.com`, `aes256-gcm@openssh.com`, `aes128-gcm@openssh.com`, `aes256-ctr`, `aes192-ctr`, `aes128-ctr`.
+- MACs: `hmac-sha2-256-etm@openssh.com`, `hmac-sha2-512-etm@openssh.com`. Only AES-CTR uses them; the other ciphers authenticate themselves.
+- Host keys and SSH keys: `ssh-ed25519`, `ecdsa-sha2-nistp256`, `ecdsa-sha2-nistp384`, `ecdsa-sha2-nistp521`, `rsa-sha2-512`, `rsa-sha2-256`.
+- Off: SHA-1, CBC and DSA. libssh 0.12 has no DSA at all.
 
 **Host keys.**
 
 - Shello keeps its own trust store in the database, keyed by server (address and port), not libssh's `known_hosts` file.
 - The fingerprint shown is SHA-256, computed with `ssh_get_publickey_hash(SSH_PUBLICKEY_HASH_SHA256)`.
-- Replacing a stored host key requires a LocalAuthentication check.
+- Replacing a stored host key requires a LocalAuthentication check: a fresh `LAContext` and `deviceOwnerAuthentication` each time, whether or not the unlock window is open, after the user confirmed the replacement. On a device without a passcode, which cannot ask anyone, the confirmation is enough, as with app lock.
+
+**Keyboard-interactive** (`ssh_userauth_kbdint`): each round of the server's questions goes to the user in one sign-in sheet, which shows or hides each answer as the server asks. The questions are the server's text, so control characters and bidirectional overrides are removed before they are shown. The answers go to libssh as secrets, which libssh overwrites once sent. After a partial success, as on a server with two-factor sign-in, Shello continues with keyboard-interactive, or the host's password or SSH key, whichever the server takes.
 
 ### 7.3 SSH keys, secrets and the SSH agent (README section 13)
 
@@ -223,13 +231,32 @@ Consequences:
 | Generated Ed25519 key | CryptoKit `Curve25519.Signing.PrivateKey`, raw representation in the Keychain, `…WhenUnlockedThisDeviceOnly` with access control. |
 | Imported key | Parsed by libssh (`ssh_pki_import_privkey_base64`: OpenSSH and PEM, with passphrase). The private key is stored in the Keychain; the passphrase is not kept. Synced only on opt-in (`kSecAttrSynchronizable`, v1). |
 | Unlock window | One `LAContext` evaluated at app lock and passed to every Keychain read (`kSecUseAuthenticationContext`) and Secure Enclave signature (`authenticationContext:`). Invalidated when app lock re-engages. "Every use" keys get a fresh context per signature. |
-| Signing for libssh | All SSH keys sign through Shello's SSH agent, connected to libssh with `ssh_set_agent_socket` or `ssh_set_agent_channel` and used through `ssh_userauth_agent` (spike item 3). Secure Enclave keys can never be handed to libssh as private keys, and one signing path gives one place for confirmations and the security log. |
-| SSH agent protocol | Written in-house in Swift ([draft-ietf-sshm-ssh-agent](https://datatracker.ietf.org/doc/draft-ietf-sshm-ssh-agent/)), using [Secretive's `SSHProtocolKit`](https://github.com/maxgoedjen/Secretive) (MIT) as a reference. Fuzzed. |
+| Signing for libssh | All SSH keys sign through Shello's SSH agent (`SSHAgent`), connected to libssh with `ssh_set_agent_socket` and used through `ssh_userauth_agent` (spike item 3). The agent serves one end of a pair of Unix sockets on a queue of its own, because libssh waits for each answer on the connection's queue. For a sign-in it offers the host's key only, and signs through `SSHKeyStore`. Secure Enclave keys can never be handed to libssh as private keys, and one signing path gives one place for confirmations and the security log. |
+| SSH agent protocol | Written in-house in Swift ([draft-ietf-sshm-ssh-agent](https://datatracker.ietf.org/doc/draft-ietf-sshm-ssh-agent/)), using [Secretive's `SSHProtocolKit`](https://github.com/maxgoedjen/Secretive) (MIT) as a reference, with the standard library only. Fuzzed by `Fuzz/SSHAgentProtocol`, built with the swift.org toolchain in Docker (`Fuzz/README.md`). |
 | Public key formats, QR | OpenSSH public-key encoding written in-house; QR codes via Core Image `CIQRCodeGenerator` (v1). |
 | Passwords, passphrases, sudo passwords | Keychain generic passwords, `…WhenUnlockedThisDeviceOnly` unless the user opts into sync. Sudo passwords also carry a biometric access control (README section 9). |
 | Secrets in memory | Kept as byte buffers, never `String`, and overwritten after use. Passed to libssh as C buffers. |
 | Post-quantum signatures (Later) | CryptoKit `MLDSA65` / `MLDSA87`, including Secure Enclave variants, available since [iOS 26](https://developer.apple.com/documentation/cryptokit/enhancing-your-app-s-privacy-and-security-with-quantum-secure-workflows). Waits for OpenSSH. |
 | FIDO2 keys (Later) | libssh 0.12 supports FIDO/U2F through libfido2. The iOS transport is a later decision. |
+
+**Generated keys in the Keychain.**
+
+- Each generated key is one generic password item of the service `ch.shello.ssh-key`, found by the key's identifier.
+- The item's generic attribute holds the key's record: name, kind, signing policy, public key and creation time. Attributes read without authentication, so keys are listed without a prompt.
+- The item's data is the key itself: the Secure Enclave's blob, or the Ed25519 private key behind the access control. The record never holds it.
+- `SSHKeyStore` in `ShelloSecurity` is the only code that reads the data, and it hands out public keys and signatures only.
+
+**Imported keys** (README section 13):
+
+- libssh reads the pasted or picked text (`ssh_pki_import_privkey_base64`): OpenSSH's format and PEM, PKCS #8 included, plain or encrypted. Before that, Shello reads only what the text says without its passphrase (`ShelloSSH/KeyImport/KeyText.swift`, fuzzed by `Fuzz/KeyText`): the format, whether it is encrypted, and an OpenSSH key's public key. So it asks for the passphrase only when the key needs one, and refuses DSA, RSA under 2048 bits, ECDSA P-521 and security keys first, each with its own sentence.
+- The text and the passphrase stay in byte buffers that are overwritten once let go, never in a `String` or a text field: the sheet has the system's Paste button and the Files app's picker. Once a pasted key is imported, Shello empties the clipboard, which would hold the key, or its passphrase if the user copied that meanwhile. An app cannot tell whether the clipboard changed since its paste: its own count of the clipboard's changes moves whenever one of its text fields takes the keyboard. libssh's own copies are freed by libssh.
+- libssh hands the decrypted key over as PKCS #8 (`ssh_pki_export_privkey_base64_format`), whose private key Shello finds in place (`PKCS8.swift`): Ed25519's seed and an ECDSA scalar for CryptoKit, an RSA key's PKCS #1 `RSAPrivateKey` for Security (`SecKeyCreateWithData`), as CryptoKit has no RSA. Shello imports a key only if the public key it computes from the private key is the one libssh read.
+- The private key is a Keychain item like a generated Ed25519 key's: the service `ch.shello.ssh-key`, `WhenUnlockedThisDeviceOnly`, never synchronizable (sync on opt-in is v1), readable only with the user's presence. The record's kind is `imported`, with the algorithm beside it; a Shello from before skips such records. The passphrase is not kept.
+- Imported keys sign through the same SSH agent and `SSHKeyStore.sign`, under their signing policy. ECDSA P-384 signs with SHA-384; RSA signs with SHA-256 or SHA-512 as the sign request's flags say (RFC 8332), and refuses a request for SHA-1's `ssh-rsa`. libssh asks for SHA-512 when the server's `server-sig-algs` has it.
+
+**Install on host** (README section 13) runs one command on a hidden channel of a tab's open connection, as `ssh-copy-id` does: `exec sh -c '…'`, which every login shell, fish and csh included, passes on to POSIX sh as it is. The script makes `~/.ssh` (700) and `authorized_keys` (600) if they are missing, adds the key's line unless a line that is not a comment has the key already, ends a file without a final line break first, and runs `restorecon` where SELinux is. The key's line reaches the file through `printf` with every byte that a shell or `printf` would read anything into written as an octal escape, so no part of the key's name is ever read as shell syntax (`ShelloCore/AuthorizedKeys.swift`).
+
+**The iOS Simulator** reports a Secure Enclave (`SecureEnclave.isAvailable`) but refuses to make a key that needs the user's presence ("This call is not supported on iOS Simulator"). Its Keychain also gives out items that need the user's presence without asking. Shello therefore offers Ed25519 keys only in the simulator. Secure Enclave keys and the Keychain's access control are checked on a device (section 11).
 
 **App lock and privacy.**
 
@@ -264,23 +291,34 @@ Consequences:
 ### 7.5 Shello keyboard, extra keys row and pads (README sections 6 and 7)
 
 - **Keyboard:** a UIKit `UIInputView` subclass set as the terminal's `inputView`. SwiftUI has no API to replace the system keyboard.
-- **Extra keys row:** a `UIScrollView` set as `inputAccessoryView`, shown above the system keyboard too.
+- **Extra keys row:** a `UIScrollView` set as `inputAccessoryView`, shown above the system keyboard too. The key that switches between the Shello keyboard and the system keyboard stays at its end, outside the scrolling part: it is the only key that can bring the Shello keyboard back.
 - **Keys and layouts:** keys are drawn with Core Animation layers. One gesture recognizer per keyboard handles tap, flick, long-press alternates, key repeat and the swipe key, which keeps per-key overhead and latency low. Layouts (QWERTY, QWERTZ, AZERTY, symbols, function, the Vim pad) are data, not code.
+- **What keys send:** what SwiftTerm sends for the same key on a hardware keyboard: its `EscapeSequences`, its `sendKey…` and `pageUp`/`pageDown` for the keys that depend on the program's cursor key mode, and xterm's modifier parameters. The Shello keyboard writes to the terminal directly rather than through `UITextInput`, whose rules for the system keyboard, such as a period after two spaces, have no place in a terminal. Control and Alt armed on the extra keys row reach the system keyboard's next key through the terminal's `insertText`.
+- **Colours:** the keyboard follows the terminal's theme rather than the app's appearance, so the Night theme's keyboard is dark in light mode too, as the system keyboard over the terminal is.
 - **Haptics:** `UIImpactFeedbackGenerator`, prepared ahead of the touch. Input clicks via `UIInputViewAudioFeedback`.
 - **Hardware keyboards:**
   - SwiftTerm's `pressesBegan` handles Ctrl and Option as Meta.
   - The Esc remap is a Shello setting.
   - App shortcuts (new tab, next tab, font size, Cmd-K) use SwiftUI `.commands` / `.keyboardShortcut`, which also fill the iPadOS menu bar. `UIKeyCommand.wantsPriorityOverSystemBehavior` handles shortcuts that compete with text input.
 - **Accessibility:**
-  - Every key has the `.keyboardKey` trait and a localised label.
-  - The keyboard container uses `.allowsDirectInteraction` so VoiceOver users can type.
+  - Every key has the `.keyboardKey` trait and a localised label, and is an accessibility element of its own whose activation presses it, so VoiceOver's typing modes work as with the system keyboard. A key's corner symbol and alternates are its actions, and a modifier's Lock and Unlock, since VoiceOver's and Switch Control's activations are too far apart for a double tap; holding a modifier on its own locks it too. Voice Control also knows a key by the label it shows, such as "123".
+  - The elements outlive layer changes, rotation and text size changes, so VoiceOver keeps its place. After a layer change it moves to the key where the layer key was and says the new layer's name; after a keyboard switch it moves to the switch key.
+  - The swipe key, which takes drags, uses `.allowsDirectInteraction`, and offers each arrow as an action too. A tap on one of its arrows sends that arrow, except with VoiceOver, whose touches the trait passes straight through. The function layer has arrow keys, for those who can neither drag nor aim at the swipe key's arrows, and for Voice Control. The whole keyboard container does not use the trait: a direct-interaction element hides the elements inside it from VoiceOver, which would leave no keys to type with.
+  - Keys follow Bold Text, Increase Contrast (an outline around every key) and Dynamic Type, up to the size a letter key holds.
 - **Custom keys and presets (v1):** stored in the database. A custom key references its snippet by identifier.
 
 ### 7.6 tmux (README section 8)
 
 - **Hidden channels:** queries run on hidden channels, which are libssh exec channels on the tab's connection, or on the side connection for Mosh tabs.
 - **Commands and parsing:** commands use explicit `-F` format strings with a field separator that cannot appear in tmux names. The parsers are fuzzed.
-- **Version gate:** `tmux -V` decides between the full tmux browser and plain attach. The minimum version is set during testing.
+  - `ShelloTmux` lists sessions with fields separated by a tab, the name last, and `-u`. tmux before 3.7 lists a tab in a name as `\t`, and 3.7 refuses one; with `-u` it passes the format's tabs on, while without it a client whose locale is not UTF-8 turns them into `_`. The unit separator would not do: tmux 3.4 writes it as `\037` even with `-u`. Checked with tmux 3.2a, 3.4 and 3.7c.
+  - The parsers of `tmux -V` and of the session list use the standard library only. `Fuzz/TmuxOutput` fuzzes them, and a seeded test runs them with every build.
+- **Auto-attach (MVP):**
+  - Before a connection's shell opens, a hidden channel runs `tmux -V`, within the host's connect timeout. Before the shell, not beside it: a server that allows one session per connection (`MaxSessions 1`) would refuse the second channel.
+  - With tmux 1.8 or later, the tab types the startup command, then ` tmux -u new-session -A -s '<name>'`, both once the shell shows its prompt. The startup command runs in the login shell, outside tmux: what it sets reaches a tmux session that starts now, and nothing is typed into a program left running in a session that is reattached. The space before the command keeps it out of the shell's history where `HISTCONTROL=ignorespace` or `HIST_IGNORE_SPACE` is set; `-u` because Shello's terminal always takes UTF-8 and libssh sends no locale.
+  - A tmux that is missing, too old or prints no version Shello reads gets a plain shell, and the terminal says why in a line of Shello's own. VoiceOver hears why with the announcement that the tab is connected, which would cut off an announcement of its own.
+  - The check runs with the `PATH` sshd gives a command, as `ssh host tmux -V` does. A tmux that only the login shell's profile puts on the `PATH`, such as Homebrew's on a Mac or Nix's, counts as missing.
+- **Version gate:** auto-attach needs tmux 1.8, which added `new-session -A`. The distributions with OpenSSH 8.8 or later ship tmux 3.2a or later, as Alpine 3.15 and Ubuntu 22.04 do, so the gate turns away little more than servers older than Shello supports. The test servers run 3.4 and 3.7c; 1.8 to 3.1 are not tested. The tmux browser (v1) sets its own minimum, between itself and plain attach.
 - **Control mode (`tmux -CC`):** Later.
 
 ### 7.7 Mosh (README section 4, ADR 0004) — v1
@@ -352,7 +390,7 @@ How the database works:
   - A modification timestamp per syncable field.
   - Tombstones for deletions, with an undo window.
   - This avoids a data migration when sync arrives in v1.
-- **JSON export and import:** `Codable` with an explicit `schemaVersion`. Imports are validated before they touch the database.
+- **JSON export and import:** `Codable` with an explicit `schemaVersion`. Imports are validated before they touch the database. The format: `docs/spec/EXPORT.md`.
 - **No secrets in the database,** so no SQLCipher. Data Protection plus the Keychain cover the threat model.
 
 ### 7.11 Sync and backup (README section 15) — v1
@@ -397,9 +435,10 @@ How the database works:
 - **VoiceOver:**
   - SwiftUI accessibility modifiers on every control. UIKit `UIAccessibility` on the terminal, keyboard and VNC view.
   - New terminal output is announced with `UIAccessibility.post(notification: .announcement, …)`, throttled.
-  - A custom rotor reads the current line.
+  - Custom actions, in VoiceOver's Actions rotor, read the line the cursor is on, copy it or the screen, and change the text size.
 - **Dynamic Type, Reduce Motion, colour:**
   - Dynamic Type for every app screen. The terminal font size is separate.
+  - A text size change is laid out at once (`DesignSystem.applyTextSizeChangesAtOnce`), not in the next layout pass, which waits while the main thread is busy. The accessibility audit's Dynamic Type check sets one size after another and reads the screen after each; on a slow CI runner it read sizes that had not been drawn yet, and reported text that scales as partially unsupported.
   - Reduce Motion stops the cursor blink.
   - Status is never shown by colour alone; the UI design already pairs the online dot with an offline ring.
 - **Automated checks:** XCUITest runs [`performAccessibilityAudit`](https://developer.apple.com/documentation/xctest/xcuiapplication/performaccessibilityaudit(for:_:)) (iOS 17) on every main screen in CI.
@@ -416,7 +455,7 @@ Shipped in the app:
 | zlib | system `libz` | zlib | libssh compression, Mosh, VNC | MVP | Part of iOS. |
 | SwiftTerm | v1.99.0, then 2.0.0 | MIT | Terminal emulation and iOS view | MVP | Pinned exactly while 2.0 settles. |
 | GRDB.swift | 7.11.1 | MIT | SQLite access, migrations, observation | MVP | |
-| Geist, JetBrains Mono | current release | OFL-1.1 | Fonts | MVP | Licence texts in the acknowledgements. |
+| Geist, JetBrains Mono | Geist 1.8.1, JetBrains Mono 2.304 | OFL-1.1 | Fonts | MVP | Licence texts in the acknowledgements. Sources and checksums: `Packages/ShelloKit/Sources/ShelloFeatures/Resources/Fonts/README.md`. |
 | Mosh (blinksh/mosh fork) | pinned commit | GPL-3.0-or-later, OpenSSL exception | Mosh client | v1 | Upstream 1.4.0 plus master. |
 | protobuf (lite) | v36.x (fallback 3.21.x) | BSD-3-Clause | Mosh wire format | v1 | Spike decides the version. |
 | Abseil | version required by the protobuf pin | Apache-2.0 | protobuf dependency | v1 | Only with protobuf ≥ v22. |
@@ -486,7 +525,7 @@ Development and CI only:
 | Integration: protocol | `ShelloSSH` and `ShelloTmux` built for Linux, run against Docker OpenSSH servers | Every pull request |
 | Integration: app end to end | iOS Simulator app connecting to the CI Mac's own `sshd`, started unprivileged on a high port | Every pull request |
 | Network faults | Toxiproxy for TCP; tc netem for Mosh's UDP | Nightly |
-| Fuzzing | libFuzzer: SwiftTerm's targets plus Shello's parsers (OpenSSH config and known\_hosts import, SSH agent protocol, tmux output, sudo-prompt detection, SOCKS5, JSON import, snippet variables). libssh and Mosh are covered by OSS-Fuzz. | 60-second smoke run per pull request, long runs nightly |
+| Fuzzing | libFuzzer: SwiftTerm's targets plus Shello's parsers (OpenSSH config and known\_hosts import, SSH agent protocol, tmux output, private keys' text before libssh reads them, sudo-prompt detection, SOCKS5, JSON import, snippet variables). libssh and Mosh are covered by OSS-Fuzz. | 60-second smoke run per pull request, long runs nightly |
 | Sanitizers | Address, Thread and Undefined Behavior Sanitizers in a dedicated configuration. Thread Sanitizer guards the libssh threading rule. | Nightly |
 | Performance | XCTest metrics with signposts (section 6) | Simulator per pull request as a regression signal; physical devices before each TestFlight build |
 | Device-only checks | Secure Enclave, arm64e and memory tagging, Local Network prompt, Wi-Fi to cellular switches, haptics | Before each TestFlight build |
@@ -498,7 +537,7 @@ Development and CI only:
 | MVP | Alpine 3.15 (8.8), Ubuntu 22.04 (8.9), Debian 12 (9.2), Ubuntu 24.04 (9.6), RHEL 10 (9.9), Debian 13 (10.0), Alpine 3.24 (10.3), Alpine edge (10.6, the latest upstream) |
 | v1 additions | RHEL 9 (8.7), Dropbear, several tmux versions, mosh-server |
 
-The post-quantum tests (spike item 4) run against 10.x, where `mlkem768x25519-sha256` is OpenSSH's default. RHEL 9.0–9.7 ships OpenSSH 8.7, below the MVP floor, which is why it waits for v1.
+The post-quantum tests (spike item 4) run against 10.x, where `mlkem768x25519-sha256` is OpenSSH's default, against Ubuntu 24.04's 9.6, which knows only `sntrup761x25519-sha512@openssh.com`, and against 10.x with post-quantum key exchange off (`TestServers/README.md`). Alpine 3.15's 8.8, the floor, and 10.x limited to the NIST curves and Diffie-Hellman groups, as in FIPS mode, run as Docker test servers too, the floor with sign-in by password, key and keyboard-interactive. RHEL 9.0–9.7 ships OpenSSH 8.7, below the MVP floor, which is why it waits for v1.
 
 **Why the core builds on Linux.** GitHub's macOS runners have no Docker. Building `ShelloSSH`, `ShelloTmux` and `ShelloModel` for Linux, with a POSIX socket transport used only in tests, lets every pull request run against the whole OpenSSH matrix. The Network.framework bridge is covered by the end-to-end tests on macOS and by device tests. If the Linux build costs more than it saves, the fallback is running the matrix locally with Docker before each merge.
 

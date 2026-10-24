@@ -1,0 +1,6 @@
+// libssh functions that ShelloSSH calls but libssh's installed headers leave out. Declarations
+// only: the functions are in the libssh.xcframework that ShelloSSH links (Vendor/README.md).
+module CLibSSHInternal [system] {
+    header "libssh_internal.h"
+    export *
+}
