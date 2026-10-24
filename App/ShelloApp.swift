@@ -5,6 +5,7 @@ import ShelloModel
 import ShelloSecurity
 import ShelloStorage
 import SwiftUI
+import UIKit
 import os
 
 /// Composition root. Services are created here and passed to the screens through the SwiftUI environment.
@@ -24,6 +25,8 @@ struct ShelloApp: App {
     private let terminalSettings: TerminalSettings
     /// Whether iOS's Local Network question has been explained on this device.
     private let localNetworkNotice: LocalNetworkNotice
+    /// The tabs each window has open, for Restore, under the windows' scene sessions.
+    private let rememberedTabs: RememberedTabsStore
     /// Whether the data a UI test asked for is in the database. Debug builds only.
     @State private var hasTestData = !Launch.addsTestData
 
@@ -41,6 +44,9 @@ struct ShelloApp: App {
         appLock = AppLock(window: unlockWindow, defaults: Launch.settings, isEnabled: Launch.locksApp)
         terminalSettings = TerminalSettings(defaults: Launch.settings, cursorBlinks: Launch.blinksCursor)
         localNetworkNotice = LocalNetworkNotice(defaults: Launch.settings)
+        rememberedTabs = RememberedTabsStore(
+            file: Launch.rememberedTabsFile,
+            openWindows: { Set(UIApplication.shared.openSessions.map(\.persistentIdentifier)) })
         let secrets = secrets
         let sshKeys = sshKeys
         services = Result { Services(database: try Self.openDatabase(), secrets: secrets, keys: sshKeys) }
@@ -67,6 +73,7 @@ struct ShelloApp: App {
                             .environment(\.hostConnector, services.hostConnector)
                             .environment(\.localNetworkNotice, localNetworkNotice)
                             .environment(\.backgroundConnectionTime, Launch.backgroundConnectionTime)
+                            .environment(\.rememberedTabs, rememberedTabs)
                     case .success(let services):
                         Color.clear.task {
                             await Launch.addTestData(to: services.hostKeyRepository)
@@ -102,9 +109,8 @@ struct ShelloApp: App {
     }
 
     private static func openDatabase() throws -> AppDatabase {
-        if Launch.usesEmptyDatabase {
-            return try AppDatabase(
-                directory: URL.temporaryDirectory.appending(path: "UITests-\(UUID().uuidString)"))
+        if let directory = Launch.testDataDirectory {
+            return try AppDatabase(directory: directory)
         }
         return try AppDatabase.openInAppGroup()
     }
@@ -133,7 +139,16 @@ private enum Launch {
         /// UI tests start every launch with an empty database and settings of their own.
         private static let isUITesting = environment["SHELLO_UI_TESTING"] == "1"
 
-        static var usesEmptyDatabase: Bool { isUITesting }
+        /// Where a UI test's database and remembered tabs live: a new directory at every launch, so
+        /// that each test starts from no hosts; or, for a test that names its data
+        /// (`SHELLO_UI_TESTING_DATA`), the same directory at every launch, so that it can terminate
+        /// Shello and find its hosts and tabs in the next launch (RestoreTests).
+        static let testDataDirectory: URL? =
+            isUITesting
+            ? URL.temporaryDirectory.appending(
+                path: "UITests-\(environment["SHELLO_UI_TESTING_DATA"] ?? UUID().uuidString)",
+                directoryHint: .isDirectory)
+            : nil
 
         /// UI tests start every launch without SSH keys: the keys live in memory, not the Keychain.
         static var keepsSSHKeysInMemory: Bool { isUITesting }
@@ -210,8 +225,14 @@ private enum Launch {
             defaults.removePersistentDomain(forName: suite)
             return defaults
         }()
+
+        /// A UI test's remembered tabs go with its database.
+        static var rememberedTabsFile: URL {
+            testDataDirectory?.appending(path: rememberedTabsFileName) ?? shippedRememberedTabsFile
+        }
     #else
-        static let usesEmptyDatabase = false
+        static let testDataDirectory: URL? = nil
+        static let rememberedTabsFile = shippedRememberedTabsFile
         static let keepsSSHKeysInMemory = false
         static let standsInForSecureEnclave = false
         static let fixtureSSHKeys: [SSHKeyStore.FixtureKey] = []
@@ -224,4 +245,11 @@ private enum Launch {
         static let addsTestData = false
         static func addTestData(to hostKeys: HostKeyRepository) async {}
     #endif
+
+    private static let rememberedTabsFileName = "RememberedTabs.json"
+
+    /// Where the windows remember their tabs: in the app's own container, as no extension restores
+    /// tabs, rather than in the App Group's with the database.
+    private static let shippedRememberedTabsFile = URL.applicationSupportDirectory.appending(
+        path: rememberedTabsFileName, directoryHint: .notDirectory)
 }

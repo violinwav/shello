@@ -15,6 +15,9 @@ public enum TabState: Equatable, Sendable {
     /// Shello closed the connection in the background (README section 4). The tab reconnects once it
     /// is on screen again.
     case suspended
+    /// Restore (GLOSSARY) recreated the tab after Shello was terminated, and it has not connected
+    /// yet: it connects once it is on screen, as a suspended tab does.
+    case restored
     /// The shell ended, as after `exit`: nothing reconnects until the user asks.
     case ended
     /// The tab has no connection, for the reason given, and does not try again by itself: connecting
@@ -27,7 +30,7 @@ public enum TabState: Equatable, Sendable {
     public var isConnecting: Bool {
         switch self {
         case .connecting, .reconnecting: true
-        case .active, .suspended, .ended, .disconnected, .closed: false
+        case .active, .suspended, .restored, .ended, .disconnected, .closed: false
         }
     }
 }

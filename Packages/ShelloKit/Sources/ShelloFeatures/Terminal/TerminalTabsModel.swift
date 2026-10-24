@@ -14,6 +14,9 @@ import os
 /// - In the background, the connections stay for the short time iOS grants (a background task),
 ///   then close cleanly. Back in the foreground and unlocked, the tab on screen reconnects.
 /// - VoiceOver hears what the selected tab's connection does.
+/// - The window remembers its tabs as they change (`RememberedTabsStore`). When it appears after
+///   Shello was terminated, the Live section offers the tabs it had open, and nothing connects until
+///   the user restores them, all or one, or dismisses them (GLOSSARY: Restore).
 @MainActor
 @Observable
 final class TerminalTabsModel {
@@ -27,7 +30,17 @@ final class TerminalTabsModel {
     /// Whether the selected tab's connection sheet shows.
     var isShowingConnection = false
 
+    /// The tabs the window had open when Shello was terminated, which the Live section offers to
+    /// restore until the user restores or dismisses them. Nil when there are none.
+    private(set) var restoreOffer: RestoreOffer?
+
     @ObservationIgnored private let settings: TerminalSettings?
+    @ObservationIgnored private let hosts: HostRepository?
+    @ObservationIgnored private let rememberedTabs: RememberedTabsStore?
+    /// The window's scene session, under which its tabs are remembered, once the window appeared.
+    @ObservationIgnored private var windowID: String?
+    /// Follows the saved hosts while the offer shows.
+    @ObservationIgnored private var offerUpdates: Task<Void, Never>?
     /// How long the connections stay in the background: nil for what iOS grants.
     @ObservationIgnored private let backgroundTime: Duration?
     @ObservationIgnored private var isSceneActive = false
@@ -36,18 +49,30 @@ final class TerminalTabsModel {
     @ObservationIgnored private var closingInBackground: Task<Void, Never>?
     /// Whether the terminal that was selected last had the keyboard, which the next one takes.
     @ObservationIgnored private(set) var passesKeyboardFocus = false
+    /// The tab the user opened last, with Connect, New Tab or Restore: VoiceOver goes to its terminal
+    /// once it connects. A tab that connects once it is selected, after the background or after
+    /// Restore, leaves VoiceOver where it is.
+    @ObservationIgnored private(set) var tabOpenedByTheUser: UUID?
 
     /// Tabs that connect with `connector` and record their connections in `hosts`, with terminals
-    /// made with `settings`. `backgroundTime` replaces the background time iOS grants, for the UI
-    /// tests.
-    init(connector: HostConnector, hosts: HostRepository?, settings: TerminalSettings?, backgroundTime: Duration? = nil)
-    {
+    /// made with `settings`, remembered in `rememberedTabs` for Restore. `backgroundTime` replaces the
+    /// background time iOS grants, for the UI tests.
+    init(
+        connector: HostConnector, hosts: HostRepository?, settings: TerminalSettings?,
+        rememberedTabs: RememberedTabsStore? = nil, backgroundTime: Duration? = nil
+    ) {
         self.settings = settings
+        self.hosts = hosts
+        self.rememberedTabs = rememberedTabs
         self.backgroundTime = backgroundTime
         let preferences = { settings?.preferences ?? TerminalPreferences() }
         tabs = TerminalTabs(services: TabServices(connector: connector, hosts: hosts)) { _ in
             TerminalController(preferences: preferences(), theme: .night, typeface: DesignSystem.terminalTypeface)
         }
+    }
+
+    isolated deinit {
+        offerUpdates?.cancel()
     }
 
     var selectedTab: TerminalTab<TerminalController>? { tabs.selectedTab }
@@ -58,7 +83,9 @@ final class TerminalTabsModel {
     func connect(to host: Host) {
         noteKeyboardFocus()
         isShowingConnection = false
-        announceSlowConnection(of: tabs.open(host))
+        let tab = tabs.open(host)
+        tabOpenedByTheUser = tab.id
+        announceSlowConnection(of: tab)
         isShowingTerminals = true
     }
 
@@ -170,6 +197,123 @@ final class TerminalTabsModel {
     /// hardware keyboard types on in the new tab.
     private func noteKeyboardFocus() {
         passesKeyboardFocus = selectedTab?.terminal.view.isFirstResponder ?? false
+    }
+
+    // MARK: - Restore
+
+    /// The window is on screen, in the scene session `id`: from now on its tabs are remembered under
+    /// it as they change, and the tabs it had open when Shello was terminated are offered. Only the
+    /// first time counts: while the window's tabs live, there is nothing to restore, as when Shello
+    /// comes back to the foreground with them (README section 4).
+    func windowAppeared(_ id: String) {
+        guard windowID == nil, let rememberedTabs else { return }
+        windowID = id
+        let remembered = rememberedTabs.windowAppeared(id)
+        tabs.onRememberedTabsChange = { [weak self] remembered in self?.remember(remembered) }
+        guard !remembered.isEmpty else { return }
+        offerUpdates = Task { [weak self] in await self?.offer(remembered) }
+    }
+
+    /// Offers `remembered`, with their hosts as they are saved, and follows the saved hosts while the
+    /// offer shows: a host deleted meanwhile leaves it, so that its tab is never restored. With no
+    /// host left, nothing is offered, nor remembered any more.
+    private func offer(_ remembered: RememberedTabs) async {
+        guard let hosts else { return }
+        var isFirst = true
+        do {
+            for try await saved in hosts.observeHosts() {
+                guard !Task.isCancelled else { return }
+                let byID = Dictionary(saved.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                let offer = isFirst ? RestoreOffer(remembered, hosts: byID) : restoreOffer?.updated(with: byID)
+                isFirst = false
+                guard let offer, !offer.isEmpty else {
+                    endOffer()
+                    remember(tabs.remembered)
+                    return
+                }
+                restoreOffer = offer
+            }
+        } catch is CancellationError {
+        } catch {
+            Self.logger.error("Could not read the hosts of the tabs to restore: \(error)")
+        }
+    }
+
+    /// The name the offered tab would go by once restored: its host's, with a number after it when
+    /// a tab before it, open or offered, goes by that name too, as in "nas (2)". Restored tabs come
+    /// after the open ones, so that no open tab's name changes.
+    func name(ofOffered tab: RestoreOffer.Tab) -> String {
+        let name = tab.host.name
+        let open = tabs.tabs.filter { Self.baseName(of: $0) == name }.count
+        let offered = (restoreOffer?.tabs ?? []).prefix { $0.id != tab.id }.filter { $0.host.name == name }.count
+        let before = open + offered
+        return before == 0 ? name : "\(name) (\(before + 1))"
+    }
+
+    /// The offered tabs' names, in their order (`name(ofOffered:)`).
+    var offeredTabNames: [String] {
+        (restoreOffer?.tabs ?? []).map(name(ofOffered:))
+    }
+
+    /// The place of the offered tab that connects at once if all are restored: the selected one, or
+    /// the first while no tab is open; nil when an open tab stays selected, and none does.
+    var offeredTabConnectingAtOnce: Int? {
+        guard let offer = restoreOffer else { return nil }
+        return offer.selectedIndex ?? (selectedTab == nil ? 0 : nil)
+    }
+
+    /// Restores every offered tab, in their order, and shows them with the same tab selected, which
+    /// connects at once; each of the others connects once it is selected (README section 4), so that
+    /// restoring costs at most one Face ID prompt.
+    func restoreAll() {
+        guard let offer = restoreOffer else { return }
+        restore(offer.hosts, selecting: offer.selectedIndex)
+    }
+
+    /// Restores the offered tab `id` alone: it opens after the open tabs, connects and shows, and
+    /// the others stay offered.
+    func restoreTab(_ id: RestoreOffer.Tab.ID) {
+        guard let offer = restoreOffer, let tab = offer.tabs.first(where: { $0.id == id }) else { return }
+        let rest = offer.removingTab(id)
+        restore([tab.host], selecting: 0, offering: rest.isEmpty ? nil : rest)
+    }
+
+    /// Restores tabs for `hosts`, selecting the one at `selected`, and shows them; `rest` stays
+    /// offered.
+    private func restore(_ hosts: [Host], selecting selected: Int?, offering rest: RestoreOffer? = nil) {
+        if let rest {
+            restoreOffer = rest
+        } else {
+            endOffer()
+        }
+        noteKeyboardFocus()
+        isShowingConnection = false
+        let wasSelected = tabs.selectedTabID
+        tabs.restore(hosts, selecting: selected)
+        if let tab = selectedTab, tab.id != wasSelected {
+            tabOpenedByTheUser = tab.id
+            announceSlowConnection(of: tab)
+        }
+        isShowingTerminals = true
+    }
+
+    /// Forgets the offered tabs: the window remembers what it has open now, so that the next launch
+    /// offers them no more.
+    func dismissRestoreOffer() {
+        guard restoreOffer != nil else { return }
+        endOffer()
+        remember(tabs.remembered)
+    }
+
+    private func endOffer() {
+        offerUpdates?.cancel()
+        offerUpdates = nil
+        restoreOffer = nil
+    }
+
+    private func remember(_ remembered: RememberedTabs) {
+        guard let windowID else { return }
+        rememberedTabs?.remember(remembered, ofWindow: windowID)
     }
 
     // MARK: - Names

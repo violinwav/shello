@@ -184,17 +184,22 @@ extension XCUIApplication {
 
 /// A TCP proxy on this device's loopback between Shello and the test server, which the test breaks
 /// as a network breaks: `cut()` resets every connection through it and refuses new ones, until
-/// `restore()`. It also counts the connections Shello has open through it, to see one close.
-/// ShelloCoreTests' FaultyProxy, of which this keeps what the UI tests need.
+/// `restore()`. It also counts the connections Shello has open through it, to see one close, and
+/// every one it opened, to see that none was made. ShelloCoreTests' FaultyProxy, of which this keeps
+/// what the UI tests need.
 final class FaultyProxy: Sendable {
     let port: UInt16
     private let listener: NWListener
     private let targetPort: UInt16
     private let queue = DispatchQueue(label: "ch.shello.uitests.proxy")
-    private let state = Mutex<(isCut: Bool, connections: [NWConnection], open: Int)>((false, [], 0))
+    private let state = Mutex<(isCut: Bool, connections: [NWConnection], open: Int, accepted: Int)>(
+        (false, [], 0, 0))
 
     /// The connections Shello opened through the proxy and has not closed yet.
     var openConnectionCount: Int { state.withLock { $0.open } }
+
+    /// Every connection Shello opened through the proxy.
+    var acceptedConnectionCount: Int { state.withLock { $0.accepted } }
 
     /// Waits until Shello has closed every connection through the proxy, for at most `timeout`
     /// seconds, and returns whether it did.
@@ -265,6 +270,7 @@ final class FaultyProxy: Sendable {
         state.withLock { state in
             state.connections += [inbound, outbound]
             state.open += 1
+            state.accepted += 1
         }
         inbound.start(queue: queue)
         outbound.start(queue: queue)

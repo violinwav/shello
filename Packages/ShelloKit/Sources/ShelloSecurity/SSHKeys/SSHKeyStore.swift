@@ -49,7 +49,9 @@ public struct SSHKeyStore: Sendable {
     /// Without `secureEnclave`, the store makes Ed25519 keys only, as in the iOS Simulator. With it,
     /// a stand-in makes the Secure Enclave's kind of key, as an ordinary P-256 key in memory.
     /// `fixtureKeys` are there from the start, so that a test can sign in to a test server that
-    /// knows them; one that is not an Ed25519 private key is left out.
+    /// knows them; one that is not an Ed25519 private key is left out. Each has the same identifier
+    /// in every store, made from its public key, so that a host saved with it in one launch of a UI
+    /// test finds it in the next.
     public static func inMemory(
         unlockWindow: UnlockWindow, authentication: some Authentication = LocalAuthentication(),
         secureEnclave: Bool = false, fixtureKeys: [FixtureKey] = []
@@ -60,13 +62,26 @@ public struct SSHKeyStore: Sendable {
                 continue
             }
             let key = SSHKey(
-                id: UUID(), comment: fixture.comment, kind: .ed25519, signingPolicy: fixture.signingPolicy,
-                publicKey: SSHPublicKey(privateKey.publicKey), createdAt: Date())
+                id: fixtureIdentifier(of: privateKey.publicKey), comment: fixture.comment, kind: .ed25519,
+                signingPolicy: fixture.signingPolicy, publicKey: SSHPublicKey(privateKey.publicKey), createdAt: Date())
             try? items.add(KeyRecord(key), keyData: Secret(copying: fixture.privateKey), requiresUserPresence: true)
         }
         return SSHKeyStore(
             items: items, enclave: MemoryEnclave(isAvailable: secureEnclave), unlockWindow: unlockWindow,
             authentication: authentication)
+    }
+
+    /// The identifier of the fixture key whose public key is `publicKey`: the first 16 bytes of the
+    /// key's SHA-256 hash, as a UUID of version 8, which RFC 9562 leaves to the application.
+    private static func fixtureIdentifier(of publicKey: Curve25519.Signing.PublicKey) -> UUID {
+        var bytes = Array(SHA256.hash(data: publicKey.rawRepresentation).prefix(16))
+        bytes[6] = bytes[6] & 0x0F | 0x80
+        bytes[8] = bytes[8] & 0x3F | 0x80
+        return UUID(
+            uuid: (
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
+                bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+            ))
     }
 
     /// An Ed25519 key that a store in memory starts with (`inMemory(…)`): a test fixture whose

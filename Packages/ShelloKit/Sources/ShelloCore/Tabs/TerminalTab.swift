@@ -134,8 +134,10 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
     @ObservationIgnored private var signInAnswer: CheckedContinuation<[Secret]?, Never>?
     @ObservationIgnored private var promptInterval: (state: OSSignpostIntervalState, start: ContinuousClock.Instant)?
 
+    /// A tab for `host`, which connects once it starts; or, `isRestored`, a tab that Restore
+    /// recreated, which waits in `TabState.restored` until it is resumed.
     init(
-        host: Host, terminal: Terminal, services: TabServices, conditions: TabConditions,
+        host: Host, terminal: Terminal, services: TabServices, conditions: TabConditions, isRestored: Bool = false,
         declined: @escaping @MainActor (TerminalTab) -> Void
     ) {
         self.host = host
@@ -143,6 +145,9 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         self.services = services
         self.conditions = conditions
         self.declined = declined
+        if isRestored {
+            state = .restored
+        }
     }
 
     isolated deinit {
@@ -166,7 +171,7 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
     }
 
     /// Connects again now, as the user asks: after the shell ended, after the tab gave up, or while
-    /// it waits for its next try. The waits start over.
+    /// it waits for its next try, or for its first one after Restore. The waits start over.
     public func reconnect() {
         switch state {
         case .active, .closed:
@@ -175,7 +180,7 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
             return
         case .reconnecting(let reconnecting):
             if case .trying(let step) = reconnecting.phase, step > .connecting { return }
-        case .connecting, .suspended, .ended, .disconnected:
+        case .connecting, .suspended, .restored, .ended, .disconnected:
             break
         }
         cancelAttempt()
@@ -185,10 +190,11 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
     }
 
     /// Reconnects a tab whose connection Shello closed in the background, now that it is on screen
-    /// again (README section 4), or one that waits for Shello to be unlocked.
+    /// again (README section 4), or one that waits for Shello to be unlocked. A tab that Restore
+    /// recreated makes its first connection.
     func resume() {
         switch state {
-        case .suspended:
+        case .suspended, .restored:
             failedAttempts = 0
             tryToConnect()
         case .reconnecting(let reconnecting) where reconnecting.phase == .waitingForUnlock:
@@ -424,7 +430,7 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
             guard case .trying = reconnecting.phase else { return }
             state = .reconnecting(
                 Reconnecting(phase: .trying(progress.step), failedAttempts: failedAttempts, reason: lastFailure))
-        case .active, .suspended, .ended, .disconnected, .closed:
+        case .active, .suspended, .restored, .ended, .disconnected, .closed:
             break
         }
     }
@@ -587,7 +593,7 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
             } else {
                 state = .disconnected(failure)
             }
-        case .suspended, .ended, .disconnected, .closed:
+        case .suspended, .restored, .ended, .disconnected, .closed:
             break
         }
     }
@@ -642,7 +648,7 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
             cancelAttempt()
             endConnection()
             state = .suspended
-        case .suspended, .ended, .disconnected, .closed:
+        case .suspended, .restored, .ended, .disconnected, .closed:
             return
         }
         await connection?.close()

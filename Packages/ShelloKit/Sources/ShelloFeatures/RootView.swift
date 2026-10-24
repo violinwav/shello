@@ -15,6 +15,7 @@ public struct RootView: View {
     @Environment(\.hostConnector) private var connector
     @Environment(\.terminalSettings) private var terminalSettings
     @Environment(\.backgroundConnectionTime) private var backgroundConnectionTime
+    @Environment(\.rememberedTabs) private var rememberedTabs
 
     public init() {}
 
@@ -26,7 +27,7 @@ public struct RootView: View {
                     tabs: connector.map {
                         TerminalTabsModel(
                             connector: $0, hosts: repository, settings: terminalSettings,
-                            backgroundTime: backgroundConnectionTime)
+                            rememberedTabs: rememberedTabs, backgroundTime: backgroundConnectionTime)
                     })
             } else {
                 EmptyStateView(
@@ -42,7 +43,8 @@ public struct RootView: View {
 
 /// The host list with the selected host's details: side by side in a split view on iPad, pushed
 /// onto a navigation stack on iPhone (STACK section 7.13). The window's tabs show over it, on the
-/// terminal screen, and follow the window's foreground and background, and app lock.
+/// terminal screen, and follow the window's foreground and background, and app lock. They are
+/// remembered under the window's scene session, for Restore (GLOSSARY).
 struct HostsScreen: View {
     @State private var model: HostListModel
     @State private var tabs: TerminalTabsModel?
@@ -61,6 +63,12 @@ struct HostsScreen: View {
     var body: some View {
         hosts
             .environment(tabs)
+            .background {
+                WindowReader { window in
+                    guard let session = window.windowScene?.session else { return }
+                    tabs?.windowAppeared(session.persistentIdentifier)
+                }
+            }
             .fullScreenCover(
                 isPresented: Binding(
                     get: { tabs?.isShowingTerminals ?? false }, set: { tabs?.isShowingTerminals = $0 })

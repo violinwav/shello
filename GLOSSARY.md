@@ -111,8 +111,12 @@ A Mosh tab carrying on over its existing connection after sleep or a network cha
 _Avoid_: Recover, reconnect (for Mosh)
 
 **Restore**:
-Recreating the last open tabs after the app was terminated.
+Recreating a window's last open tabs after the app was terminated, by iOS or by the user. When the window opens again, its Live section offers its remembered tabs, and nothing connects until the user restores them, all or one by one, or dismisses them. Restored tabs connect as after the background: the selected one at once, each other one once it is selected.
 _Avoid_: Relaunch restore, recover
+
+**Remembered tabs**:
+What a window keeps of its open tabs for Restore, as they change: the host of each tab, in their order, and the selected one. Not their scrollback, which goes with the app, and nothing secret.
+_Avoid_: Saved tabs, session (on its own)
 
 **Startup command**:
 The lines a host types into the shell of each of its connections once the shell is ready, reconnects included.
@@ -131,7 +135,7 @@ The short time iOS lets Shello run after it leaves the screen. Connections stay 
 _Avoid_: Grace period, background task
 
 **Live**:
-The host list's section of the window's open tabs, each with how its connection is. A tap shows the tab.
+The host list's section of the window's open tabs, each with how its connection is. A tap shows the tab. After the app was terminated, it also offers the window's remembered tabs to restore.
 _Avoid_: Sessions, open connections
 
 **Foreground command**:

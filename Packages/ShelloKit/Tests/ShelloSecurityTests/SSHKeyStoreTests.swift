@@ -318,6 +318,24 @@ struct SSHKeyStoreTests {
         await #expect(throws: SSHKeyError.keyNotFound(unknown.id)) { try await store.sign(Data(), with: unknown.id) }
     }
 
+    // MARK: - Fixtures
+
+    /// A fixture key has the same identifier in every store in memory, as at every launch of a UI
+    /// test, so that a host saved with it finds it after the app was terminated and launched again;
+    /// two fixtures have two.
+    @Test func fixtureKeyKeepsItsIdentifierFromStoreToStore() throws {
+        let fixtures = [
+            SSHKeyStore.FixtureKey(privateKey: Data(repeating: 7, count: 32), comment: "first"),
+            SSHKeyStore.FixtureKey(privateKey: Data(repeating: 8, count: 32), comment: "second"),
+        ]
+
+        let one = SSHKeyStore.inMemory(unlockWindow: window, authentication: authentication, fixtureKeys: fixtures)
+        let other = SSHKeyStore.inMemory(unlockWindow: window, authentication: authentication, fixtureKeys: fixtures)
+
+        #expect(try one.keys().map(\.id) == other.keys().map(\.id))
+        #expect(Set(try one.keys().map(\.id)).count == 2)
+    }
+
     // MARK: - Helpers
 
     /// Whether `signature`, in SSH's wire format, is `key`'s signature of `data`, checked as a server

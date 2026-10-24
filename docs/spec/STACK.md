@@ -423,6 +423,11 @@ How the database works:
   - Sheets for host editing and connection prompts.
   - Multiple windows on iPad via `WindowGroup`.
   - iOS 26 system styling comes for free.
+- **Restore (v1, README section 4):** each window's remembered tabs (`RememberedTabs`: the host of each tab, in order, and the selected tab) are in a JSON file of their own in the app's Application Support directory (`RememberedTabsStore`), not in the database, since open tabs are neither synced nor exported.
+  - They are kept under the window's scene session (`UISceneSession.persistentIdentifier`) and written at each change. On the iOS 26.5 simulator, iOS kept the window's scene session when XCTest terminated Shello on an iPhone, and when the user closed Shello from the app switcher, on an iPhone and on an iPad with one window: the window finds its tabs again.
+  - `@SceneStorage` is not used: SwiftUI saves it only as the window goes to the background, so a kill while Shello is in front, or a crash, loses what changed since; and it goes with the session when iOS discards one.
+  - A session that iOS discards takes its tabs with it, as a window the user closes on iPad. iOS discarded every session when it installed a new build: the first window of the next launch, which iOS made anew, takes over the tabs of the discarded window that changed last.
+  - The window's Live section offers them, and nothing connects until the user taps: the restored tabs then connect as after the background, the selected one at once.
 - **External display (Later):** needs a UIKit scene for the external-display role.
 - **Fonts:** Geist (interface) and JetBrains Mono (titles, keys, terminal) from the UI design (`docs/ui/ui_v1/README.md`), both under the SIL Open Font Licence 1.1.
   - They are bundled as separate font files, which is aggregation under GPLv3.

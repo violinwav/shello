@@ -378,9 +378,9 @@ extension XCUIApplication {
     /// Adds the host `test-server` for the test server at `address` and `port`, signing in with the
     /// SSH key `shello-test-client`, which the launch option `SHELLO_UI_TESTING_SSH_KEY` keeps in
     /// memory, and opens its details. SSH Key is a new host's method; the key goes first, before the
-    /// keyboard is up.
+    /// keyboard is up. With `tmuxSession`, the host attaches that tmux session.
     @MainActor
-    func addKeyHost(address: String = TestServer.address, port: Int = TestServer.port) {
+    func addKeyHost(address: String = TestServer.address, port: Int = TestServer.port, tmuxSession: String? = nil) {
         buttons["Add Host"].firstMatch.tap()
         let sshKey = picker("SSH Key")
         reveal(sshKey)
@@ -389,7 +389,7 @@ extension XCUIApplication {
         buttons["shello-test-client"].tap()
         XCTAssertTrue(navigationBars["New Host"].waitForExistence(timeout: 5))
         XCTAssertEqual(picker("SSH Key").label, "SSH Key, shello-test-client")
-        saveAndOpenTestServerHost(address: address, port: port, user: TestServer.user)
+        saveAndOpenTestServerHost(address: address, port: port, user: TestServer.user, tmuxSession: tmuxSession)
     }
 
     /// Adds the host `test-server` for the test server as `user`, signing in with keyboard-interactive,
@@ -401,14 +401,27 @@ extension XCUIApplication {
         saveAndOpenTestServerHost(address: TestServer.address, port: TestServer.port, user: user)
     }
 
-    /// Fills in the open host editor's name `test-server`, `address`, `port` and `user`, saves, and
-    /// opens the host's details.
+    /// Fills in the open host editor's name `test-server`, `address`, `port` and `user`, and, with
+    /// `tmuxSession`, turns on auto-attach for that tmux session; saves, and opens the host's details.
     @MainActor
-    private func saveAndOpenTestServerHost(address: String, port: Int, user: String) {
+    private func saveAndOpenTestServerHost(address: String, port: Int, user: String, tmuxSession: String? = nil) {
         enter(TestServer.hostName, into: textFields["Name"])
         enter(address, into: textFields["Address"])
         replace(with: String(port), in: textFields["Port"])
         enter(user, into: textFields["User"])
+        if let tmuxSession {
+            // Return in the user field, the section's last, puts the keyboard away. The sheet comes
+            // to rest before the switch is tapped, and `turnOn` taps again if it stays off (HostTests).
+            textFields["User"].typeText("\n")
+            XCTAssertTrue(keyboards.firstMatch.waitForNonExistence(timeout: 10))
+            settle()
+            let attach = switches["Attach tmux session"].firstMatch
+            reveal(attach)
+            turnOn(attach)
+            let session = textFields["tmux session"]
+            XCTAssertTrue(session.waitForExistence(timeout: 5))
+            replace(with: tmuxSession, in: session)
+        }
         navigationBars["New Host"].buttons["Save"].tap()
         let row = buttons[TestServer.hostName].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5))

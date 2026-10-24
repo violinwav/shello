@@ -50,6 +50,7 @@ jobs:
               -skip-testing:ShelloUITests/ConnectionTests
               -skip-testing:ShelloUITests/KeyboardTests
               -skip-testing:ShelloUITests/JumpHostTests
+              -skip-testing:ShelloUITests/RestoreTests
           - suite: ui-files
             tests: -only-testing:ShelloUITests/ExportImportTests
           - suite: ui-extra
@@ -62,6 +63,7 @@ jobs:
               -only-testing:ShelloUITests/ConnectionTests
               -only-testing:ShelloUITests/KeyboardTests
               -only-testing:ShelloUITests/JumpHostTests
+              -only-testing:ShelloUITests/RestoreTests
     # A cold vendor build adds about 10 minutes.
     timeout-minutes: ${{ matrix.suite == 'checks' && 40 || 60 }}
     permissions:
@@ -127,11 +129,12 @@ jobs:
               DidShowContinuousPathIntroduction -bool true
           done
 
-      # tmux for the tmux integration tests (TmuxIntegrationTests): the runner image has none.
-      # local-sshd.sh puts it on the PATH of the test server on port 2222 only. Homebrew cannot pin a
-      # formula's version, so the step prints the one it installed.
+      # tmux for the tmux integration tests (TmuxIntegrationTests) and for RestoreTests, which see
+      # restored tabs reattach their tmux session: the runner image has none. local-sshd.sh puts it on
+      # the PATH of the test server on port 2222 only. Homebrew cannot pin a formula's version, so the
+      # step prints the one it installed.
       - name: Install tmux
-        if: matrix.suite == 'checks'
+        if: matrix.suite == 'checks' || matrix.suite == 'ui-connect'
         env:
           HOMEBREW_NO_AUTO_UPDATE: 1
           HOMEBREW_NO_INSTALL_CLEANUP: 1

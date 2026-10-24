@@ -98,8 +98,9 @@ private struct TabContent: View {
                 let wasInStatusBar = statusFocus != nil
                 if state == .active {
                     // The status bar goes. VoiceOver's focus goes to the terminal if it was in the
-                    // bar, or as the tab first connects; otherwise it stays where the user put it.
-                    if wasInStatusBar || tab.connectionCount == 1 {
+                    // bar, or as a tab the user just opened first connects; otherwise it stays where
+                    // the user put it, as when a restored tab connects once selected in the tab bar.
+                    if wasInStatusBar || (tab.connectionCount == 1 && tab.id == model.tabOpenedByTheUser) {
                         UIAccessibility.post(notification: .layoutChanged, argument: tab.terminal.view)
                     }
                 } else {
@@ -208,6 +209,14 @@ private struct TabStatusBar: View {
                 Text("Shello closed the connection in the background. It reconnects once Shello is unlocked.")
             } actions: {
                 action("Reconnect") { tab.reconnect() }
+            }
+        case .restored:
+            bar {
+                Image(systemName: "arrow.counterclockwise")
+                    .accessibilityHidden(true)
+                Text("Shello restored this tab. It connects once Shello is unlocked.")
+            } actions: {
+                action("Connect") { tab.reconnect() }
             }
         case .ended:
             bar {
@@ -346,6 +355,7 @@ extension TabState {
         case .active: .active
         case .reconnecting: .reconnecting
         case .suspended: .suspended
+        case .restored: .restored
         case .ended: .ended
         case .disconnected: .disconnected
         case .closed: .closed
@@ -353,7 +363,7 @@ extension TabState {
     }
 
     fileprivate enum Kind {
-        case connecting, active, reconnecting, suspended, ended, disconnected, closed
+        case connecting, active, reconnecting, suspended, restored, ended, disconnected, closed
     }
 }
 

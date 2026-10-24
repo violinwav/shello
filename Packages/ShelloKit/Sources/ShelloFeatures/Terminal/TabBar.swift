@@ -188,7 +188,7 @@ struct TabStatusSymbol: View {
                         .frame(width: size, height: size)
                         .mask(alignment: .leading) { Rectangle().frame(width: size / 2) }
                 }
-        case .suspended, .ended, .closed:
+        case .suspended, .restored, .ended, .closed:
             Circle().strokeBorder(Palette.statusOffline, lineWidth: lineWidth)
         case .disconnected:
             Rectangle().fill(Palette.statusError)
@@ -222,6 +222,7 @@ struct TabStatusSymbol: View {
         case .connecting: "Connecting"
         case .reconnecting: "Reconnecting"
         case .suspended: "Disconnected in the background"
+        case .restored: "Not connected yet"
         case .ended: "Connection closed"
         case .disconnected: "Disconnected"
         case .closed: "Closed"

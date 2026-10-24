@@ -10,15 +10,19 @@ extension XCUIApplication {
     ///   - appLock: Whether app lock asks at launch and after its timeout. Off, Shello opens
     ///     unlocked, whatever the simulator's Face ID.
     ///   - environment: Further debug options of App/ShelloApp.swift.
+    ///   - dataName: A name for the database and the remembered tabs, new to the simulator, which
+    ///     they then keep: `launch()` after `terminate()` finds them again. Without it, every launch
+    ///     starts from none.
     @MainActor
     static func launchWithEmptyDatabase(
         arguments: [String] = [], appearance: XCUIDevice.Appearance = .light, appLock: Bool = false,
-        environment: [String: String] = [:]
+        environment: [String: String] = [:], keepingDataAs dataName: String? = nil
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["SHELLO_UI_TESTING"] = "1"
         app.launchEnvironment["SHELLO_UI_TESTING_APPEARANCE"] = appearance == .dark ? "dark" : "light"
         app.launchEnvironment["SHELLO_UI_TESTING_APP_LOCK"] = appLock ? "1" : "0"
+        app.launchEnvironment["SHELLO_UI_TESTING_DATA"] = dataName
         app.launchEnvironment.merge(environment) { _, option in option }
         app.launchArguments += arguments
         app.launch()

@@ -43,11 +43,23 @@ public final class TerminalTabs<Terminal: TabTerminal> {
     /// Whether the device has a network, as `NetworkMonitor` last said.
     public var isNetworkAvailable: Bool { conditions.isNetworkAvailable }
 
+    /// What Restore would recreate of the tabs, were Shello terminated now (GLOSSARY: Restore): the
+    /// host of each tab, in the tabs' order, and the selected tab.
+    public var remembered: RememberedTabs {
+        RememberedTabs(hostIDs: tabs.map(\.host.id), selectedIndex: tabs.firstIndex { $0.id == selectedTabID })
+    }
+
+    /// Called with `remembered` each time it changes, once the change is done: as a tab opens,
+    /// closes, or is selected. The window keeps it, so that Restore finds it after a termination.
+    @ObservationIgnored public var onRememberedTabsChange: (@MainActor (RememberedTabs) -> Void)?
+
     @ObservationIgnored private let services: TabServices
     @ObservationIgnored private let makeTerminal: @MainActor (Host) -> Terminal
     @ObservationIgnored private let conditions = TabConditions()
     @ObservationIgnored private var networkUpdates: Task<Void, Never>?
     @ObservationIgnored private var backgroundClose: Task<Void, Never>?
+    /// What `onRememberedTabsChange` was last called with.
+    @ObservationIgnored private var lastRemembered = RememberedTabs.empty
 
     /// Tabs that connect through `services`, each with a terminal of its own from `makeTerminal`.
     public init(services: TabServices, makeTerminal: @escaping @MainActor (Host) -> Terminal) {
@@ -68,15 +80,39 @@ public final class TerminalTabs<Terminal: TabTerminal> {
     /// 4). A host can have several tabs.
     @discardableResult
     public func open(_ host: Host) -> TerminalTab<Terminal> {
-        let tab = TerminalTab(
-            host: host, terminal: makeTerminal(host), services: services, conditions: conditions,
-            declined: { [weak self] tab in self?.remove(tab) })
+        let tab = makeTab(for: host, isRestored: false)
         let index = tabs.firstIndex { $0.id == selectedTabID }.map { $0 + 1 } ?? tabs.endIndex
         tabs.insert(tab, at: index)
         selectedTabID = tab.id
+        rememberedTabsMayHaveChanged()
         watchNetwork()
         tab.start()
         return tab
+    }
+
+    /// Recreates tabs for `hosts`, in their order, as Restore does after Shello was terminated
+    /// (GLOSSARY): after the open tabs, which keep their places and their names, and selects the one
+    /// at `selected`, or else the first if no tab is selected. None of them connects yet: each
+    /// connects once it is on screen, the selected one at once while the tabs show, as after the
+    /// background (README section 4), so that restoring costs at most one Face ID prompt.
+    public func restore(_ hosts: [Host], selecting selected: Int?) {
+        guard !hosts.isEmpty else { return }
+        let restored = hosts.map { makeTab(for: $0, isRestored: true) }
+        tabs.append(contentsOf: restored)
+        if let selected, restored.indices.contains(selected) {
+            selectedTabID = restored[selected].id
+        } else if selectedTabID == nil {
+            selectedTabID = restored.first?.id
+        }
+        rememberedTabsMayHaveChanged()
+        watchNetwork()
+        resumeSelectedTab()
+    }
+
+    private func makeTab(for host: Host, isRestored: Bool) -> TerminalTab<Terminal> {
+        TerminalTab(
+            host: host, terminal: makeTerminal(host), services: services, conditions: conditions,
+            isRestored: isRestored, declined: { [weak self] tab in self?.remove(tab) })
     }
 
     /// Selects `tab`. A tab whose connection Shello closed in the background reconnects, once it is
@@ -84,6 +120,7 @@ public final class TerminalTabs<Terminal: TabTerminal> {
     public func select(_ tab: TerminalTab<Terminal>) {
         guard tabs.contains(where: { $0.id == tab.id }) else { return }
         selectedTabID = tab.id
+        rememberedTabsMayHaveChanged()
         resumeSelectedTab()
     }
 
@@ -114,8 +151,12 @@ public final class TerminalTabs<Terminal: TabTerminal> {
     private func remove(_ tab: TerminalTab<Terminal>) {
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         tabs.remove(at: index)
-        if selectedTabID == tab.id {
+        let wasSelected = selectedTabID == tab.id
+        if wasSelected {
             selectedTabID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].id
+        }
+        rememberedTabsMayHaveChanged()
+        if wasSelected {
             resumeSelectedTab()
         }
         if tabs.isEmpty {
@@ -123,6 +164,15 @@ public final class TerminalTabs<Terminal: TabTerminal> {
             networkUpdates?.cancel()
             networkUpdates = nil
         }
+    }
+
+    /// Passes `remembered` on if it changed. Called once each change to the tabs or the selection is
+    /// done, so that what is kept never shows a change half made.
+    private func rememberedTabsMayHaveChanged() {
+        let remembered = remembered
+        guard remembered != lastRemembered else { return }
+        lastRemembered = remembered
+        onRememberedTabsChange?(remembered)
     }
 
     // MARK: - Foreground and background

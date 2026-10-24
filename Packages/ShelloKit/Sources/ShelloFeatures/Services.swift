@@ -38,4 +38,8 @@ extension EnvironmentValues {
     /// How long the tabs' connections stay once Shello is in the background, before they close
     /// cleanly: nil for the short time iOS grants (README section 4). The UI tests make it short.
     @Entry public var backgroundConnectionTime: Duration? = nil
+
+    /// Where each window remembers its tabs, for Restore (GLOSSARY). Without it, the windows remember
+    /// nothing, and offer nothing to restore.
+    @Entry public var rememberedTabs: RememberedTabsStore? = nil
 }

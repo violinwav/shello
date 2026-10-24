@@ -5,7 +5,8 @@ import SwiftUI
 
 /// The host list (README section 3): search, tag filters, the window's open tabs under Live, and
 /// sections for favourites, recents and groups. Each host's row opens the host's details; each
-/// tab's row shows the tab on the terminal screen.
+/// tab's row shows the tab on the terminal screen. After Shello was terminated, Live also offers the
+/// tabs the window had open, to restore (GLOSSARY: Restore).
 struct HostListView: View {
     @Bindable var model: HostListModel
     /// The selected host in a split view. Nil in a navigation stack, where a row pushes the details.
@@ -17,6 +18,13 @@ struct HostListView: View {
     /// The hosts that connect through the host to delete, which its confirmation names.
     @State private var hostsJumpingThroughHostToDelete: [Host] = []
     @Environment(TerminalTabsModel.self) private var tabs: TerminalTabsModel?
+    @AccessibilityFocusState private var voiceOverFocus: ListFocus?
+
+    /// Where VoiceOver goes once the rows it was on have gone: a section's header.
+    private enum ListFocus: Hashable {
+        case live
+        case section(HostSection.ID)
+    }
 
     var body: some View {
         list
@@ -89,14 +97,24 @@ struct HostListView: View {
                     .listRowBackground(Color.clear)
             }
         }
-        if let tabs, !tabs.tabs.tabs.isEmpty {
+        if let tabs, !tabs.tabs.tabs.isEmpty || tabs.restoreOffer != nil {
             Section {
                 ForEach(tabs.tabs.tabs) { tab in
                     LiveTabRow(tab: tab, name: tabs.name(of: tab)) { tabs.show(tab) }
                         .listRowBackground(Palette.cell)
                 }
+                // After the open tabs, as the restored tabs come after them; the note on the tabs left
+                // out follows right under the offer.
+                if let offer = tabs.restoreOffer {
+                    RestoreRows(offer: offer, model: tabs) { dismissRestoreOffer(of: tabs) }
+                }
             } header: {
                 SectionHeader("Live")
+                    .accessibilityFocused($voiceOverFocus, equals: .live)
+            } footer: {
+                if let deleted = tabs.restoreOffer?.deletedHostCount, deleted > 0 {
+                    FooterText(RestoreDisplay.leftOut(count: deleted))
+                }
             }
         }
         ForEach(model.sections) { section in
@@ -106,8 +124,20 @@ struct HostListView: View {
                 }
             } header: {
                 SectionHeader(section.title)
+                    .accessibilityFocused($voiceOverFocus, equals: .section(section.id))
             }
         }
+    }
+
+    /// Forgets the tabs to restore. VoiceOver, which was on one of their rows, goes to the Live
+    /// header if open tabs keep the section, or else to the first section of hosts, once the rows
+    /// that moved up are drawn, and hears that they won't be restored.
+    private func dismissRestoreOffer(of tabs: TerminalTabsModel) {
+        let count = tabs.restoreOffer?.tabs.count ?? 0
+        tabs.dismissRestoreOffer()
+        let focus: ListFocus? = tabs.tabs.tabs.isEmpty ? model.sections.first.map { .section($0.id) } : .live
+        Task { @MainActor in voiceOverFocus = focus }
+        announce(RestoreDisplay.dismissed(count: count), priority: .low)
     }
 
     private func row(_ host: Host) -> some View {
@@ -199,6 +229,87 @@ struct EditorRoute: Identifiable {
     let host: Host?
 }
 
+/// The tabs the window had open when Shello was terminated, under Live (GLOSSARY: Restore): a row
+/// that restores them all, with their names; when they are several, a row for each, which a tap
+/// restores alone; and Don't Restore, which forgets them. Nothing connects before a tap.
+private struct RestoreRows: View {
+    let offer: RestoreOffer
+    let model: TerminalTabsModel
+    let dismiss: () -> Void
+
+    var body: some View {
+        let names = model.offeredTabNames
+        Button {
+            model.restoreAll()
+        } label: {
+            RestoreRowLabel {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(RestoreDisplay.restoreAll(count: names.count))
+                        .font(Typography.rowTitle)
+                        .foregroundStyle(Palette.accentInk)
+                    Text(RestoreDisplay.shown(names))
+                        .font(Typography.dataCaption)
+                        .foregroundStyle(Palette.textTertiary)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(RestoreDisplay.restoreAll(count: names.count))
+        .accessibilityValue(RestoreDisplay.spoken(names))
+        .accessibilityHint(RestoreDisplay.restoreAllHint(names: names, connecting: model.offeredTabConnectingAtOnce))
+        .listRowBackground(Palette.cell)
+        if offer.tabs.count > 1 {
+            ForEach(offer.tabs) { tab in
+                let name = model.name(ofOffered: tab)
+                Button {
+                    model.restoreTab(tab.id)
+                } label: {
+                    RestoreRowLabel {
+                        Text(name)
+                            .font(Typography.rowTitle)
+                            .foregroundStyle(Palette.textPrimary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Restore \(name)")
+                .accessibilityInputLabels(["Restore \(name)", name])
+                .listRowBackground(Palette.cell)
+            }
+        }
+        Button(action: dismiss) {
+            Label("Don’t Restore", systemImage: "xmark")
+                .labelStyle(.row)
+        }
+        .accessibilityHint(RestoreDisplay.dontRestoreHint)
+        .listRowBackground(Palette.cell)
+    }
+}
+
+/// The label of a row that restores tabs: its symbol, which is decoration, the row's title saying
+/// what it does, and the title beside it, or under it at accessibility text sizes, where it then has
+/// the width of the row. The whole row takes the tap, at least 44 points tall.
+private struct RestoreRowLabel<Title: View>: View {
+    @ViewBuilder let title: Title
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        let layout =
+            dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
+        layout {
+            Image(systemName: "arrow.counterclockwise")
+                .font(Typography.body)
+                .foregroundStyle(Palette.accentInk)
+                .accessibilityHidden(true)
+            title
+        }
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(.rect)
+    }
+}
+
 /// An open tab under Live: how its connection is, its name, and its protocol with its latency, or
 /// what its connection does. A tap shows it on the terminal screen.
 private struct LiveTabRow: View {
@@ -235,6 +346,7 @@ private struct LiveTabRow: View {
         case .connecting: "Connecting…"
         case .reconnecting: "Reconnecting…"
         case .suspended: "Disconnected in the background"
+        case .restored: "Not connected yet"
         case .ended: "Connection closed"
         case .disconnected: "Disconnected"
         case .closed: "Closed"
