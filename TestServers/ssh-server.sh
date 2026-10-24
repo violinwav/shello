@@ -12,10 +12,13 @@
 #   127.0.0.1:2226  OpenSSH 10.3 with the NIST curves and Diffie-Hellman groups only, as in FIPS mode
 # --host-key b starts them with the other host key, so that a client that trusted key a sees a
 # changed host key. The servers listen on this Mac's loopback only: their password and keys are
-# public.
+# public. They share a Docker network of their own, on which each reaches the others by container
+# name on port 22, as a jump host reaches the next hop of a route.
 set -euo pipefail
 
 DIR=$(cd "$(dirname "$0")" && pwd)
+# Docker's default bridge resolves no container names; a network of the servers' own does.
+NETWORK=shello-test
 
 # Each server: its container, its port, its image, and the key exchanges it offers (entrypoint.sh).
 SERVERS=(
@@ -73,11 +76,12 @@ start() {
     docker build --quiet --tag shello-test-openssh --file "$DIR/openssh/Dockerfile" "$DIR" >/dev/null
     docker build --quiet --tag shello-test-openssh9 --file "$DIR/openssh9/Dockerfile" "$DIR" >/dev/null
     docker build --quiet --tag shello-test-openssh8 --file "$DIR/openssh8/Dockerfile" "$DIR" >/dev/null
+    docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK" >/dev/null
     for server in "${SERVERS[@]}"; do
         read -r name port image kex <<<"$server"
         docker rm --force "$name" >/dev/null 2>&1 || true
-        docker run --detach --name "$name" --hostname shello-test --env "HOST_KEY=$host_key" \
-            --env "KEX=$kex" --publish "127.0.0.1:$port:22" "$image" >/dev/null
+        docker run --detach --name "$name" --hostname shello-test --network "$NETWORK" \
+            --env "HOST_KEY=$host_key" --env "KEX=$kex" --publish "127.0.0.1:$port:22" "$image" >/dev/null
     done
     for server in "${SERVERS[@]}"; do
         read -r name port image kex <<<"$server"
@@ -93,6 +97,7 @@ stop() {
         read -r name port image kex <<<"$server"
         docker rm --force "$name" >/dev/null 2>&1 || true
     done
+    docker network rm "$NETWORK" >/dev/null 2>&1 || true
     printf 'Test servers stopped.\n'
 }
 

@@ -274,7 +274,7 @@ final class TerminalTabsModel {
         case (_, .active):
             announce("Reconnected to \(host)\(note)")
         case (.active, .reconnecting):
-            announce("Connection lost. Reconnecting to \(host)")
+            announce("Connection lost. Reconnecting to \(tab.hostAlongRoute)")
         case (_, .ended):
             announce("Connection closed")
         case (_, .disconnected(let reason)):
@@ -291,9 +291,17 @@ final class TerminalTabsModel {
             guard let self, tab.id == self.tabs.selectedTabID, tab.state.isConnecting, tab.prompt == nil else {
                 return
             }
-            announce("Connecting to \(tab.host.name)", priority: .low)
+            announce("Connecting to \(tab.hostAlongRoute)", priority: .low)
         }
     }
 
     private static let logger = Logger(subsystem: "ch.shello.Shello", category: "Tabs")
+}
+
+extension TerminalTab {
+    /// The tab's host as the texts about its whole route name it: through its jump hosts, as
+    /// "web-01 through bastion", or alone (README section 3).
+    var hostAlongRoute: String {
+        JumpHostDisplay.host(host.name, through: route?.jumpHosts.map(\.name) ?? [])
+    }
 }

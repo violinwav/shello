@@ -64,10 +64,10 @@ struct ImportValidationTests {
         Damage("a list that is not one", replacing: #""hosts" : ["#, with: #""hosts" : 1, "x" : ["#, path: "hosts"),
         Damage("an identifier that is not one", replacing: #"000000000001""#, with: #"1""#, path: "groups[0].id"),
         Damage(
-            "a schema version that is not a number", replacing: #""schemaVersion" : 2"#,
-            with: #""schemaVersion" : "2""#, path: "schemaVersion"),
+            "a schema version that is not a number", replacing: #""schemaVersion" : 3"#,
+            with: #""schemaVersion" : "3""#, path: "schemaVersion"),
         Damage(
-            "schema version 0", replacing: #""schemaVersion" : 2"#, with: #""schemaVersion" : 0"#,
+            "schema version 0", replacing: #""schemaVersion" : 3"#, with: #""schemaVersion" : 0"#,
             path: "schemaVersion"),
         // Since version 2, every host has its tmux settings.
         Damage(
@@ -82,6 +82,13 @@ struct ImportValidationTests {
         Damage(
             "a tmux session name that is no text", replacing: #""tmuxSessionName" : "dev_work-2""#,
             with: #""tmuxSessionName" : null"#, path: "hosts[0].tmuxSessionName"),
+        // Since version 3, every host has its jump hosts.
+        Damage(
+            "a jump host that is not an identifier", replacing: #""00000000-0000-4000-8000-000000000199""#,
+            with: #""bastion""#, path: "hosts[1].jumpHostIDs[1]"),
+        Damage(
+            "jump hosts that are not a list", replacing: #""jumpHostIDs" : ["#,
+            with: #""jumpHostIDs" : "bastion", "x" : ["#, path: "hosts[0].jumpHostIDs"),
     ])
     func damagedFileIsRefusedAndTheDatabaseIsUnchanged(_ damage: Damage) async throws {
         try await ExportSample.store(in: test.repository)
@@ -92,6 +99,24 @@ struct ImportValidationTests {
         }
 
         #expect(try await test.snapshot() == before)
+    }
+
+    /// Since version 3, every host has its jump hosts, an empty list for none: a host without the
+    /// key is damage, as a missing key is.
+    @Test func hostWithoutItsJumpHostsIsDamage() throws {
+        let data = try Corruption.sample { $0.hosts[0].jumpHostIDs = nil }
+
+        #expect(throws: ImportError.damaged(path: "hosts[0].jumpHostIDs")) { try ExportFile(data: data) }
+    }
+
+    /// Version 2 had no jump hosts: a version 2 file that has them anyway is read without them.
+    @Test func version2FileIsReadWithoutJumpHosts() throws {
+        let data = try Corruption.sample { $0.schemaVersion = 2 }
+
+        let file = try ExportFile(data: data)
+
+        let jumpHostIDs = file.hosts.flatMap(\.jumpHostIDs)
+        #expect(jumpHostIDs.isEmpty)
     }
 
     @Test func numberTooLargeForSwiftIsDamage() throws {
@@ -126,8 +151,8 @@ struct ImportValidationTests {
     /// A newer Shello may have added records or changed their shape; this version would leave out
     /// what it does not know, so it refuses the file and says to update.
     @Test(arguments: [
-        #"{"format":"ch.shello.export","schemaVersion":3,"hosts":[],"groups":[],"tags":[]}"#,
-        #"{"format":"ch.shello.export","schemaVersion":3,"snippets":[{"name":"uptime"}],"hosts":"elsewhere"}"#,
+        #"{"format":"ch.shello.export","schemaVersion":4,"hosts":[],"groups":[],"tags":[]}"#,
+        #"{"format":"ch.shello.export","schemaVersion":4,"snippets":[{"name":"uptime"}],"hosts":"elsewhere"}"#,
         #"{"format":"ch.shello.export","schemaVersion":99}"#,
     ])
     func fileFromANewerSchemaVersionIsRefused(_ json: String) async throws {
@@ -309,6 +334,17 @@ struct Corruption: Sendable, CustomTestStringConvertible {
         Corruption(
             testDescription: "a tmux session name that reads as an option",
             change: { $0.hosts[0].tmuxSessionName = "-d" }, problem: Self.sessionNameProblem),
+        Corruption(
+            testDescription: "a host that is its own jump host", change: { $0.hosts[0].jumpHostIDs = [$0.hosts[0].id] },
+            problem: "The host “forge” has itself as a jump host."),
+        Corruption(
+            testDescription: "the same jump host twice",
+            change: { $0.hosts[1].jumpHostIDs?.append(ExportSample.id("000000000101")) },
+            problem: "The host “Media PC 📺” has the same jump host twice."),
+        Corruption(
+            testDescription: "more jump hosts than a route can have",
+            change: { $0.hosts[0].jumpHostIDs = (0..<9).map { _ in UUID() } },
+            problem: "The host “forge” has more than 8 jump hosts, the most a route can have."),
         Corruption(
             testDescription: "two hosts with one identifier", change: { $0.hosts[1].id = $0.hosts[0].id },
             problem: "The host “Media PC 📺” has the same identifier as another host in the file."),

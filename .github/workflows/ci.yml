@@ -49,6 +49,7 @@ jobs:
               -skip-testing:ShelloUITests/TerminalTests
               -skip-testing:ShelloUITests/ConnectionTests
               -skip-testing:ShelloUITests/KeyboardTests
+              -skip-testing:ShelloUITests/JumpHostTests
           - suite: ui-files
             tests: -only-testing:ShelloUITests/ExportImportTests
           - suite: ui-extra
@@ -60,6 +61,7 @@ jobs:
             tests: >-
               -only-testing:ShelloUITests/ConnectionTests
               -only-testing:ShelloUITests/KeyboardTests
+              -only-testing:ShelloUITests/JumpHostTests
     # A cold vendor build adds about 10 minutes.
     timeout-minutes: ${{ matrix.suite == 'checks' && 40 || 60 }}
     permissions:

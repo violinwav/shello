@@ -1,3 +1,4 @@
+import Foundation
 import GRDB
 
 /// The database schema, as an ordered list of migrations.
@@ -9,7 +10,7 @@ import GRDB
 /// The schema is ready for sync (docs/spec/STACK.md section 7.10):
 /// - Identifiers are UUIDs, stored as 16-byte blobs.
 /// - Every synced field has a modification time next to it, `<field>ModifiedAt`, so that sync can
-///   merge per field. A host's tags are one field, `tagsModifiedAt`.
+///   merge per field. A host's tags are one field, `tagsModifiedAt`, and so are its jump hosts.
 /// - Deleting writes a tombstone: `deletedAt` is set and the row stays, so that the deletion can sync
 ///   and be undone. `deletedAt` has its own modification time, which also covers an undo.
 /// - Foreign keys are deferred to the end of the transaction, so that a write can store related rows
@@ -22,6 +23,7 @@ enum Schema {
         migrator.registerMigration("v1", migrate: v1)
         migrator.registerMigration("v2", migrate: v2)
         migrator.registerMigration("v3", migrate: v3)
+        migrator.registerMigration("v4", migrate: v4)
         return migrator
     }()
 
@@ -115,6 +117,19 @@ enum Schema {
             t.add(column: "tmuxAutoAttachModifiedAt", .real).notNull().defaults(to: 0)
             t.add(column: "tmuxSessionName", .text).notNull().defaults(to: "main")
             t.add(column: "tmuxSessionNameModifiedAt", .real).notNull().defaults(to: 0)
+        }
+    }
+
+    /// Jump hosts (README section 3): the hosts a host is reached through, in order. The list is one
+    /// field, so that sync's per-field merge takes the whole list of the later change: their
+    /// identifiers, 16 bytes each, one after the other. No foreign key: a deleted jump host is a
+    /// tombstone that the lists naming it keep, so that undoing the deletion brings it back in each,
+    /// and sync may bring a list before the hosts it names. The hosts that exist get none, as they
+    /// were, modified at 0, as in v3.
+    private static func v4(_ db: Database) throws {
+        try db.alter(table: "host") { t in
+            t.add(column: "jumpHostIDs", .blob).notNull().defaults(to: Data())
+            t.add(column: "jumpHostIDsModifiedAt", .real).notNull().defaults(to: 0)
         }
     }
 }

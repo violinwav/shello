@@ -222,6 +222,19 @@ public struct TabServices: Sendable {
         guard let hosts else { return host }
         return (try? await hosts.host(id: host.id)) ?? host
     }
+
+    /// The route to `host` (README section 3), through its jump hosts as they are stored now, so
+    /// that a reconnect takes the user's edits to them too. A host without jump hosts is its own
+    /// route.
+    /// - Throws: `RouteError` for a route Shello refuses, such as one with a jump host that was
+    ///   deleted, which is never left out; or what reading the hosts throws.
+    func route(to host: Host) async throws -> Route {
+        guard !host.jumpHostIDs.isEmpty else { return try Route(to: host, hosts: [:]) }
+        guard let hosts else { throw RouteError.missingJumpHost(of: host.name) }
+        let saved = try await hosts.hosts()
+        return try Route(
+            to: host, hosts: Dictionary(saved.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }))
+    }
 }
 
 /// What a tab waits for before it reconnects: Shello unlocked in the foreground, and a network.

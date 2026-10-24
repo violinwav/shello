@@ -13,8 +13,8 @@ struct HostDetailView: View {
 
     @State private var editsHost: Host?
     @State private var confirmsDelete = false
-    /// The host whose first connection to the local network the Local Network sheet explains.
-    @State private var explainsLocalNetwork: Host?
+    /// The first connection to the local network that the Local Network sheet explains.
+    @State private var explainsLocalNetwork: LocalNetworkExplanation?
     /// The host to connect to once the Local Network sheet has gone.
     @State private var connectsAfterExplanation: Host?
     @Environment(TerminalTabsModel.self) private var tabs: TerminalTabsModel?
@@ -79,10 +79,13 @@ struct HostDetailView: View {
                 }
                 connectsAfterExplanation = nil
             }
-        ) { host in
-            LocalNetworkSheet(host: host) {
+        ) { explanation in
+            LocalNetworkSheet(
+                host: explanation.firstHop,
+                destination: explanation.firstHop.id == explanation.host.id ? nil : explanation.host.name
+            ) {
                 localNetworkNotice?.markExplained()
-                connectsAfterExplanation = host
+                connectsAfterExplanation = explanation.host
                 explainsLocalNetwork = nil
             } cancel: {
                 explainsLocalNetwork = nil
@@ -99,7 +102,8 @@ struct HostDetailView: View {
                 }
             }
         } message: {
-            Text("This removes the host from Shello.")
+            // The hosts that jump through it keep it as a missing jump host (README section 3).
+            Text(JumpHostDisplay.deletionMessage(users: model.hostsJumpingThrough))
         }
         .alert(
             "Couldn’t Change the Host",
@@ -115,13 +119,7 @@ struct HostDetailView: View {
         List {
             Section {
                 Button {
-                    // iOS asks for Local Network access on the first connection to a server on the
-                    // local network: Shello explains why first (README section 3).
-                    if localNetworkNotice?.explainsBeforeConnecting(to: host) == true {
-                        explainsLocalNetwork = host
-                    } else {
-                        tabs?.connect(to: host)
-                    }
+                    connect(host)
                 } label: {
                     Label("Connect", systemImage: "play.fill")
                         .font(Typography.rowTitle)
@@ -130,6 +128,11 @@ struct HostDetailView: View {
                 .buttonStyle(.borderedProminent)
                 .accentFill()
                 .disabled(tabs == nil || host.protocol == .vnc)
+                // The route's problem is further down, under the route.
+                .accessibilityHint(
+                    model.routeProblem == nil
+                        ? "" : "Doesn’t connect until its route changes, as the problem under Route says."
+                )
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
             } footer: {
@@ -145,6 +148,19 @@ struct HostDetailView: View {
                 dataRow("Address", host.address)
                 dataRow("Port", String(host.port))
                 dataRow("User", host.username.isEmpty ? nil : host.username)
+                // Through the jump hosts, if any, to the host (README section 3).
+                LabeledContent("Route") {
+                    ValueText(model.routeSummary, font: host.jumpHostIDs.isEmpty ? nil : Typography.data)
+                        .multilineTextAlignment(.trailing)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Route")
+                .accessibilityValue(model.spokenRouteSummary)
+                if let problem = model.routeProblem {
+                    // In a list, a long problem would wrap under its icon.
+                    ProblemText(problem: problem)
+                        .labelStyle(.row)
+                }
                 valueRow("Authentication", host.authMethod.displayName)
                 if host.authMethod == .sshKey {
                     valueRow("SSH Key", model.sshKeySummary)
@@ -202,6 +218,17 @@ struct HostDetailView: View {
         .scrollContentBackground(.hidden)
     }
 
+    /// Opens a tab for `host`. iOS asks for Local Network access on the first connection to a server
+    /// on the local network, which Shello explains first (README section 3). Only the first host of
+    /// the route is reached from the device, so only it counts.
+    private func connect(_ host: Host) {
+        if case .success(let route)? = model.route, localNetworkNotice?.explainsBeforeConnecting(along: route) == true {
+            explainsLocalNetwork = LocalNetworkExplanation(firstHop: route.firstHop, host: host)
+        } else {
+            tabs?.connect(to: host)
+        }
+    }
+
     private func valueRow(_ label: String, _ value: String) -> some View {
         LabeledContent(label) {
             ValueText(value)
@@ -219,6 +246,15 @@ struct HostDetailView: View {
             }
         }
     }
+}
+
+/// The first connection to the local network that the Local Network sheet explains: to the first
+/// host of a route, `firstHop`, on the way to `host`, which the tab opens for.
+private struct LocalNetworkExplanation: Identifiable {
+    let firstHop: Host
+    let host: Host
+
+    var id: Host.ID { host.id }
 }
 
 extension Duration {

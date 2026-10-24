@@ -120,7 +120,9 @@ extension XCUIApplication {
     /// - Its checks of what the screen shows (contrast, Dynamic Type, clipped text and hit regions)
     ///   read content that a list scrolled mostly under the navigation bar in front, whose glass
     ///   fades it on purpose, as failing. Only those checks, and only for an element that is not one
-    ///   of the bar's own, more than half of which the bar covers, are let through.
+    ///   of the bar's own, more than half of which lies under the bar or above it, or, in a list
+    ///   scrolled under the bar, just below it, where the glass's soft edge still fades it, are let
+    ///   through.
     ///
     /// Each ignored issue is attached to the test's results.
     /// - Parameter scrolled: Whether a list is scrolled down, so that its content goes under the
@@ -144,7 +146,8 @@ extension XCUIApplication {
             let isOffScreen =
                 issue.auditType == .contrast && issue.element.map { Self.isMostlyOffScreen($0.frame, screen) } == true
             let isUnderTheBar =
-                shownChecks.contains(issue.auditType) && issue.element.map { bar?.hides($0.frame) ?? false } == true
+                shownChecks.contains(issue.auditType)
+                && issue.element.map { bar?.hides($0.frame, scrolled: scrolled) ?? false } == true
             let isFadedText = scrolled && issue.element == nil && fadedTextChecks.contains(issue.auditType)
             let isFalsePositive = isPartiallyUnsupported || isOffScreen || isUnderTheBar || isFadedText
             if isFalsePositive {
@@ -200,11 +203,22 @@ extension XCUIApplication {
             itemFrames = items
         }
 
-        /// Whether an element at `element` is content more than half under the bar, not one of the
-        /// bar's own.
-        func hides(_ element: CGRect) -> Bool {
+        /// How far below the bar's lower edge its glass still fades a list scrolled under it: the
+        /// soft edge of the scroll edge effect, which shows only once content is under the bar. In
+        /// iOS 26.5's simulator, the ground under a sheet's bar was still lightened about 30 points
+        /// below the bar's buttons, and a row's label there failed the contrast check.
+        static let softEdgeDepth: CGFloat = 32
+
+        /// Whether an element at `element` is content more than half under the bar, or above it, not
+        /// one of the bar's own. The glass fades content from the top of the screen, or of the sheet,
+        /// down to the bar's lower edge: a sheet's bar starts below the sheet's top, and a list
+        /// scrolled to put a row's top half above the bar's frame failed the contrast check. In a
+        /// list `scrolled` under the bar, the fade reaches `softEdgeDepth` further down.
+        func hides(_ element: CGRect, scrolled: Bool) -> Bool {
             guard element.width > 0, element.height > 0, !itemFrames.contains(element) else { return false }
-            let covered = element.intersection(frame)
+            let bottom = frame.maxY + (scrolled ? Self.softEdgeDepth : 0)
+            let faded = CGRect(x: frame.minX, y: 0, width: frame.width, height: bottom)
+            let covered = element.intersection(faded)
             return !covered.isNull && covered.width * covered.height > element.width * element.height / 2
         }
     }

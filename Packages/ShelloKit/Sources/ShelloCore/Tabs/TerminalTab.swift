@@ -18,6 +18,10 @@ import os
 /// stopped answering, the tab reconnects: at once, then with waits that grow (`ReconnectPolicy`), and
 /// while the device has no network, as soon as it is back. The terminal keeps what it showed.
 ///
+/// Through jump hosts (README section 3), the tab's connection is the whole route
+/// (`RouteConnection`), connected hop by hop. Each hop's host key and sign-in is asked about with
+/// the hop named, and a hop that drops reconnects the whole route.
+///
 /// `TerminalTabs` makes and closes tabs; the screens show them and answer their questions.
 @MainActor
 @Observable
@@ -30,8 +34,16 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
     public private(set) var state = TabState.connecting(.connecting)
     /// The round trip of the last keepalive, while the tab is active (README section 4).
     public private(set) var latency: Duration?
-    /// The key exchange the last connection negotiated (README section 14).
+    /// The key exchange the last connection to the tab's host negotiated (README section 14).
     public private(set) var keyExchange: KeyExchange?
+    /// The key exchange of each connection along the route of the last connection, in its order,
+    /// the tab's host's last (README section 14).
+    public private(set) var keyExchanges: [RouteKeyExchange] = []
+    /// The route of the last connection, or of the one being made (README section 3).
+    public private(set) var route: Route?
+    /// The jump host the connection being made is at, while it is at one; nil once it is at the
+    /// tab's own host, and while no connection is being made.
+    public private(set) var currentJumpHost: Host?
     /// The host key the trust sheet asks about, while it waits for the user.
     public private(set) var trustQuestion: TrustQuestion?
     /// The keyboard-interactive questions the sign-in sheet asks, while it waits for the user.
@@ -114,6 +126,8 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
     @ObservationIgnored private var isViable = true
     /// Counts the tries to connect, so that what an earlier one reports changes nothing.
     @ObservationIgnored private var generation = 0
+    /// How far the try to connect is along the route, which only goes forward.
+    @ObservationIgnored private var routeProgress: RouteProgress?
     @ObservationIgnored private var failedAttempts = 0
     @ObservationIgnored private var lastFailure = ""
     @ObservationIgnored private var trustAnswer: CheckedContinuation<Bool, Never>?
@@ -220,6 +234,8 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         }
         generation += 1
         let generation = generation
+        routeProgress = nil
+        currentJumpHost = nil
         state =
             isReconnect
             ? .reconnecting(
@@ -240,6 +256,7 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         defer {
             if generation == self.generation {
                 isSigningIn = false
+                currentJumpHost = nil
                 attempt = nil
             }
         }
@@ -247,16 +264,26 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         do {
             let host = await services.refreshedHost(host)
             self.host = host
+            // Before anything goes over the network: a route Shello refuses, such as one with a
+            // missing jump host, never connects directly instead.
+            let route = try await services.route(to: host)
+            try checkCurrent(generation)
+            self.route = route
+            currentJumpHost = route.jumpHosts.first
             let connection = try await services.connector.openConnection(
-                to: host,
-                progress: { [weak self] step in await self?.setStep(step, generation: generation) },
-                askToTrust: { [weak self] server, key in await self?.askToTrust(server, key) ?? false },
-                answer: { [weak self] challenge in await self?.askToSignIn(challenge) })
+                along: route,
+                progress: { [weak self] progress in await self?.setProgress(progress, generation: generation) },
+                askToTrust: { [weak self] hop, key in await self?.askToTrust(hop, key) ?? false },
+                answer: { [weak self] hop, challenge in await self?.askToSignIn(hop, challenge) })
             opened = connection
             try checkCurrent(generation)
             isSigningIn = false
             keyExchange = await connection.keyExchange
-            setStep(.startingSession, generation: generation)
+            let keyExchanges = await connection.keyExchanges
+            self.keyExchanges = zip(route.hops, keyExchanges).map { hop, keyExchange in
+                RouteKeyExchange(hostName: hop.name, server: hop.server, keyExchange: keyExchange)
+            }
+            setProgress(RouteProgress(hop: route.hops.count - 1, step: .startingSession), generation: generation)
             try await startSession(on: connection, generation: generation, isReconnect: isReconnect)
             try checkCurrent(generation)
             becameActive(connection, generation: generation)
@@ -378,17 +405,25 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         self.promptInterval = nil
     }
 
-    /// The try `generation` reached `step`. Steps only go forward: a report that arrives late changes
-    /// nothing.
-    private func setStep(_ step: ConnectStep, generation: Int) {
-        guard generation == self.generation else { return }
+    /// The try `generation` reached `progress` along its route: its state shows the step at the hop
+    /// it is at, and `currentJumpHost` that hop while it is a jump host. Progress only goes forward:
+    /// a report that arrives late changes nothing.
+    private func setProgress(_ progress: RouteProgress, generation: Int) {
+        guard generation == self.generation, progress > routeProgress ?? RouteProgress(hop: 0, step: .connecting)
+        else { return }
+        routeProgress = progress
+        if let route, progress.hop < route.hops.count - 1 {
+            currentJumpHost = route.hops[progress.hop]
+        } else {
+            currentJumpHost = nil
+        }
         switch state {
-        case .connecting(let current):
-            if step > current { state = .connecting(step) }
+        case .connecting:
+            state = .connecting(progress.step)
         case .reconnecting(let reconnecting):
-            guard case .trying(let current) = reconnecting.phase, step > current else { return }
+            guard case .trying = reconnecting.phase else { return }
             state = .reconnecting(
-                Reconnecting(phase: .trying(step), failedAttempts: failedAttempts, reason: lastFailure))
+                Reconnecting(phase: .trying(progress.step), failedAttempts: failedAttempts, reason: lastFailure))
         case .active, .suspended, .ended, .disconnected, .closed:
             break
         }
@@ -402,14 +437,19 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
     }
 
     private func attemptFailed(_ error: any Error, isReconnect: Bool) {
+        // Said with the jump host it failed at, if it did, and handled as the failure itself.
         let reason = String(describing: error)
-        switch error {
+        let jumpHost = (error as? JumpHostError)?.jumpHost
+        switch (error as? JumpHostError)?.error ?? error {
         case is CancellationError:
             return
         case ConnectError.hostKeyChanged(let server, let trusted, let presented):
             replacementProblem = nil
-            hostKeyChange = HostKeyChange(server: server, trusted: trusted, presented: presented)
-            state = .disconnected("The server’s host key changed.")
+            hostKeyChange = HostKeyChange(
+                server: server, trusted: trusted, presented: presented, hop: routeHop(for: jumpHost ?? host))
+            state = .disconnected(
+                jumpHost.map { "The host key of the jump host \($0.name) changed." } ?? "The server’s host key changed."
+            )
         case ConnectError.hostKeyNotTrusted, ConnectError.signInCancelled:
             guard isReconnect else {
                 state = .closed
@@ -629,13 +669,23 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
 
     // MARK: - Questions
 
-    /// Shows the trust sheet and waits for the user's answer.
-    private func askToTrust(_ server: Server, _ key: HostKey) async -> Bool {
+    /// Shows the trust sheet for the server of `hop`, a host on the route, and waits for the user's
+    /// answer.
+    private func askToTrust(_ hop: Host, _ key: HostKey) async -> Bool {
         guard !Task.isCancelled, state != .closed else { return false }
+        let place = routeHop(for: hop)
         return await withCheckedContinuation { continuation in
             trustAnswer = continuation
-            trustQuestion = TrustQuestion(server: server, key: key)
+            trustQuestion = TrustQuestion(server: hop.server, key: key, hop: place)
         }
+    }
+
+    /// Where `hop` is on the route of the connection being made.
+    private func routeHop(for hop: Host) -> RouteHop {
+        guard let route, let index = route.hops.firstIndex(where: { $0.id == hop.id }) else {
+            return RouteHop(name: hop.name, place: .direct)
+        }
+        return RouteHop(route, at: index)
     }
 
     /// The user's answer to the trust sheet.
@@ -645,14 +695,15 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         trustAnswer = nil
     }
 
-    /// Shows the sign-in sheet with the server's questions and waits for the user's answers, or nil
-    /// if they cancel.
-    private func askToSignIn(_ challenge: KeyboardInteractiveChallenge) async -> [Secret]? {
+    /// Shows the sign-in sheet with the questions of the server of `hop`, a host on the route, and
+    /// waits for the user's answers, or nil if they cancel.
+    private func askToSignIn(_ hop: Host, _ challenge: KeyboardInteractiveChallenge) async -> [Secret]? {
         // A round that arrives after the user cancelled gets no sheet.
         guard !Task.isCancelled, state != .closed else { return nil }
+        let place = routeHop(for: hop)
         return await withCheckedContinuation { continuation in
             signInAnswer = continuation
-            signInQuestion = SignInQuestion(server: host.server, challenge: challenge)
+            signInQuestion = SignInQuestion(server: hop.server, challenge: challenge, hop: place)
             isSigningIn = true
         }
     }
@@ -725,9 +776,9 @@ enum TabLog {
 }
 
 /// Whether a later try could succeed where this one failed: the network or the server was away, not
-/// the credentials or the host key.
+/// the credentials or the host key, at the tab's host or at a jump host on its way.
 func isWorthRetrying(_ error: any Error) -> Bool {
-    guard let error = error as? SSHError else { return false }
+    guard let error = ((error as? JumpHostError)?.error ?? error) as? SSHError else { return false }
     switch error {
     case .unreachable, .timedOut, .connectionLost, .closed:
         return true

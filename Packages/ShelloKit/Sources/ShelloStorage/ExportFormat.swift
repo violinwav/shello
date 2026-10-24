@@ -1,7 +1,7 @@
 import Foundation
 import ShelloModel
 
-/// The JSON of an export file, schema version 2, which reads version 1 too. docs/spec/EXPORT.md
+/// The JSON of an export file, schema version 3, which reads versions 1 and 2 too. docs/spec/EXPORT.md
 /// describes the format; these types define it. The format is stable: a file that one version of
 /// Shello writes, every later version reads. A change to it is a new schema version
 /// (`ExportFile.currentSchemaVersion`), so that an older Shello refuses the file instead of leaving
@@ -58,6 +58,10 @@ struct ExportFormat: Codable {
         /// The tmux session the host attaches. Since schema version 2, where every host has it; a
         /// host of version 1 attaches `main`.
         var tmuxSessionName: String?
+        /// The host's jump hosts, in order (README section 3), deleted ones included, which need not
+        /// be in the file. Since schema version 3, where every host has them; a host of versions 1
+        /// and 2 has none.
+        var jumpHostIDs: [UUID]?
         var terminalType: String
         var keepaliveIntervalMilliseconds: Int64
         var connectTimeoutMilliseconds: Int64
@@ -115,6 +119,8 @@ extension ExportFormat.Host {
         startupCommand = host.startupCommand
         tmuxAutoAttach = host.tmuxAutoAttach
         tmuxSessionName = host.tmuxSessionName
+        // In their order, which is the route's.
+        jumpHostIDs = host.jumpHostIDs
         terminalType = host.terminalType
         keepaliveIntervalMilliseconds = host.keepaliveInterval.storedMilliseconds
         connectTimeoutMilliseconds = host.connectTimeout.storedMilliseconds
@@ -136,6 +142,12 @@ extension ExportFormat {
             for (index, host) in hosts.enumerated() {
                 if host.tmuxAutoAttach == nil { throw .damaged(path: "hosts[\(index)].tmuxAutoAttach") }
                 if host.tmuxSessionName == nil { throw .damaged(path: "hosts[\(index)].tmuxSessionName") }
+            }
+        }
+        // From version 3 on every host has its jump hosts, an empty list for none.
+        if schemaVersion >= 3 {
+            for (index, host) in hosts.enumerated() where host.jumpHostIDs == nil {
+                throw .damaged(path: "hosts[\(index)].jumpHostIDs")
             }
         }
         var problems: [String] = []
@@ -264,6 +276,20 @@ extension ExportFormat.Host {
                 "\(label.atStart) has a tmux session name Shello can’t use: it takes 1 to 64 letters, digits, "
                     + "hyphens and underscores, not starting with a hyphen.")
         }
+        // Versions 1 and 2 had no jump hosts. A jump host need not be in the file: one that was
+        // deleted stays in the list, and connecting through it fails. Whether the whole route works,
+        // through the jump hosts' own, depends on the other hosts, so connecting checks it.
+        let jumpHosts = schemaVersion < 3 ? [] : jumpHostIDs ?? []
+        if jumpHosts.contains(id) {
+            problems.append("\(label.atStart) has itself as a jump host.")
+        }
+        if Set(jumpHosts).count < jumpHosts.count {
+            problems.append("\(label.atStart) has the same jump host twice.")
+        }
+        if jumpHosts.count > Route.maximumJumpHosts {
+            problems.append(
+                "\(label.atStart) has more than \(Route.maximumJumpHosts) jump hosts, the most a route can have.")
+        }
         guard problems.count == count, let validPort, let hostProtocol, let method else { return nil }
         return ShelloModel.Host(
             id: id,
@@ -280,6 +306,7 @@ extension ExportFormat.Host {
             startupCommand: startupCommand,
             tmuxAutoAttach: autoAttach,
             tmuxSessionName: sessionName,
+            jumpHostIDs: jumpHosts,
             terminalType: terminalType,
             keepaliveInterval: .milliseconds(keepaliveIntervalMilliseconds),
             connectTimeout: .milliseconds(connectTimeoutMilliseconds),

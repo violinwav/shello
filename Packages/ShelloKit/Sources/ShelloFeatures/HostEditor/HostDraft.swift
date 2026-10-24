@@ -4,12 +4,14 @@ import ShelloModel
 /// The host editor's fields as the user edits them (README section 3). Text stays as typed until
 /// the host is saved, so that a half-typed port is kept as it is.
 struct HostDraft: Equatable {
-    /// The fields that can have a problem, in the sheet's order.
+    /// The fields that can have a problem, in the sheet's order. The jump hosts' problems come from
+    /// the other hosts too, so the editor's model finds them.
     enum Field: Hashable, CaseIterable {
         case name
         case address
         case port
         case tmuxSessionName
+        case jumpHosts
         case terminalType
     }
 
@@ -36,6 +38,8 @@ struct HostDraft: Equatable {
     var tmuxAutoAttach: Bool
     /// The tmux session's name, which the sheet shows while auto-attach is on.
     var tmuxSessionName: String
+    /// The hosts to connect through, in order (README section 3).
+    var jumpHostIDs: [Host.ID]
     var terminalType: String
     var keepaliveInterval: Duration
     var connectTimeout: Duration
@@ -55,6 +59,7 @@ struct HostDraft: Equatable {
         startupCommand = host.startupCommand
         tmuxAutoAttach = host.tmuxAutoAttach
         tmuxSessionName = host.tmuxSessionName
+        jumpHostIDs = host.jumpHostIDs
         terminalType = host.terminalType
         keepaliveInterval = host.keepaliveInterval
         connectTimeout = host.connectTimeout
@@ -144,6 +149,7 @@ struct HostDraft: Equatable {
         if tmuxSessionName != original.tmuxSessionName, let name = TmuxSessionName(tmuxSessionName.trimmed) {
             host.tmuxSessionName = name.rawValue
         }
+        if jumpHostIDs != original.jumpHostIDs { host.jumpHostIDs = jumpHostIDs }
         if terminalType != original.terminalType { host.terminalType = terminalType.trimmed }
         if keepaliveInterval != original.keepaliveInterval { host.keepaliveInterval = keepaliveInterval }
         if connectTimeout != original.connectTimeout { host.connectTimeout = connectTimeout }

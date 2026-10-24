@@ -15,11 +15,16 @@ final class QueueExecutor: SerialExecutor {
         self.queue = queue
     }
 
+    /// Each block keeps the executor alive until its job has run: a connection's isolated deinit is
+    /// a job on it, and releases the executor with the rest of the connection. A jump host's
+    /// connection that it releases then deinits too, and the runtime looks at the executor it runs
+    /// on, which must still be there.
     func enqueue(_ job: consuming ExecutorJob) {
         let job = UnownedJob(job)
         let executor = unsafe asUnownedSerialExecutor()
-        queue.async {
+        queue.async { [self] in
             unsafe job.runSynchronously(on: executor)
+            withExtendedLifetime(self) {}
         }
     }
 

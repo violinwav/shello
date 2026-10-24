@@ -12,10 +12,17 @@ import SwiftUI
 /// question as the field's label. VoiceOver moves to each new round, and to the wait between rounds,
 /// since the sheet stays while its content changes. The answers go to the server only: Shello keeps
 /// none of them.
+///
+/// On a route through jump hosts (README section 3), the same sheet asks for each hop in turn: the
+/// hop that asks is under the title, and VoiceOver hears its name first in each round, and as the
+/// wait moves on to the next hop.
 struct SignInSheet: View {
     /// The round to answer, or nil while the server checks the last answers.
     let question: SignInQuestion?
+    /// The hop that signs in.
     let hostName: String
+    /// Whether the route goes through jump hosts, so that the sheet names the hop under its title.
+    let isThroughJumpHosts: Bool
     let answer: ([Secret]) -> Void
     let cancel: () -> Void
     @AccessibilityFocusState private var isWaitFocused: Bool
@@ -39,7 +46,14 @@ struct SignInSheet: View {
                 }
             }
             .navigationTitle("Sign In")
+            .navigationSubtitle(isThroughJumpHosts ? hostName : "")
             .navigationBarTitleDisplayMode(.inline)
+            // The wait moved on to the next hop, which VoiceOver, on the wait, would not hear.
+            .onChange(of: hostName) { _, name in
+                if question == nil {
+                    announce("Signing in to \(name)", priority: .low)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", systemImage: "xmark", role: .cancel, action: cancel)
@@ -77,9 +91,30 @@ private struct SignInQuestions: View {
 
     private var challenge: KeyboardInteractiveChallenge { question.challenge }
 
+    /// The server that asks: by its address and port, and on a route through jump hosts, by its
+    /// host too, the hop that signs in.
+    private var asker: String {
+        switch question.hop.place {
+        case .direct: question.server.description
+        case .jumpHost: "The jump host \(question.hop.name), at \(question.server.description),"
+        case .behindJumpHost: "\(question.hop.name), at \(question.server.description),"
+        }
+    }
+
+    /// On a route through jump hosts, what VoiceOver hears first in a round, before the element it
+    /// lands on, which the footer that names the hop comes after: one hop asking again sounds like
+    /// the next one asking otherwise.
+    private var spokenHop: String? {
+        question.hop.place == .direct ? nil : question.hop.name
+    }
+
+    private var hasIntroduction: Bool {
+        !challenge.name.isEmpty || !challenge.instruction.isEmpty
+    }
+
     var body: some View {
         List {
-            if !challenge.name.isEmpty || !challenge.instruction.isEmpty {
+            if hasIntroduction {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
                         if !challenge.name.isEmpty {
@@ -91,7 +126,11 @@ private struct SignInQuestions: View {
                         }
                     }
                     .textSelection(.enabled)
-                    .accessibilityElement(children: .combine)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(
+                        [spokenHop, challenge.name, challenge.instruction].compactMap { $0 }.filter { !$0.isEmpty }
+                            .joined(separator: ", ")
+                    )
                     .accessibilityFocused($accessibilityFocus, equals: .introduction)
                 }
                 .listRowBackground(Palette.cell)
@@ -103,8 +142,8 @@ private struct SignInQuestions: View {
                 }
             } footer: {
                 FooterText(
-                    "\(question.server.description) asks \(challenge.prompts.count == 1 ? "this" : "these") before it "
-                        + "lets you in. Shello sends your answers to it, and keeps none of them.")
+                    "\(asker) asks \(challenge.prompts.count == 1 ? "this" : "these") before it lets you in. Shello "
+                        + "sends your answers to it, and keeps none of them.")
             }
             .listRowBackground(Palette.cell)
         }
@@ -120,14 +159,17 @@ private struct SignInQuestions: View {
         }
         .onAppear {
             focus = 0
-            let hasIntroduction = !challenge.name.isEmpty || !challenge.instruction.isEmpty
             accessibilityFocus = hasIntroduction ? .introduction : .field(0)
         }
     }
 
-    /// The question above its field, which hides or shows the answer as the server asks.
+    /// The question above its field, which hides or shows the answer as the server asks. The first
+    /// field, where VoiceOver lands without an introduction, names the hop on a route; Voice Control
+    /// keeps the question's own words.
     private func field(for prompt: KeyboardInteractivePrompt, at index: Int) -> some View {
         let label = prompt.spokenText
+        let spokenLabel =
+            if let spokenHop, index == 0, !hasIntroduction { "\(spokenHop), \(label)" } else { label }
         let isLast = index == challenge.prompts.count - 1
         return VStack(alignment: .leading, spacing: 6) {
             // The field carries the question for VoiceOver.
@@ -146,7 +188,7 @@ private struct SignInQuestions: View {
                 }
             }
             .textContentType(prompt.contentType)
-            .accessibilityLabel(label)
+            .accessibilityLabel(spokenLabel)
             .accessibilityHint(prompt.showsAnswer ? "The answer shows as you type it." : "")
             // Voice Control: a long question is too long to say, so the field answers to its last
             // line and to its number too.

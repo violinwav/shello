@@ -72,6 +72,37 @@ enum TestServer {
             base64Encoded: "AAAAC3NzaC1lZDI1NTE5AAAAIIJJGCfEG93QAyNvR5/qMneE615D5dVdNz8eF8nfUV2G")!,
         fingerprint: "SHA256:vRTlNPuThVvvrnjbeKgZ/H5Ud52Nq2MKVToLDK4pofI")
 
+    /// Whether the test servers are this Mac's own sshd (`local-sshd.sh`), as in CI, rather than
+    /// Docker's.
+    static let isThisMacsSSHD = localUser != nil
+
+    /// The test server on `port` of this Mac as another test server reaches it, for a host behind a
+    /// jump host (TestServers/README.md): in Docker, by its container's name on the servers' network,
+    /// on port 22; this Mac's own sshd reaches the others on this Mac's loopback, on their ports.
+    static func reachedFromAnother(port: UInt16) -> Server {
+        guard !isThisMacsSSHD else { return Server(address: "127.0.0.1", port: port) }
+        let containers: [UInt16: String] = [
+            2222: "shello-test-openssh", 2223: "shello-test-openssh9", 2224: "shello-test-openssh-classical",
+            2225: "shello-test-openssh8", 2226: "shello-test-openssh-nist",
+        ]
+        return Server(address: containers[port] ?? "localhost", port: 22)
+    }
+
+    static let jumpServersNotRunning: Comment =
+        "The test servers are not running on localhost:2224 and 2226. Start them with TestServers/ssh-server.sh (TestServers/README.md)."
+
+    /// Whether the servers on ports 2224 and 2226 greet too, which the tests through jump hosts
+    /// reach through another.
+    static var areJumpServersRunning: Bool {
+        get async { await jumpProbe.value }
+    }
+
+    private static let jumpProbe = Task {
+        let first = await hasSSHBanner(port: 2224)
+        let second = await hasSSHBanner(port: 2226)
+        return first && second
+    }
+
     /// Whether an SSH server greets on the port within two seconds.
     static var isRunning: Bool {
         get async { await probe.value }

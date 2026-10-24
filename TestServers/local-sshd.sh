@@ -74,6 +74,8 @@ KbdInteractiveAuthentication no
 UsePAM no
 StrictModes no
 MaxStartups 100
+# Each server is a jump host for the others, which it reaches on this Mac's loopback.
+AllowTcpForwarding yes
 # Every test connects from 127.0.0.1, and many fail to sign in on purpose: OpenSSH's penalties for
 # that would refuse every connection for a while.
 PerSourcePenalties no

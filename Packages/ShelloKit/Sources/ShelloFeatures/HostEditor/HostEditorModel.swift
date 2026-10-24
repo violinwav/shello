@@ -11,6 +11,10 @@ import os
 /// The host's password goes into the Keychain, never into the host: the Keychain item is found by
 /// the host's identifier (`SecretID.password(of:)`). The host refers to its SSH key by identifier
 /// too, and the key may be on another device (README section 15).
+///
+/// Its jump hosts (README section 3) are chosen among the saved SSH hosts, which the editor follows,
+/// and the draft's route is checked against them: one that reaches a host twice, has too many jump
+/// hosts or one that is not an SSH host is refused, and a missing jump host is shown as missing.
 @Observable
 final class HostEditorModel {
     let repository: HostRepository
@@ -39,6 +43,8 @@ final class HostEditorModel {
 
     private var storedGroups: [HostGroup] = []
     private var storedTags: [Tag] = []
+    /// The saved hosts, by name, among which the jump hosts are chosen and looked up.
+    private(set) var savedHosts: [Host] = []
     /// Groups and tags created in this editor and not stored yet.
     private var newGroups: [HostGroup] = []
     private var newTags: [Tag] = []
@@ -173,20 +179,34 @@ final class HostEditorModel {
         }
     }
 
-    /// The problem to show for `field`: once the user has left the field, or has tried to save.
+    /// The problem to show for `field`: once the user has left the field, or has tried to save. The
+    /// jump hosts' problem shows at once: it is no typing error, and may come from another host.
     func visibleProblem(for field: HostDraft.Field) -> String? {
+        if field == .jumpHosts { return jumpHostsProblem }
         guard attemptedSave || leftFields.contains(field) else { return nil }
         return draft.problems[field]
     }
 
-    /// The first field, in the sheet's order, with a problem to show.
+    /// The first field, in the sheet's order, with a problem to show that keeps the host from being
+    /// saved.
     var firstProblemField: HostDraft.Field? {
-        HostDraft.Field.allCases.first { visibleProblem(for: $0) != nil }
+        HostDraft.Field.allCases.first { blockingProblems[$0] != nil && visibleProblem(for: $0) != nil }
     }
 
-    /// The problems to show, in the sheet's order.
+    /// The problems to show that keep the host from being saved, in the sheet's order.
     var visibleProblems: [String] {
-        HostDraft.Field.allCases.compactMap(visibleProblem(for:))
+        HostDraft.Field.allCases.compactMap { blockingProblems[$0] != nil ? visibleProblem(for: $0) : nil }
+    }
+
+    /// What keeps the host from being saved, by field: the draft's problems, and a route Shello
+    /// refuses through jump hosts the user changed. A route that another host's change broke does
+    /// not keep the user from saving the rest; its problem shows all the same.
+    private var blockingProblems: [HostDraft.Field: String] {
+        var problems = draft.problems
+        if draft.jumpHostIDs != original.jumpHostIDs, case .failure(let error)? = route, error.blocksSaving {
+            problems[.jumpHosts] = error.editorProblem(editing: routeName)
+        }
+        return problems
     }
 
     /// The host's name as it was stored when the editor opened, for confirmations: the draft's may be
@@ -236,6 +256,111 @@ final class HostEditorModel {
         return group
     }
 
+    // MARK: - Jump hosts
+
+    /// One of the draft's jump hosts: the saved host, or nil for one Shello does not have.
+    struct JumpHost: Identifiable, Equatable {
+        let id: Host.ID
+        let host: Host?
+
+        /// Its name, or that it is missing.
+        var name: String { host?.name ?? JumpHostDisplay.missingName }
+    }
+
+    /// The draft's jump hosts, in order.
+    var jumpHosts: [JumpHost] {
+        let saved = savedHostsByID
+        return draft.jumpHostIDs.map { JumpHost(id: $0, host: saved[$0]) }
+    }
+
+    /// The saved SSH hosts the draft can add as a jump host, by name: only SSH hosts can be jump
+    /// hosts, a host cannot jump through itself, and each comes once.
+    var jumpHostCandidates: [Host] {
+        savedHosts.filter { $0.protocol == .ssh && $0.id != base.id && !draft.jumpHostIDs.contains($0.id) }
+    }
+
+    /// Adds the host `id` as the last jump host.
+    func addJumpHost(_ id: Host.ID) {
+        guard !draft.jumpHostIDs.contains(id) else { return }
+        draft.jumpHostIDs.append(id)
+    }
+
+    func removeJumpHosts(at offsets: IndexSet) {
+        draft.jumpHostIDs.remove(atOffsets: offsets)
+    }
+
+    func moveJumpHosts(from offsets: IndexSet, to destination: Int) {
+        draft.jumpHostIDs.move(fromOffsets: offsets, toOffset: destination)
+    }
+
+    /// Moves the jump host at `index` one place up, nearer the device, for an `offset` of -1, or one
+    /// place down for 1: what Move Up and Move Down do, where dragging is not possible.
+    func moveJumpHost(at index: Int, by offset: Int) {
+        let target = index + offset
+        guard draft.jumpHostIDs.indices.contains(index), draft.jumpHostIDs.indices.contains(target) else { return }
+        draft.jumpHostIDs.swapAt(index, target)
+    }
+
+    /// The jump hosts as the editor's row names them: "None", or "bastion → inner".
+    var jumpHostsSummary: String {
+        jumpHosts.isEmpty ? "None" : JumpHostDisplay.shown(jumpHosts.map(\.name))
+    }
+
+    /// `jumpHostsSummary` as VoiceOver reads it: "bastion, then inner".
+    var spokenJumpHostsSummary: String {
+        jumpHosts.isEmpty ? "None" : JumpHostDisplay.spoken(jumpHosts.map(\.name))
+    }
+
+    /// The draft's route through the saved jump hosts, or why Shello would refuse it; nil without
+    /// jump hosts. The route to the first jump host comes first, through that host's own jump
+    /// hosts, as when connecting (`Route`).
+    var route: Result<Route, RouteError>? {
+        guard !draft.jumpHostIDs.isEmpty else { return nil }
+        var host = base
+        host.name = routeName
+        host.protocol = draft.protocol
+        host.jumpHostIDs = draft.jumpHostIDs
+        var hosts = savedHostsByID
+        // A jump host's route that comes back here comes back to the draft.
+        hosts[base.id] = host
+        return Result { () throws(RouteError) -> Route in try Route(to: host, hosts: hosts) }
+    }
+
+    /// The problem with the jump hosts, under their row: a route Shello refuses, or a jump host it
+    /// does not have.
+    var jumpHostsProblem: String? {
+        guard case .failure(let error)? = route else { return nil }
+        return error.editorProblem(editing: routeName)
+    }
+
+    /// The other saved hosts that connect through this one, whose routes its deletion would leave
+    /// with a missing jump host, by name.
+    var hostsJumpingThrough: [Host] {
+        Route.hosts(jumpingThrough: base.id, among: savedHosts)
+    }
+
+    /// The host's name as the route's problems use it.
+    private var routeName: String {
+        let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "this host" : name
+    }
+
+    private var savedHostsByID: [Host.ID: Host] {
+        Dictionary(savedHosts.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// Follows the saved hosts, for the jump hosts, until the task is cancelled.
+    func observeSavedHosts() async {
+        do {
+            for try await hosts in repository.observeHosts() {
+                savedHosts = hosts
+            }
+        } catch is CancellationError {
+        } catch {
+            Self.logger.error("Could not read the hosts: \(error)")
+        }
+    }
+
     /// Follows the stored groups and tags until the task is cancelled.
     func observeGroupsAndTags() async {
         async let groups: Void = observeGroups()
@@ -252,7 +377,7 @@ final class HostEditorModel {
     /// the host's method no longer uses, goes once the host is saved.
     func save() async -> Bool {
         attemptedSave = true
-        guard draft.problems.isEmpty else { return false }
+        guard blockingProblems.isEmpty else { return false }
         guard hasChanges || !isEditing else { return true }
         let passwordID = SecretID.password(of: base.id)
         let storesPassword = offersPassword && !password.isEmpty

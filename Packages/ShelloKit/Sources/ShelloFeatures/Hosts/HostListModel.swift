@@ -110,6 +110,17 @@ final class HostListModel {
         }
     }
 
+    /// The other saved hosts that connect through `host`, by name, whose routes its deletion would
+    /// leave with a missing jump host (README section 3): for the confirmation, which names them.
+    func hostsJumping(through host: Host) async -> [Host] {
+        do {
+            return Route.hosts(jumpingThrough: host.id, among: try await repository.hosts())
+        } catch {
+            Self.logger.error("Could not read the hosts: \(error)")
+            return []
+        }
+    }
+
     /// Deletes a host and its password, and returns whether it worked. The repository keeps a
     /// tombstone (README section 15), so that sync can carry the deletion later.
     @discardableResult

@@ -37,6 +37,7 @@ struct HostRepositoryTests {
             startupCommand: "cd /srv",
             tmuxAutoAttach: true,
             tmuxSessionName: "deploy-1",
+            jumpHostIDs: [UUID(), UUID()],
             terminalType: "xterm",
             keepaliveInterval: .seconds(45),
             connectTimeout: .milliseconds(7_500),
@@ -48,6 +49,51 @@ struct HostRepositoryTests {
 
         #expect(try await repository.host(id: host.id) == host)
         #expect(try await repository.hosts() == [host])
+    }
+
+    // MARK: - Jump hosts
+
+    /// The order of a host's jump hosts is the order of its route (README section 3).
+    @Test func jumpHostsKeepTheirOrder() async throws {
+        let bastion = Host(name: "bastion", address: "bastion.lan", username: "admin")
+        let inner = Host(name: "inner", address: "10.0.0.5", username: "admin")
+        var web = Host(name: "web-01", address: "10.0.1.21", username: "deploy", jumpHostIDs: [inner.id, bastion.id])
+        for host in [bastion, inner, web] { try await repository.create(host) }
+        #expect(try await repository.host(id: web.id)?.jumpHostIDs == [inner.id, bastion.id])
+
+        web.jumpHostIDs = [bastion.id, inner.id]
+        try await repository.update(web)
+
+        #expect(try await repository.host(id: web.id)?.jumpHostIDs == [bastion.id, inner.id])
+        web.jumpHostIDs = []
+        try await repository.update(web)
+        #expect(try await repository.host(id: web.id)?.jumpHostIDs == [])
+    }
+
+    /// A deleted jump host stays in the lists that name it, unlike a deleted group or tag: a host
+    /// whose jump host is gone must not connect directly instead. Undoing the deletion would bring it
+    /// back in each list.
+    @Test func deletedJumpHostStaysInTheListsThatNameIt() async throws {
+        let bastion = Host(name: "bastion", address: "bastion.lan", username: "admin")
+        let web = Host(name: "web-01", address: "10.0.1.21", username: "deploy", jumpHostIDs: [bastion.id])
+        try await repository.create(bastion)
+        try await repository.create(web)
+
+        try await repository.deleteHost(id: bastion.id)
+
+        #expect(try await repository.host(id: bastion.id) == nil)
+        #expect(try await repository.host(id: web.id)?.jumpHostIDs == [bastion.id])
+    }
+
+    /// The list is stored as the identifiers' bytes, 16 each: other lengths are not one.
+    @Test func jumpHostListThatIsNotWholeIdentifiersFailsToRead() async throws {
+        let web = Host(name: "web-01", address: "10.0.1.21", username: "deploy")
+        try await repository.create(web)
+        try await test.database.writer.write { db in
+            try db.execute(sql: "UPDATE host SET jumpHostIDs = x'0102'")
+        }
+
+        await #expect(throws: UnknownStoredValueError.self) { try await repository.hosts() }
     }
 
     @Test(arguments: HostProtocol.allCases)

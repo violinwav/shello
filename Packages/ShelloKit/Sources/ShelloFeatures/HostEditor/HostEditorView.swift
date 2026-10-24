@@ -18,12 +18,14 @@ struct HostEditorView: View {
         case terminalType
         case notes
 
-        init(_ field: HostDraft.Field) {
+        /// The text field of `field`, or nil for the jump hosts, which have none.
+        init?(_ field: HostDraft.Field) {
             switch field {
             case .name: self = .name
             case .address: self = .address
             case .port: self = .port
             case .tmuxSessionName: self = .tmuxSessionName
+            case .jumpHosts: return nil
             case .terminalType: self = .terminalType
             }
         }
@@ -44,6 +46,11 @@ struct HostEditorView: View {
     @State private var model: HostEditorModel
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focus: FocusField?
+    /// Whether VoiceOver is on the jump hosts row, which has no text field to take the focus when
+    /// their problem keeps the host from being saved.
+    @AccessibilityFocusState private var isJumpHostsFocused: Bool
+    /// Set when saving stopped at the jump hosts' problem: the form scrolls to their row.
+    @State private var revealsJumpHosts = false
 
     @State private var isSaving = false
     @State private var confirmsDiscard = false
@@ -59,20 +66,28 @@ struct HostEditorView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                protocolSection
-                connectionSection
-                authenticationSection
-                organizeSection
-                tagsSection
-                onConnectSection
-                notesSection
-                if model.isEditing {
-                    Section {
-                        Button("Delete Host", role: .destructive) { confirmsDelete = true }
-                            .destructiveStyle()
+            ScrollViewReader { scroller in
+                Form {
+                    protocolSection
+                    connectionSection
+                    authenticationSection
+                    organizeSection
+                    tagsSection
+                    onConnectSection
+                    notesSection
+                    if model.isEditing {
+                        Section {
+                            Button("Delete Host", role: .destructive) { confirmsDelete = true }
+                                .destructiveStyle()
+                        }
+                        .listRowBackground(Palette.cell)
                     }
-                    .listRowBackground(Palette.cell)
+                }
+                .onChange(of: revealsJumpHosts) { _, reveals in
+                    guard reveals else { return }
+                    revealsJumpHosts = false
+                    withAnimation { scroller.scrollTo(HostDraft.Field.jumpHosts, anchor: .center) }
+                    isJumpHostsFocused = true
                 }
             }
             // On the form only: toolbar items keep the system font, which follows Dynamic Type.
@@ -104,6 +119,7 @@ struct HostEditorView: View {
                 }
             }
             .task { await model.observeGroupsAndTags() }
+            .task { await model.observeSavedHosts() }
             .onChange(of: focus) { left, _ in
                 guard let field = left?.checked else { return }
                 let wasShowing = model.visibleProblem(for: field) != nil
@@ -129,7 +145,8 @@ struct HostEditorView: View {
                     }
                 }
             } message: {
-                Text("This removes the host from Shello.")
+                // The hosts that jump through it keep it as a missing jump host (README section 3).
+                Text(JumpHostDisplay.deletionMessage(users: model.hostsJumpingThrough))
             }
             .alert("New Group", isPresented: $namesNewGroup) {
                 TextField("Name", text: $newGroupName)
@@ -360,6 +377,10 @@ struct HostEditorView: View {
                     "tmux session", text: $model.draft.tmuxSessionName, prompt: "required", focus: .tmuxSessionName,
                     next: .terminalType, inputLabels: ["Session name"])
             }
+            // A VNC host opens no shell; its tunnel through SSH comes with VNC.
+            if model.draft.protocol != .vnc {
+                jumpHostsRow
+            }
             textField(
                 "Terminal type", text: $model.draft.terminalType, prompt: "required", focus: .terminalType)
             StepperRow(
@@ -375,6 +396,31 @@ struct HostEditorView: View {
             FooterText(onConnectFooter)
         }
         .listRowBackground(Palette.cell)
+    }
+
+    /// The jump hosts (README section 3), which their screen chooses and orders, with the route's
+    /// problem under them, which is also the row's hint. VoiceOver reads the names with "then" between
+    /// them, not the arrows. Laid out as the SSH key's row, so that the label stays whole beside a
+    /// long route at large text sizes.
+    @ViewBuilder private var jumpHostsRow: some View {
+        NavigationLink {
+            JumpHostsView(model: model)
+        } label: {
+            LabeledContent("Jump hosts") {
+                ValueText(model.jumpHostsSummary, font: Typography.data)
+                    .multilineTextAlignment(.trailing)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Jump hosts")
+            .accessibilityValue(model.spokenJumpHostsSummary)
+        }
+        .accessibilityHint(model.visibleProblem(for: .jumpHosts) ?? "")
+        .accessibilityFocused($isJumpHostsFocused)
+        .id(HostDraft.Field.jumpHosts)
+        if let problem = model.visibleProblem(for: .jumpHosts) {
+            ProblemText(problem: problem)
+                .labelStyle(.row)
+        }
     }
 
     /// What happens on connect, in the order it happens.
@@ -441,6 +487,10 @@ struct HostEditorView: View {
             dismiss()
         } else if let field = model.firstProblemField, let problem = model.visibleProblem(for: field) {
             focus = FocusField(field)
+            // The jump hosts have no text field to take the focus: the form goes to their row.
+            if field == .jumpHosts {
+                revealsJumpHosts = true
+            }
             // High priority: VoiceOver would otherwise cut it off to read the field that takes the focus.
             let count = model.visibleProblems.count
             announce(count > 1 ? "\(count) problems. \(problem)" : problem)

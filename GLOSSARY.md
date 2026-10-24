@@ -24,6 +24,14 @@ _Avoid_: Server key, fingerprint (the fingerprint is how a host key is shown)
 The host key the user accepted for a server on the first connection to it, kept in Shello's own trust store. Every later connection to the server must present it: a different host key is a changed host key, which blocks the connection.
 _Avoid_: Known host (OpenSSH's `known_hosts` file, which Shello does not use), saved fingerprint
 
+**Jump host**:
+A saved SSH host that Shello connects through to reach another host's server, as OpenSSH's `ProxyJump` does. A host's jump hosts are an ordered list; each checks its own host key and signs in its own way. A jump host that was deleted stays in the list as a missing one, and the host does not connect until the list changes.
+_Avoid_: Bastion (one kind of jump host), proxy, gateway
+
+**Route**:
+The hosts a connection goes through to reach a host's server, in order: the route to its first jump host, then its other jump hosts, then the host itself. Each host on a route is a hop: Shello reaches the first from the device, and each of the others through the connection to the one before. A host without jump hosts is a route of its own, reached directly.
+_Avoid_: Path, chain (a host's jump hosts are its own part of the route), tunnel (what each hop runs through)
+
 **Group**:
 The one group a host belongs to, if any. New hosts in a group inherit its defaults. Groups do not nest.
 _Avoid_: Folder, category

@@ -14,6 +14,8 @@ struct HostListView: View {
     @State private var editorRoute: EditorRoute?
     @State private var showsSettings = false
     @State private var hostToDelete: Host?
+    /// The hosts that connect through the host to delete, which its confirmation names.
+    @State private var hostsJumpingThroughHostToDelete: [Host] = []
     @Environment(TerminalTabsModel.self) private var tabs: TerminalTabsModel?
 
     var body: some View {
@@ -61,7 +63,8 @@ struct HostListView: View {
                     }
                 }
             } message: { _ in
-                Text("This removes the host from Shello.")
+                // The hosts that jump through it keep it as a missing jump host (README section 3).
+                Text(JumpHostDisplay.deletionMessage(users: hostsJumpingThroughHostToDelete))
             }
             .alert("Couldn’t Change the Host", isPresented: isPresented($model.actionError)) {
                 Button("OK", role: .cancel) {}
@@ -121,7 +124,7 @@ struct HostListView: View {
                 .tint(Palette.accentDeep)
         }
         .swipeActions(edge: .trailing) {
-            Button("Delete", systemImage: "trash", role: .destructive) { hostToDelete = host }
+            Button("Delete", systemImage: "trash", role: .destructive) { confirmDeletion(of: host) }
             Button("Edit", systemImage: "pencil") { editorRoute = EditorRoute(host: host) }
                 .tint(Palette.accentDeep)
         }
@@ -129,7 +132,15 @@ struct HostListView: View {
             Button("Edit", systemImage: "pencil") { editorRoute = EditorRoute(host: host) }
             favoriteButton(host)
             Divider()
-            Button("Delete", systemImage: "trash", role: .destructive) { hostToDelete = host }
+            Button("Delete", systemImage: "trash", role: .destructive) { confirmDeletion(of: host) }
+        }
+    }
+
+    /// Asks before deleting `host`, naming the hosts that connect through it.
+    private func confirmDeletion(of host: Host) {
+        Task {
+            hostsJumpingThroughHostToDelete = await model.hostsJumping(through: host)
+            hostToDelete = host
         }
     }
 

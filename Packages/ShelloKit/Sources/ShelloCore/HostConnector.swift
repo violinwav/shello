@@ -61,6 +61,77 @@ public struct HostConnector: Sendable {
         askToTrust: @Sendable (Server, HostKey) async -> Bool,
         answer: @Sendable (KeyboardInteractiveChallenge) async -> [Secret]? = { _ in nil }
     ) async throws -> SSHConnection {
+        try await connect(
+            to: host, through: nil, algorithms: overrides, progress: progress, askToTrust: askToTrust, answer: answer)
+    }
+
+    /// Connects along `route` (README section 3): to its first host from the device, then to each
+    /// of the others through a tunnel of the connection to the one before. Each hop's host key is
+    /// checked against the trust store under its own server, as its host's address and port are
+    /// reached from the hop before, and each hop signs in as its own host says, as
+    /// `connect(to:algorithms:progress:askToTrust:answer:)` does for one. What every hop signs in
+    /// with is checked first, before anything goes over the network, and nothing goes past a hop
+    /// that fails.
+    /// - Parameters:
+    ///   - progress: Told each hop's steps, from the first hop's connecting on.
+    ///   - askToTrust: Asks the user whether to trust the host key of a hop's server, on the first
+    ///     connection to it, naming the hop's host.
+    ///   - answer: Asks the user a hop's keyboard-interactive questions.
+    /// - Returns: The route's connections, signed in. The caller closes them.
+    /// - Throws: As `connect(to:algorithms:progress:askToTrust:answer:)` does, or, for a failure at
+    ///   one of the jump hosts, `JumpHostError`, which names it.
+    @concurrent
+    public func connect(
+        along route: Route, progress: @Sendable (RouteProgress) async -> Void = { _ in },
+        askToTrust: @Sendable (Host, HostKey) async -> Bool,
+        answer: @Sendable (Host, KeyboardInteractiveChallenge) async -> [Secret]? = { _, _ in nil }
+    ) async throws -> RouteConnection {
+        for (index, hop) in route.hops.enumerated() {
+            do {
+                try Self.checkCanConnect(to: hop)
+                _ = try checkCredentials(of: hop)
+            } catch {
+                throw Self.failure(error, at: index, on: route)
+            }
+        }
+        var connections: [SSHConnection] = []
+        do {
+            for (index, hop) in route.hops.enumerated() {
+                await progress(RouteProgress(hop: index, step: .connecting))
+                do {
+                    connections.append(
+                        try await connect(
+                            to: hop, through: connections.last, algorithms: .none,
+                            progress: { step in await progress(RouteProgress(hop: index, step: step)) },
+                            askToTrust: { _, key in await askToTrust(hop, key) },
+                            answer: { challenge in await answer(hop, challenge) }))
+                } catch {
+                    throw Self.failure(error, at: index, on: route)
+                }
+            }
+        } catch {
+            // The last first, so that each one's goodbye goes through the hops before it.
+            for connection in connections.reversed() {
+                await connection.close()
+            }
+            throw error
+        }
+        return RouteConnection(route: route, connections: connections)
+    }
+
+    /// `error` as it failed at the hop `index` of `route`: one at a jump host names it.
+    private static func failure(_ error: any Error, at index: Int, on route: Route) -> any Error {
+        guard index < route.hops.count - 1, !(error is CancellationError) else { return error }
+        return JumpHostError(jumpHost: route.hops[index], error: error)
+    }
+
+    /// Opens a connection to `host`'s server, through `jumpHost` if it is behind one, and signs in.
+    private func connect(
+        to host: Host, through jumpHost: SSHConnection?, algorithms overrides: AlgorithmOverrides,
+        progress: @Sendable (ConnectStep) async -> Void,
+        askToTrust: @Sendable (Server, HostKey) async -> Bool,
+        answer: @Sendable (KeyboardInteractiveChallenge) async -> [Secret]?
+    ) async throws -> SSHConnection {
         try Self.checkCanConnect(to: host)
         let sshKey = try checkCredentials(of: host)
         let server = host.server
@@ -68,7 +139,8 @@ public struct HostConnector: Sendable {
         while true {
             let policy = try await algorithms(for: server, overriddenBy: overrides)
             let connection = SSHConnection(
-                server: server, username: host.username, connectTimeout: host.connectTimeout, algorithms: policy)
+                server: server, username: host.username, connectTimeout: host.connectTimeout, algorithms: policy,
+                through: jumpHost)
             do {
                 let presented = try await connection.connect()
                 await progress(.verifyingHostKey)
@@ -292,6 +364,39 @@ public enum ConnectError: Error, Equatable, Sendable, CustomStringConvertible {
             "The server also asks for \(methods.names.joined(separator: " or ")), which this host doesn’t have."
         case .noUser: "This host has no user to sign in as. Add one in the host’s settings."
         case .unsupportedProtocol: "Remote desktop isn’t available yet."
+        }
+    }
+}
+
+/// Connecting along a route failed at one of its jump hosts (README section 3), before the tab's
+/// own host: nothing went past it. It says which jump host, and why.
+public struct JumpHostError: Error, Sendable, CustomStringConvertible {
+    /// The jump host where the route stopped.
+    public let jumpHost: Host
+    /// What failed there.
+    public let error: any Error
+
+    public init(jumpHost: Host, error: any Error) {
+        self.jumpHost = jumpHost
+        self.error = error
+    }
+
+    public var description: String {
+        let name = jumpHost.name
+        switch error {
+        case ConnectError.noPassword:
+            return "The jump host \(name) has no saved password. Add it in \(name)’s settings."
+        case ConnectError.noSSHKey:
+            return "The jump host \(name) has no SSH key. Choose one in \(name)’s settings."
+        case ConnectError.sshKeyNotOnDevice:
+            return "The SSH key of the jump host \(name) isn’t on this device. Choose one of this device’s keys in "
+                + "\(name)’s settings."
+        case ConnectError.noUser:
+            return "The jump host \(name) has no user to sign in as. Add one in \(name)’s settings."
+        case ConnectError.hostKeyChanged:
+            return "The host key of the jump host \(name) changed. Shello didn’t connect."
+        default:
+            return "Couldn’t connect to the jump host \(name). \(error)"
         }
     }
 }

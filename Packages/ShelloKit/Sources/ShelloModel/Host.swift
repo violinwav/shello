@@ -28,6 +28,11 @@ public struct Host: Identifiable, Hashable, Sendable {
     public var tmuxAutoAttach: Bool
     /// The tmux session auto-attach attaches, a `TmuxSessionName`.
     public var tmuxSessionName: String
+    /// The hosts Shello connects through to reach this one's server, in order, as OpenSSH's
+    /// `ProxyJump` does (README section 3): its jump hosts. Empty for a host Shello reaches
+    /// directly. A jump host that was deleted stays in the list as a missing one, so that the host
+    /// is never reached directly instead: connecting then fails (`Route`).
+    public var jumpHostIDs: [Host.ID]
     /// The `TERM` value Shello sends to the server.
     public var terminalType: String
     /// How often Shello checks that the connection is alive. A tab shows the round trip as its
@@ -66,6 +71,7 @@ public struct Host: Identifiable, Hashable, Sendable {
         startupCommand: String = "",
         tmuxAutoAttach: Bool = false,
         tmuxSessionName: String = Host.defaultTmuxSessionName,
+        jumpHostIDs: [Host.ID] = [],
         terminalType: String = Host.defaultTerminalType,
         keepaliveInterval: Duration = Host.defaultKeepaliveInterval,
         connectTimeout: Duration = Host.defaultConnectTimeout,
@@ -86,6 +92,7 @@ public struct Host: Identifiable, Hashable, Sendable {
         self.startupCommand = startupCommand
         self.tmuxAutoAttach = tmuxAutoAttach
         self.tmuxSessionName = tmuxSessionName
+        self.jumpHostIDs = jumpHostIDs
         self.terminalType = terminalType
         self.keepaliveInterval = keepaliveInterval
         self.connectTimeout = connectTimeout

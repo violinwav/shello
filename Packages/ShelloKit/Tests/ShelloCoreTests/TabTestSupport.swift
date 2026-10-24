@@ -2,21 +2,29 @@ import Foundation
 import ShelloModel
 import ShelloSSH
 import ShelloSecurity
+import ShelloStorage
 import Synchronization
 import Testing
 
 @testable import ShelloCore
 
-/// The network and the server behind tabs, as a test makes them behave: each try to connect
+/// The network and the servers behind tabs, as a test makes them behave: each try to connect
 /// succeeds or fails as queued, and each connection it makes can then be lost, its shell end, its
-/// keepalive go unanswered, or its path change.
+/// keepalive go unanswered, or its path change. A try goes through each hop of its route, and asks
+/// what it asks at the hop the outcome names, the tab's host by default.
 final class FakeServer: TabConnector {
     /// How a try to connect ends.
     enum Outcome: Sendable {
         case connects
         case fails(SSHError)
-        /// Asks to trust `key`, then connects if the user trusts it.
-        case asksToTrust(HostKey)
+        /// Asks to trust `key` at the hop `hop`, the route's last if nil, then connects if the user
+        /// trusts it.
+        case asksToTrust(HostKey, hop: Int? = nil)
+        /// Asks the question at the hop `hop`, the route's last if nil, then connects with the
+        /// answers.
+        case asksToSignIn(KeyboardInteractiveChallenge, hop: Int? = nil)
+        /// Fails with `error` at the hop `hop`, as `HostConnector` does: one at a jump host names it.
+        case failsAt(hop: Int, any Error)
         /// Waits until the try is cancelled.
         case hangs
     }
@@ -27,6 +35,10 @@ final class FakeServer: TabConnector {
         var connections: [FakeConnection] = []
         var keepaliveAnswers = true
         var tmux = FakeTmux.installed("tmux 3.4\n")
+        /// Each try's route.
+        var routes: [Route] = []
+        /// Each step each try reported.
+        var progress: [RouteProgress] = []
     }
 
     private let state = Mutex(State())
@@ -49,30 +61,52 @@ final class FakeServer: TabConnector {
     var tries: Int { state.withLock(\.tries) }
     var connections: [FakeConnection] { state.withLock(\.connections) }
     var lastConnection: FakeConnection? { connections.last }
+    /// The route of each try, in order.
+    var routes: [Route] { state.withLock(\.routes) }
+    /// Every step the tries reported, in order.
+    var progress: [RouteProgress] { state.withLock(\.progress) }
 
     func openConnection(
-        to host: Host, progress: @escaping @Sendable (ConnectStep) async -> Void,
-        askToTrust: @escaping @Sendable (Server, HostKey) async -> Bool,
-        answer: @escaping @Sendable (KeyboardInteractiveChallenge) async -> [Secret]?
+        along route: Route, progress: @escaping @Sendable (RouteProgress) async -> Void,
+        askToTrust: @escaping @Sendable (Host, HostKey) async -> Bool,
+        answer: @escaping @Sendable (Host, KeyboardInteractiveChallenge) async -> [Secret]?
     ) async throws -> any TabConnection {
         let outcome = state.withLock { state in
             state.tries += 1
+            state.routes.append(route)
             return state.outcomes.isEmpty ? .connects : state.outcomes.removeFirst()
         }
-        await progress(.verifyingHostKey)
-        switch outcome {
-        case .connects:
-            break
-        case .fails(let error):
-            throw error
-        case .asksToTrust(let key):
-            guard await askToTrust(host.server, key) else { throw ConnectError.hostKeyNotTrusted }
-        case .hangs:
-            try await Task.sleep(for: .seconds(3600))
+        let report: @Sendable (Int, ConnectStep) async -> Void = { [weak self] hop, step in
+            let reached = RouteProgress(hop: hop, step: step)
+            self?.state.withLock { $0.progress.append(reached) }
+            await progress(reached)
         }
-        await progress(.signingIn)
+        let last = route.hops.count - 1
+        for (index, hop) in route.hops.enumerated() {
+            await report(index, .connecting)
+            await report(index, .verifyingHostKey)
+            switch outcome {
+            case .connects:
+                break
+            case .fails(let error) where index == last:
+                throw error
+            case .asksToTrust(let key, let at) where index == at ?? last:
+                guard await askToTrust(hop, key) else { throw ConnectError.hostKeyNotTrusted }
+            case .failsAt(let at, let error) where index == at:
+                throw index < last ? JumpHostError(jumpHost: hop, error: error) : error
+            case .hangs where index == last:
+                try await Task.sleep(for: .seconds(3600))
+            default:
+                break
+            }
+            await report(index, .signingIn)
+            if case .asksToSignIn(let challenge, let at) = outcome, index == at ?? last {
+                guard await answer(hop, challenge) != nil else { throw ConnectError.signInCancelled }
+            }
+        }
         let connection = state.withLock { state in
-            let connection = FakeConnection(answersKeepalives: state.keepaliveAnswers, tmux: state.tmux)
+            let connection = FakeConnection(
+                answersKeepalives: state.keepaliveAnswers, tmux: state.tmux, hops: route.hops.count)
             state.connections.append(connection)
             return connection
         }
@@ -113,12 +147,20 @@ final class FakeConnection: TabConnection {
     }
 
     private let state: Mutex<State>
+    /// How many connections the route has, one for each hop.
+    private let hops: Int
 
     /// The round trip each answered keepalive reports.
     static let roundTrip = Duration.milliseconds(24)
 
-    init(answersKeepalives: Bool, tmux: FakeTmux = .installed("tmux 3.4\n")) {
+    /// The key exchange each of the route's connections reports: post-quantum at the tab's host,
+    /// classical at its jump hosts.
+    static let keyExchange = KeyExchange(name: "mlkem768x25519-sha256", isPostQuantum: true)
+    static let jumpHostKeyExchange = KeyExchange(name: "curve25519-sha256", isPostQuantum: false)
+
+    init(answersKeepalives: Bool, tmux: FakeTmux = .installed("tmux 3.4\n"), hops: Int = 1) {
         state = Mutex(State(answersKeepalives: answersKeepalives, tmux: tmux))
+        self.hops = hops
         (pathEvents, pathContinuation) = AsyncStream.makeStream()
     }
 
@@ -153,7 +195,13 @@ final class FakeConnection: TabConnection {
     }
 
     var keyExchange: KeyExchange? {
-        get async { nil }
+        get async { hops > 1 ? Self.keyExchange : nil }
+    }
+
+    var keyExchanges: [KeyExchange?] {
+        get async {
+            hops > 1 ? Array(repeating: Self.jumpHostKeyExchange, count: hops - 1) + [Self.keyExchange] : [nil]
+        }
     }
 
     func openShell(for host: Host, size: TerminalSize) async throws -> any TerminalByteStream {
@@ -333,12 +381,13 @@ struct TabTest {
     /// The waits after each failed try to reconnect: short, and each different from the others.
     static let policy = ReconnectPolicy(delays: [.milliseconds(11), .milliseconds(22), .milliseconds(44)])
 
-    init(viabilityGrace: Duration = .milliseconds(200)) {
+    /// Tabs whose routes go through the jump hosts saved in `hosts`, if given.
+    init(viabilityGrace: Duration = .milliseconds(200), hosts: HostRepository? = nil) {
         let sleep = sleep
         tabs = TerminalTabs(
             services: TabServices(
-                connector: server, network: network, reconnectPolicy: Self.policy, viabilityGrace: viabilityGrace,
-                sleep: { try await sleep.sleep($0) }),
+                connector: server, hosts: hosts, network: network, reconnectPolicy: Self.policy,
+                viabilityGrace: viabilityGrace, sleep: { try await sleep.sleep($0) }),
             makeTerminal: { _ in FakeTerminal() })
     }
 

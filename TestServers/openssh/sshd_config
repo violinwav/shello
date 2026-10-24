@@ -10,5 +10,8 @@ PasswordAuthentication yes
 KbdInteractiveAuthentication no
 PermitRootLogin no
 AllowUsers shello shello-otp shello-2fa
+# Each server is a jump host for the others (TestServers/README.md). OpenSSH's default, written out:
+# Alpine's own sshd_config, which this file replaces, turns it off.
+AllowTcpForwarding yes
 PrintMotd yes
 Subsystem sftp internal-sftp

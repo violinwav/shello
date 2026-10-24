@@ -28,7 +28,8 @@ struct ImportTests {
         #expect(try await Set(repository.hosts()) == Set(ExportSample.version1Hosts))
     }
 
-    /// A file version 2 wrote, with a host that attaches a tmux session, keeps importing too.
+    /// A file version 2 wrote, with a host that attaches a tmux session, keeps importing too. Its
+    /// hosts have no jump hosts, as hosts did not before version 3.
     @Test func version2FixtureImportsEveryValue() async throws {
         let file = try ExportFile(data: Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 2)))
 
@@ -36,8 +37,36 @@ struct ImportTests {
 
         #expect(try await repository.groups() == [ExportSample.homelab, ExportSample.work])
         #expect(try await repository.tags() == ExportSample.tags.sorted { $0.name < $1.name })
-        #expect(try await Set(repository.hosts()) == Set(ExportSample.hosts))
+        #expect(try await Set(repository.hosts()) == Set(ExportSample.version2Hosts))
         #expect(try await repository.hosts().contains { $0.tmuxAutoAttach && $0.tmuxSessionName == "dev_work-2" })
+    }
+
+    /// A file version 3 wrote, with a host whose jump hosts are, in order, a host in the file and
+    /// one that is not, as a deleted one is not: both stay, so that the host never connects
+    /// directly.
+    @Test func version3FixtureImportsEveryValueWithTheJumpHostsInOrder() async throws {
+        let file = try ExportFile(data: Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 3)))
+
+        try await exports.importFile(file)
+
+        #expect(try await Set(repository.hosts()) == Set(ExportSample.hosts))
+        let mediaPC = try #require(try await repository.host(id: ExportSample.id("000000000103")))
+        #expect(mediaPC.jumpHostIDs == [ExportSample.id("000000000101"), ExportSample.id("000000000199")])
+    }
+
+    /// A version 2 file says nothing about jump hosts, so a host it replaces has none, as hosts had
+    /// none when the file was written.
+    @Test func version2FileReplacesAHostWithoutJumpHosts() async throws {
+        var forge = try #require(ExportSample.hosts.first { $0.name == "forge" })
+        forge.groupID = nil
+        forge.tagIDs = []
+        forge.jumpHostIDs = [UUID()]
+        try await repository.create(forge)
+        let file = try ExportFile(data: Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 2)))
+
+        try await exports.importFile(file)
+
+        #expect(try await repository.host(id: forge.id)?.jumpHostIDs == [])
     }
 
     /// A version 1 file says nothing about tmux, so a host it replaces gets the defaults back, as

@@ -16,7 +16,7 @@ import Testing
 /// `v1FixtureKeepsEveryValue`.
 struct MigrationTests {
     /// Each fixture, with the last migration of its schema version.
-    static let fixtures = [("v1", "v1"), ("v2", "v2"), ("v3", "v3")]
+    static let fixtures = [("v1", "v1"), ("v2", "v2"), ("v3", "v3"), ("v4", "v4")]
 
     @Test(arguments: fixtures)
     func fixtureMigratesToTheCurrentSchema(_ fixture: String, _: String) async throws {
@@ -127,6 +127,38 @@ struct MigrationTests {
         #expect(times["tmuxAutoAttachModifiedAt"] == Date(timeIntervalSinceReferenceDate: 800_003_000))
         #expect(times["tmuxSessionNameModifiedAt"] == Date(timeIntervalSinceReferenceDate: 800_003_000))
         #expect(times["nameModifiedAt"] == Date(timeIntervalSinceReferenceDate: 800_000_500))
+    }
+
+    /// Version 4 adds the jump hosts. The hosts of every earlier version get none, as they connected
+    /// directly, modified at the reference date, older than any change sync could bring.
+    @Test(arguments: ["v1", "v2", "v3"])
+    func hostsFromBeforeVersion4HaveNoJumpHosts(_ fixture: String) async throws {
+        let migrated = try TestDatabase(fixture: fixture)
+
+        let hosts = try await migrated.repository.hosts()
+        #expect(hosts.count == 2)
+        #expect(hosts.allSatisfy { $0.jumpHostIDs.isEmpty })
+        for id in [Self.id("000000000101"), Self.id("000000000102"), Self.id("000000000103")] {
+            let times = try await migrated.modificationTimes(table: "host", id: id)
+            #expect(times["jumpHostIDsModifiedAt"] == Date(timeIntervalSinceReferenceDate: 0))
+        }
+    }
+
+    /// The v4 fixture is the v3 fixture migrated, with prod-api-01 jumping through forge, then the
+    /// deleted media-pc: a deleted jump host stays in the list.
+    @Test func v4FixtureKeepsEveryValue() async throws {
+        let migrated = try TestDatabase(fixture: "v4")
+        let v3 = try TestDatabase(fixture: "v3")
+        var expected = try await v3.repository.hosts()
+        let index = try #require(expected.firstIndex { $0.id == Self.id("000000000101") })
+        expected[index].jumpHostIDs = [Self.id("000000000102"), Self.id("000000000103")]
+
+        #expect(try await migrated.repository.hosts() == expected)
+        #expect(try await migrated.repository.groups() == v3.repository.groups())
+        #expect(try await migrated.repository.tags() == v3.repository.tags())
+        let times = try await migrated.modificationTimes(table: "host", id: Self.id("000000000101"))
+        #expect(times["jumpHostIDsModifiedAt"] == Date(timeIntervalSinceReferenceDate: 800_004_000))
+        #expect(times["tmuxSessionNameModifiedAt"] == Date(timeIntervalSinceReferenceDate: 800_003_000))
     }
 
     /// Every table, index and trigger, with the SQL that creates it.

@@ -64,6 +64,9 @@ struct HostRecord: StoredRecord, Tombstoned, Identifiable {
     var tmuxAutoAttachModifiedAt: Date
     var tmuxSessionName: String
     var tmuxSessionNameModifiedAt: Date
+    /// The jump hosts' identifiers, in order, 16 bytes each (`StoredIdentifiers`).
+    var jumpHostIDs: Data
+    var jumpHostIDsModifiedAt: Date
     var terminalType: String
     var terminalTypeModifiedAt: Date
     /// Milliseconds.
@@ -117,6 +120,8 @@ struct HostRecord: StoredRecord, Tombstoned, Identifiable {
         tmuxAutoAttachModifiedAt = now
         tmuxSessionName = host.tmuxSessionName
         tmuxSessionNameModifiedAt = now
+        jumpHostIDs = StoredIdentifiers.data(host.jumpHostIDs)
+        jumpHostIDsModifiedAt = now
         terminalType = host.terminalType
         terminalTypeModifiedAt = now
         keepaliveInterval = host.keepaliveInterval.storedMilliseconds
@@ -187,6 +192,10 @@ struct HostRecord: StoredRecord, Tombstoned, Identifiable {
             tmuxSessionName = host.tmuxSessionName
             tmuxSessionNameModifiedAt = now
         }
+        if host.jumpHostIDs != current.jumpHostIDs {
+            jumpHostIDs = StoredIdentifiers.data(host.jumpHostIDs)
+            jumpHostIDsModifiedAt = now
+        }
         if host.terminalType != current.terminalType {
             terminalType = host.terminalType
             terminalTypeModifiedAt = now
@@ -210,7 +219,8 @@ struct HostRecord: StoredRecord, Tombstoned, Identifiable {
     }
 
     /// The host this row holds. Its group and tags are passed in, because a deleted group or tag
-    /// no longer counts.
+    /// no longer counts. Its jump hosts are as stored, deleted ones included: a host whose jump host
+    /// was deleted must not connect directly instead (`Route`).
     func host(groupID: HostGroup.ID?, tagIDs: Set<Tag.ID>) throws -> Host {
         Host(
             id: id,
@@ -227,6 +237,7 @@ struct HostRecord: StoredRecord, Tombstoned, Identifiable {
             startupCommand: startupCommand,
             tmuxAutoAttach: tmuxAutoAttach,
             tmuxSessionName: tmuxSessionName,
+            jumpHostIDs: try StoredIdentifiers.identifiers(jumpHostIDs, column: "jumpHostIDs"),
             terminalType: terminalType,
             keepaliveInterval: .milliseconds(keepaliveInterval),
             connectTimeout: .milliseconds(connectTimeout),
@@ -384,6 +395,41 @@ extension StoredEnum {
             throw UnknownStoredValueError(column: column, value: storedValue)
         }
         self = value
+    }
+}
+
+/// A list of identifiers as one column holds it, such as a host's jump hosts: each identifier's 16
+/// bytes, one after the other, in the list's order, as the database stores a single identifier.
+/// The format is part of the database: it never changes.
+enum StoredIdentifiers {
+    static func data(_ identifiers: [UUID]) -> Data {
+        var data = Data(capacity: identifiers.count * 16)
+        for identifier in identifiers {
+            let bytes = identifier.uuid
+            data.append(contentsOf: [
+                bytes.0, bytes.1, bytes.2, bytes.3, bytes.4, bytes.5, bytes.6, bytes.7, bytes.8, bytes.9, bytes.10,
+                bytes.11, bytes.12, bytes.13, bytes.14, bytes.15,
+            ])
+        }
+        return data
+    }
+
+    /// The identifiers in `data`, read from `column`.
+    /// - Throws: `UnknownStoredValueError` for data that is not whole identifiers.
+    static func identifiers(_ data: Data, column: String) throws -> [UUID] {
+        guard data.count.isMultiple(of: 16) else {
+            throw UnknownStoredValueError(column: column, value: "\(data.count) bytes")
+        }
+        let bytes = Array(data)
+        return stride(from: 0, to: bytes.count, by: 16).map { start in
+            let b = bytes[start..<(start + 16)]
+            let s = b.startIndex
+            return UUID(
+                uuid: (
+                    b[s], b[s + 1], b[s + 2], b[s + 3], b[s + 4], b[s + 5], b[s + 6], b[s + 7], b[s + 8], b[s + 9],
+                    b[s + 10], b[s + 11], b[s + 12], b[s + 13], b[s + 14], b[s + 15]
+                ))
+        }
     }
 }
 

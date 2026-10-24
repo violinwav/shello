@@ -79,7 +79,7 @@ struct ExportTests {
         #expect(tags.allSatisfy { Set($0.keys) == ["id", "name", "color"] })
         let hostKeys: Set<String> = [
             "id", "name", "address", "port", "protocol", "username", "authMethod", "sshKeyID", "groupID", "tagIDs",
-            "notes", "startupCommand", "tmuxAutoAttach", "tmuxSessionName", "terminalType",
+            "notes", "startupCommand", "tmuxAutoAttach", "tmuxSessionName", "jumpHostIDs", "terminalType",
             "keepaliveIntervalMilliseconds", "connectTimeoutMilliseconds", "isFavorite", "lastConnectedAt",
         ]
         #expect(hosts.allSatisfy { hostKeys.isSuperset(of: $0.keys) })
@@ -96,16 +96,32 @@ struct ExportTests {
     }
 
     /// A file this version writes must import into every later version, so its format must not
-    /// change while the schema version stays 2. Fixtures/export-v2.json is the sample's export as
-    /// version 2 writes it, and export-v1.json as version 1 wrote it; `ImportTests` imports both.
-    @Test func exportOfTheSampleIsTheVersion2Fixture() async throws {
+    /// change while the schema version stays 3. Fixtures/export-v3.json is the sample's export as
+    /// version 3 writes it, and export-v2.json and export-v1.json as versions 2 and 1 wrote it;
+    /// `ImportTests` imports all three.
+    @Test func exportOfTheSampleIsTheVersion3Fixture() async throws {
         try await ExportSample.store(in: repository)
 
         let data = try await exports.export().encoded()
 
-        #expect(ExportFile.currentSchemaVersion == 2)
-        let fixture = try Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 2))
+        #expect(ExportFile.currentSchemaVersion == 3)
+        let fixture = try Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 3))
         #expect(try Self.object(data) == Self.object(fixture))
+    }
+
+    /// A host's jump hosts go into the file in their order, a deleted one included: importing the
+    /// file must not make the host connect directly (README section 3).
+    @Test func jumpHostsAreExportedInTheirOrderWithDeletedOnes() async throws {
+        let bastion = Host(name: "bastion", address: "bastion.lan", username: "admin")
+        let inner = Host(name: "inner", address: "10.0.0.5", username: "admin")
+        let web = Host(name: "web-01", address: "10.0.1.21", username: "deploy", jumpHostIDs: [inner.id, bastion.id])
+        for host in [bastion, inner, web] { try await repository.create(host) }
+        try await repository.deleteHost(id: inner.id)
+
+        let file = try await exports.export()
+
+        #expect(file.hosts.map(\.name) == ["bastion", "web-01"])
+        #expect(file.hosts.last?.jumpHostIDs == [inner.id, bastion.id])
     }
 
     /// Every key of every object in `value`.
@@ -145,15 +161,25 @@ enum ExportSample {
             authMethod: .keyboardInteractive, groupID: homelab.id, tagIDs: [tags[6].id], tmuxAutoAttach: true,
             tmuxSessionName: "dev_work-2", terminalType: "xterm",
             lastConnectedAt: Date(timeIntervalSinceReferenceDate: 800_000_000.000_000_1)),
+        // Through prod-api-01, then a jump host that is not in the file, as a deleted one is not.
         Host(
             id: id("000000000103"), name: "Media PC 📺", address: "media-pc.local", protocol: .vnc, username: "",
-            authMethod: .password),
+            authMethod: .password, jumpHostIDs: [id("000000000101"), id("000000000199")]),
     ]
 
-    /// The sample's hosts as a version 1 file holds them: without tmux auto-attach, which version 2
-    /// added.
-    static var version1Hosts: [Host] {
+    /// The sample's hosts as a version 2 file holds them: without jump hosts, which version 3 added.
+    static var version2Hosts: [Host] {
         hosts.map { host in
+            var host = host
+            host.jumpHostIDs = []
+            return host
+        }
+    }
+
+    /// The sample's hosts as a version 1 file holds them: without tmux auto-attach either, which
+    /// version 2 added.
+    static var version1Hosts: [Host] {
+        version2Hosts.map { host in
             var host = host
             host.tmuxAutoAttach = false
             host.tmuxSessionName = Host.defaultTmuxSessionName

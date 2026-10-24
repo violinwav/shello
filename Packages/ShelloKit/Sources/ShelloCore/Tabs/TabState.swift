@@ -32,6 +32,23 @@ public enum TabState: Equatable, Sendable {
     }
 }
 
+/// How far a connection along a route is (README section 3): the hop it is at, by its place on the
+/// route, the first one 0, and the step there. Each hop goes through every step but the last, which
+/// the tab's own host goes through once it is signed in.
+public struct RouteProgress: Comparable, Sendable {
+    public let hop: Int
+    public let step: ConnectStep
+
+    public init(hop: Int, step: ConnectStep) {
+        self.hop = hop
+        self.step = step
+    }
+
+    public static func < (lhs: RouteProgress, rhs: RouteProgress) -> Bool {
+        (lhs.hop, lhs.step.rawValue) < (rhs.hop, rhs.step.rawValue)
+    }
+}
+
 /// The steps of making a connection, in their order.
 public enum ConnectStep: Int, Comparable, Sendable {
     /// Opening the network connection and running SSH's key exchange.
@@ -103,6 +120,8 @@ public struct TrustQuestion: Identifiable, Equatable, Sendable {
     public let id = UUID()
     public let server: Server
     public let key: HostKey
+    /// The host on the tab's route whose server it is.
+    public let hop: RouteHop
 }
 
 /// A round of the server's keyboard-interactive questions.
@@ -110,6 +129,8 @@ public struct SignInQuestion: Identifiable, Equatable, Sendable {
     public let id = UUID()
     public let server: Server
     public let challenge: KeyboardInteractiveChallenge
+    /// The host on the tab's route that signs in.
+    public let hop: RouteHop
 }
 
 /// A host key that differs from the one the user trusted: the connection is blocked until the user
@@ -119,4 +140,62 @@ public struct HostKeyChange: Identifiable, Equatable, Sendable {
     public let server: Server
     public let trusted: TrustedHostKey
     public let presented: HostKey
+    /// The host on the tab's route whose server it is: the route stops there.
+    public let hop: RouteHop
+}
+
+/// The key exchange of one connection along a tab's route (README section 14), with the host it
+/// went to.
+public struct RouteKeyExchange: Equatable, Sendable {
+    public let hostName: String
+    public let server: Server
+    /// What the connection negotiated, if Shello knows.
+    public let keyExchange: KeyExchange?
+
+    public init(hostName: String, server: Server, keyExchange: KeyExchange?) {
+        self.hostName = hostName
+        self.server = server
+        self.keyExchange = keyExchange
+    }
+}
+
+/// A host on a tab's route (README section 3), as the questions and the progress name it: the
+/// tab's own host, or one of its jump hosts.
+public struct RouteHop: Equatable, Sendable {
+    /// The host's name.
+    public let name: String
+    /// Where the host is on the route.
+    public let place: Place
+
+    public enum Place: Equatable, Sendable {
+        /// The tab's own host, which Shello reaches directly.
+        case direct
+        /// A jump host on the way to the tab's own host, which `destination` names.
+        case jumpHost(destination: String)
+        /// The tab's own host, behind its jump hosts, the last of which `jumpHost` names.
+        case behindJumpHost(String)
+    }
+
+    public init(name: String, place: Place) {
+        self.name = name
+        self.place = place
+    }
+
+    /// The host at `index` on `route`.
+    init(_ route: Route, at index: Int) {
+        let host = route.hops[index]
+        name = host.name
+        if route.hops.count == 1 {
+            place = .direct
+        } else if index < route.hops.count - 1 {
+            place = .jumpHost(destination: route.host.name)
+        } else {
+            place = .behindJumpHost(route.hops[index - 1].name)
+        }
+    }
+
+    /// Whether the host is one of the tab's jump hosts, not its own.
+    public var isJumpHost: Bool {
+        if case .jumpHost = place { true } else { false }
+    }
 }

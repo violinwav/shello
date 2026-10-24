@@ -119,8 +119,11 @@ private struct TabContent: View {
                 case .trust(let question):
                     HostKeyTrustSheet(question: question) { trusts in tab.answerTrust(trusts) }
                 case .signIn:
+                    // Named for the hop that signs in, a jump host's or the tab's own (README section 3).
                     SignInSheet(
-                        question: tab.signInQuestion, hostName: tab.host.name,
+                        question: tab.signInQuestion,
+                        hostName: tab.signInQuestion?.hop.name ?? tab.currentJumpHost?.name ?? tab.host.name,
+                        isThroughJumpHosts: tab.route.map { !$0.jumpHosts.isEmpty } ?? false,
                         answer: { answers in tab.answerSignIn(answers) }, cancel: { tab.dismissPrompt() })
                 }
             }
@@ -140,20 +143,21 @@ private struct TabContent: View {
                     }, close: { tab.hostKeyChangeDismissed() })
             }
             .toolbar {
-                // While the connection works: otherwise the status bar says what it does.
-                if let keyExchange = tab.keyExchange, tab.state == .active {
+                // While the connection works: otherwise the status bar says what it does. Marked for
+                // the whole route, through jump hosts too.
+                if let marking = ConnectionMarking(tab.keyExchanges), tab.state == .active {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("Connection", systemImage: keyExchange.systemImage) {
+                        Button("Connection", systemImage: marking.systemImage) {
                             model.isShowingConnection = true
                         }
-                        .accessibilityValue(keyExchange.title)
+                        .accessibilityValue(marking.title)
                         .keyboardShortcut("i")
                     }
                 }
             }
             .sheet(isPresented: $model.isShowingConnection) {
-                if let keyExchange = tab.keyExchange {
-                    ConnectionSheet(keyExchange: keyExchange) { model.isShowingConnection = false }
+                if !tab.keyExchanges.isEmpty {
+                    ConnectionSheet(keyExchanges: tab.keyExchanges) { model.isShowingConnection = false }
                 }
             }
     }
@@ -177,7 +181,9 @@ private struct TabStatusBar: View {
             bar {
                 ProgressView()
                     .accessibilityHidden(true)
-                Text(Self.connecting(step, to: tab.host.name))
+                // The hop the connection is at: a jump host on the way, named as one, as the sheets
+                // name it, or the tab's own host.
+                Text(Self.connecting(step, to: tab.currentJumpHost.map { "the jump host \($0.name)" } ?? tab.host.name))
             }
         case .reconnecting(let reconnecting):
             switch reconnecting.phase {
@@ -230,7 +236,7 @@ private struct TabStatusBar: View {
         ProgressView()
             .accessibilityHidden(true)
         VStack(alignment: .leading, spacing: 2) {
-            Text(Self.reconnecting(reconnecting, to: tab.host.name))
+            Text(Self.reconnecting(reconnecting, to: tab.hostAlongRoute))
             if !reconnecting.reason.isEmpty {
                 Text(reconnecting.reason)
                     .font(Typography.footnote)

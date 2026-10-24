@@ -47,6 +47,20 @@ tmux, for auto-attach (README section 8), is pinned in the images that have it: 
 
 OpenSSH 9.8 and later refuse an address for a while once its connections fail to sign in, or close before they try (`PerSourcePenalties`). Every test connects from the same address, many of them failing on purpose, so the OpenSSH 10 servers turn that off (`PER_SOURCE_PENALTIES=off`). OpenSSH 9.6 and 8.8 have no such penalties.
 
+## Jump hosts
+
+Each server is a jump host for the others, as OpenSSH's `ProxyJump` uses one (README section 3): every sshd allows TCP forwarding (`AllowTcpForwarding yes`, written out because Alpine's own `sshd_config` turns it off). The Docker servers share a Docker network of their own, `shello-test`, which `ssh-server.sh` creates and `stop` removes, so that each reaches the others by container name, on port 22. Docker's default bridge resolves no names. This Mac's own sshd (below) reaches its other ports on the loopback.
+
+| Server, as a jump host reaches it | In Docker | This Mac's sshd |
+| --- | --- | --- |
+| OpenSSH 10.3 | `shello-test-openssh`, port 22 | `127.0.0.1`, port 2222 |
+| OpenSSH 9.6 | `shello-test-openssh9`, port 22 | none |
+| OpenSSH 10.3 without post-quantum key exchange | `shello-test-openssh-classical`, port 22 | `127.0.0.1`, port 2224 |
+| OpenSSH 8.8 | `shello-test-openssh8`, port 22 | none |
+| OpenSSH 10.3 with the NIST curves only | `shello-test-openssh-nist`, port 22 | `127.0.0.1`, port 2226 |
+
+So a route from this Mac to port 2224 through port 2222 is, in Shello, a host `localhost` port 2222 as the jump host, and a host behind it at `shello-test-openssh-classical` port 22 in Docker, or `127.0.0.1` port 2224 with this Mac's sshd. Each presents host key a, which Shello trusts under each hop's own server. From the Mac's terminal, with OpenSSH: `ssh -o ProxyCommand='ssh -p 2222 -W %h:%p shello@localhost' shello@shello-test-openssh-classical`. Servers started before the network existed have to be started again with `ssh-server.sh`.
+
 ## Key exchange names
 
 OpenSSH before 9.9 knows `sntrup761x25519-sha512` only as `sntrup761x25519-sha512@openssh.com`, the vendor name it had before IANA assigned it one; 9.0 made it the default. OpenSSH 9.9 added the IANA name and `mlkem768x25519-sha256`, and 10.0 made `mlkem768x25519-sha256` the default ([release notes](https://www.openssh.org/releasenotes.html)). libssh 0.12.2 knows both names of sntrup and reports the one it negotiated, so Shello's algorithm policy (`Packages/ShelloKit/Sources/ShelloSSH/Resources/AlgorithmPolicy.json`) offers both: offered only the standard name, the OpenSSH 9.6 server falls back to `curve25519-sha256`. Debian 12's OpenSSH 9.2 would not show this, because Debian added the standard name to it.
@@ -101,12 +115,15 @@ With `SHELLO_TEST_SERVER_USER` set, the tests that sign in with a password or ke
 - `ShelloSSHTests` (`ConnectionTests`): the socketpair bridge, signing in with a password and an imported key, commands, a shell, and two connections at once, on port 2222.
 - `ShelloSSHTests` (`KeyExchangeTests`): the key exchange libssh negotiates with each server, the classical ones without curve25519 each on its own, the ciphers and MACs, and the server's banner.
 - `ShelloSSHTests` (`KeyboardInteractiveTests`, `AgentAuthenticationTests`): keyboard-interactive sign-in, on ports 2222 and 2225, and signing in through an SSH agent, with a stand-in agent.
+- `ShelloSSHTests` (`TunnelTests`): tunnels through the server on port 2222, both ways and their ends, and connections through one and two jump hosts, to the servers on ports 2224 and 2226 as the one before reaches them, with ten megabytes from the far server and four to it, and a jump host that ends.
 - `ShelloCoreTests` (`HostConnectorTests`, `SignInTests`): the first connection's trust question, a trusted key, a changed one and its replacement; signing in with the SSH key through Shello's SSH agent, keyboard-interactive with the one-time codes, and two-factor sign-in, on ports 2222 and 2225.
 - `ShelloCoreTests` (`TmuxIntegrationTests`): tmux auto-attach, which attaches the same tmux session, with what ran in it, after a dropped connection, on port 2222; the plain shell of a server without tmux, on port 2225 in Docker or 2224 with this Mac's sshd; and the tmux parsers on what tmux 3.7c and 3.4 print, on ports 2222 and 2223. Each test leaves no tmux session behind.
 - `ShelloCoreTests` (`ImportedKeySignInTests`, `KeyInstallTests`): signing in with an imported key of each type, on port 2222, and with RSA on port 2225, OpenSSH 8.8; installing a key on a host, once, then signing in with it, on port 2224.
+- `ShelloCoreTests` (`JumpHostIntegrationTests`): tabs through one jump host, port 2222 to 2224, and two, to 2226 too, trusting each hop's host key; a changed host key on the jump host; a password, keyboard-interactive and an SSH key on one route, in Docker only; and a first hop through `FaultyProxy` to port 2224 that drops, after which the tab reconnects the route to port 2222, which has tmux, and reattaches its tmux session.
 - `ShelloFeaturesTests` (`SignInPromptTests`): the terminal's sign-in sheet, on port 2222.
 - `ShelloUITests/ConnectionTests`: the trust sheet, the changed host key sheet and its replacement, sign-in with a password, the SSH key and keyboard-interactive to the shell, and the Connection sheet, post-quantum on port 2222 and classical on port 2224.
 - `ShelloUITests/ImportedKeyTests`: installing a key on a host over a tab's connection, on port 2224.
+- `ShelloUITests/JumpHostTests`: a host behind a jump host set up in the host editor, port 2222 to 2224, connected to the shell.
 
 They check that a server greets on its port, and skip with a message that points here when none does. Each needs a fresh connection, and the server's default `MaxStartups` would drop some of many at once, so the test servers raise it.
 
@@ -114,7 +131,7 @@ They check that a server greets on its port, and skip with a message that points
 
 | File | What it is |
 | --- | --- |
-| `ssh-server.sh` | Starts, stops and checks the Docker servers |
+| `ssh-server.sh` | Starts, stops and checks the Docker servers, on their network `shello-test` |
 | `openssh/Dockerfile` | The OpenSSH 10 image; build context is `TestServers/` |
 | `openssh9/Dockerfile` | The OpenSSH 9 image, with `openssh/sshd_config` and `openssh/entrypoint.sh` |
 | `openssh8/Dockerfile` | The OpenSSH 8.8 image, with the OpenSSH 10 image's files |

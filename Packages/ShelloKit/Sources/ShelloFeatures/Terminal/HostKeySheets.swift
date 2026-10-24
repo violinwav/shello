@@ -4,18 +4,21 @@ import SwiftUI
 import UIKit
 
 /// The first connection to a server: its host key's type and fingerprint, to trust or not (README
-/// section 3). Trusting covers every host that points at the server.
+/// section 3). Trusting covers every host that points at the server. On a route through jump hosts,
+/// the sheet names the host whose server it is, under its title too, and where it is on the way:
+/// one sheet comes up for each hop, alike but for that. VoiceOver starts on the introduction, which
+/// says whose key it is, rather than on the buttons.
 struct HostKeyTrustSheet: View {
     let question: TrustQuestion
     let answer: (Bool) -> Void
+    @AccessibilityFocusState private var isIntroductionFocused: Bool
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    Text(
-                        "Shello hasn’t connected to \(question.server.description) before. Trust its host key "
-                            + "only if the fingerprint matches the one the server’s administrator gives you.")
+                    Text(introduction)
+                        .accessibilityFocused($isIntroductionFocused)
                 }
                 .listRowBackground(Palette.cell)
 
@@ -32,6 +35,7 @@ struct HostKeyTrustSheet: View {
             .scrollContentBackground(.hidden)
             .background(Palette.ground)
             .navigationTitle("Trust This Server?")
+            .navigationSubtitle(question.hop.place == .direct ? "" : question.hop.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -43,6 +47,24 @@ struct HostKeyTrustSheet: View {
                         .prominentToolbarButton()
                 }
             }
+            .onAppear { isIntroductionFocused = true }
+        }
+    }
+
+    /// Which server it is: by its address and port, and on a route, by its host too, as the hop
+    /// before reaches it.
+    private var introduction: String {
+        let server = question.server.description
+        let advice = "Trust its host key only if the fingerprint matches the one the server’s administrator gives you."
+        switch question.hop.place {
+        case .direct:
+            return "Shello hasn’t connected to \(server) before. \(advice)"
+        case .jumpHost(let destination):
+            return "Shello hasn’t connected to \(question.hop.name), at \(server), before. It’s a jump host on the way "
+                + "to \(destination). \(advice)"
+        case .behindJumpHost(let jumpHost):
+            return "Shello hasn’t connected to \(question.hop.name) before. The jump host \(jumpHost) reaches it at "
+                + "\(server). \(advice)"
         }
     }
 }
@@ -50,7 +72,8 @@ struct HostKeyTrustSheet: View {
 /// A server that identified itself with another host key than the one the user trusted: Shello did
 /// not connect (README section 3). Once the server's administrator confirms the new key, the user
 /// can replace the trusted key with it: an explicit action, which asks for confirmation, then Face
-/// ID, Touch ID or the passcode (STACK section 7.2). Shello then connects again.
+/// ID, Touch ID or the passcode (STACK section 7.2). Shello then connects again. At a jump host, the
+/// sheet names it: the route stopped there.
 struct HostKeyChangedSheet: View {
     let change: HostKeyChange
     /// Whether the user is being asked to authenticate for the replacement.
@@ -66,16 +89,14 @@ struct HostKeyChangedSheet: View {
             List {
                 Section {
                     Label {
-                        Text("The host key of \(change.server.description) changed.")
+                        Text(headline)
                             .font(Typography.rowTitle)
                     } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(Palette.statusError)
                     }
                     .labelStyle(.row)
-                    Text(
-                        "Someone may be intercepting the connection, or the server was reinstalled or given a new "
-                            + "key. Shello didn’t connect, and sent no password.")
+                    Text(explanation)
                 }
                 .listRowBackground(Palette.cell)
 
@@ -138,6 +159,25 @@ struct HostKeyChangedSheet: View {
                 Text("Shello will trust the \(change.presented.typeName) key presented now in its place.")
             }
         }
+    }
+
+    /// Whose host key changed: the server's, and on a route, its host's.
+    private var headline: String {
+        let server = change.server.description
+        switch change.hop.place {
+        case .direct: return "The host key of \(server) changed."
+        case .jumpHost: return "The host key of the jump host \(change.hop.name), at \(server), changed."
+        case .behindJumpHost: return "The host key of \(change.hop.name), at \(server), changed."
+        }
+    }
+
+    /// What may have happened, and what Shello did.
+    private var explanation: String {
+        let cause = "Someone may be intercepting the connection, or the server was reinstalled or given a new key."
+        if case .jumpHost(let destination) = change.hop.place {
+            return "\(cause) Shello stopped there, sent no password, and didn’t go on to \(destination)."
+        }
+        return "\(cause) Shello didn’t connect, and sent no password."
     }
 }
 

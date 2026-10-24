@@ -23,6 +23,11 @@ import os
 /// `authenticate(privateKey:passphrase:)` and `authenticate(agentSocket:)`; then `run(_:)` on hidden
 /// channels, and `openShell` for a terminal. `keepalive()` checks that the server still answers, and
 /// `pathEvents` tells what happens to the network under the connection. `close()` ends it all.
+///
+/// Through a jump host (README section 3), the connection is the next hop of a route: its server
+/// is reached over a tunnel of the connection before it (`openTunnel(to:port:)`), which carries
+/// what the bridge would otherwise hand to an `NWConnection`. libssh still talks only on its end of
+/// the connection's own socketpair, on the connection's own queue.
 public actor SSHConnection {
     /// The server the connection is to.
     public nonisolated let server: Server
@@ -33,6 +38,10 @@ public actor SSHConnection {
     public nonisolated let connectTimeout: Duration
     /// The algorithms the connection offers the server, in their order (README section 14).
     public nonisolated let algorithms: AlgorithmPolicy
+    /// The connection whose tunnel this one reaches its server through, as the next hop of a route
+    /// (README section 3), or nil for a connection over the network. `server` is then the address
+    /// and port as that connection's server reaches them.
+    public nonisolated let jumpHost: SSHConnection?
     /// The key exchange the connection negotiated with the server, once `connect()` has: the first
     /// of `algorithms`' key exchanges that the server supports too.
     public private(set) var keyExchange: KeyExchange?
@@ -66,11 +75,15 @@ public actor SSHConnection {
     private var nextChannelID = 0
     /// The shells among the channels.
     private var shells: [Int: Shell] = [:]
+    /// The tunnels among the channels.
+    private var tunnels: [Int: Tunnel] = [:]
 
     // MARK: Bridge
 
     private var sockets: SocketPair?
-    private var network: NWConnection?
+    /// What the bridge sends libssh's bytes over and receives the server's from, once there is one.
+    private var transport: Transport?
+    /// Whether the transport is up: the TCP connection, or the jump host's tunnel, is open.
     private var isNetworkReady = false
     /// Whether iOS holds the connection back until the user allows Local Network access (TN3179),
     /// as it does while its question is on screen and after the user said no.
@@ -84,8 +97,14 @@ public actor SSHConnection {
     /// The server's bytes that libssh's socket had no room for yet.
     private var inbound: [UInt8] = []
     /// Bytes handed to the `NWConnection` that it has not sent yet. Above `maximumBytesInFlight` the
-    /// bridge stops reading libssh's output, libssh's socket fills up, and libssh waits.
+    /// bridge stops reading libssh's output, libssh's socket fills up, and libssh waits. A tunnel
+    /// counts its own (`SSHTunnel.unsentByteCount`).
     private var bytesInFlight = 0
+    /// The jump host opening the tunnel, which the connect timeout cancels.
+    private var tunnelOpening: Task<SSHTunnel, any Error>?
+    /// Whether the bridge waits for the tunnel to take what it was given, to read libssh's output
+    /// again.
+    private var isWaitingForTunnel = false
     private static let maximumBytesInFlight = 1024 * 1024
     private static let chunkSize = 64 * 1024
     private var buffer = [UInt8](repeating: 0, count: SSHConnection.chunkSize)
@@ -105,15 +124,18 @@ public actor SSHConnection {
     private static let signposter = OSSignposter(logger: logger)
 
     /// A connection to `server` as `username`, not yet open, which offers the server `algorithms`.
-    /// `connectTimeout` bounds `connect()`.
+    /// `connectTimeout` bounds `connect()`, opening the tunnel included. Through `jumpHost`, a
+    /// connection signed in, the server is reached over a tunnel of that connection, as its own
+    /// server reaches `server`.
     public init(
         server: Server, username: String, connectTimeout: Duration = Host.defaultConnectTimeout,
-        algorithms: AlgorithmPolicy = .standard
+        algorithms: AlgorithmPolicy = .standard, through jumpHost: SSHConnection? = nil
     ) {
         self.server = server
         self.username = username
         self.connectTimeout = connectTimeout
         self.algorithms = algorithms
+        self.jumpHost = jumpHost
         (pathEvents, pathEventsContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(16))
         queue = DispatchSerialQueue(label: "ch.shello.ssh.connection", qos: .userInitiated)
         executor = QueueExecutor(queue: queue)
@@ -138,8 +160,9 @@ public actor SSHConnection {
 
     // MARK: - Connecting
 
-    /// Opens the TCP connection through Network.framework and runs SSH's key exchange, within
-    /// `connectTimeout`. Returns the server's host key, which the caller checks before it signs in.
+    /// Opens the TCP connection through Network.framework, or the tunnel through the jump host, and
+    /// runs SSH's key exchange, within `connectTimeout`. Returns the server's host key, which the
+    /// caller checks before it signs in.
     /// - Throws: `SSHError`, or `CancellationError`.
     public func connect() async throws -> HostKey {
         guard sockets == nil, failure == nil else { throw SSHError.protocolError("the connection was used before") }
@@ -158,7 +181,11 @@ public actor SSHConnection {
         self.session = session
         try configure(session, socket: sockets.libssh)
         startDeadline()
-        startNetwork(port: port)
+        if let jumpHost {
+            try await openTunnel(through: jumpHost)
+        } else {
+            startNetwork(port: port)
+        }
 
         try await perform { _ in isNetworkReady ? () : nil }
         try await perform { session in
@@ -300,6 +327,48 @@ public actor SSHConnection {
         let (seconds, attoseconds) = connectTimeout.components
         let nanoseconds = Int(seconds) * 1_000_000_000 + Int(attoseconds / 1_000_000_000)
         queue.asyncAfter(deadline: .now() + .nanoseconds(nanoseconds), execute: deadline)
+    }
+
+    /// Has the jump host open a tunnel to the server, as its own server reaches it, and makes it the
+    /// bridge's transport. The connect timeout covers it: the jump host's server may take long to
+    /// find that nothing answers.
+    private func openTunnel(through jumpHost: SSHConnection) async throws {
+        let server = server
+        let opening = Task { try await jumpHost.openTunnel(to: server.address, port: server.port) }
+        tunnelOpening = opening
+        defer { tunnelOpening = nil }
+        let tunnel: SSHTunnel
+        do {
+            tunnel = try await opening.value
+        } catch {
+            throw failure ?? Self.tunnelFailure(error)
+        }
+        if let failure {
+            await tunnel.close()
+            throw failure
+        }
+        transport = .tunnel(tunnel)
+        isNetworkReady = true
+        progress += 1
+        wakeWaiters()
+        pump()
+    }
+
+    /// The error for a tunnel the jump host could not open: its server could not reach this
+    /// connection's, which the route then says, as `SSHError.unreachable` says it for a direct
+    /// connection.
+    private static func tunnelFailure(_ error: any Error) -> any Error {
+        guard case .channelRefused(let message) = error as? SSHError else { return error }
+        return SSHError.unreachable("the jump host couldn’t connect to it (\(openFailureReason(message)))")
+    }
+
+    /// What the server said when it refused to open a channel: libssh's message ends with it, after
+    /// the channel and the reason's code, as in "Channel opening failure: channel 43 error (2)
+    /// Connection refused".
+    static func openFailureReason(_ message: String) -> String {
+        guard let code = message.range(of: #"error \(\d+\) "#, options: .regularExpression) else { return message }
+        let reason = message[code.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        return reason.isEmpty ? message : reason
     }
 
     // MARK: - Signing in
@@ -658,9 +727,134 @@ public actor SSHConnection {
         var hasPendingInput: Bool { !backlog.isEmpty || pendingSize != nil }
     }
 
+    // MARK: - Tunnels
+
+    /// Opens a tunnel to `address` and `port` as the server reaches them (`SSHTunnel`): the server
+    /// makes a TCP connection there, whose bytes travel over a `direct-tcpip` channel of this
+    /// connection.
+    /// - Throws: `SSHError.channelRefused` if the server makes no such connection: nothing answers
+    ///   there, or the server does not forward TCP; another `SSHError`; or `CancellationError`.
+    public func openTunnel(to address: String, port: UInt16) async throws -> SSHTunnel {
+        // The originator is ours to name; servers only log it.
+        let id = try await openChannel { channel in
+            unsafe ssh_channel_open_forward(channel.pointer, address, Int32(port), "127.0.0.1", 0)
+        }
+        let input = TunnelInput()
+        tunnels[id] = Tunnel(input: input)
+        return SSHTunnel(connection: self, channelID: id, input: input)
+    }
+
+    /// Writes what the tunnel was given into its channel, as far as the far end's window lets it,
+    /// then the end of its input once it was asked for. What is left waits until libssh reads more,
+    /// such as the far end's window adjustment.
+    func flushTunnel(_ id: Int) {
+        dispatchPrecondition(condition: .onQueue(queue))
+        guard var tunnel = tunnels[id] else { return }
+        let (bytes, finishes) = tunnel.input.take()
+        tunnel.backlog += bytes
+        // A write into a full window, and the end of the input, have libssh read what came in,
+        // which may be what other operations wait for.
+        let unread = unreadByLibssh
+        var changed = false
+        if let channel = channels[id], tunnel.sendFailure == nil {
+            var sent = 0
+            while !tunnel.backlog.isEmpty {
+                let written = unsafe tunnel.backlog.withUnsafeBytes { bytes in
+                    unsafe ssh_channel_write(channel.pointer, bytes.baseAddress, UInt32(clamping: bytes.count))
+                }
+                guard written > 0 else {
+                    // The far end closed the channel, or the connection failed.
+                    if written < 0 {
+                        tunnel.sendFailure = failure ?? .connectionLost("the tunnel’s far end closed it")
+                        changed = true
+                    }
+                    break
+                }
+                tunnel.backlog.removeFirst(Int(written))
+                sent += Int(written)
+            }
+            tunnel.input.didSend(sent)
+            changed = changed || sent > 0
+            if finishes, tunnel.backlog.isEmpty, !tunnel.sentEOF, tunnel.sendFailure == nil {
+                unsafe ssh_channel_send_eof(channel.pointer)
+                tunnel.sentEOF = true
+            }
+        }
+        tunnels[id] = tunnel
+        if unreadByLibssh < unread {
+            libsshDidRead()
+        } else if changed {
+            // What waits for the channel to take the bytes looks again.
+            progress += 1
+            wakeWaiters()
+        }
+        pump()
+    }
+
+    /// Schedules `flushTunnel(_:)` on the connection's queue, after the work queued before it, so
+    /// that what is sent keeps its order.
+    nonisolated func scheduleTunnelFlush(_ id: Int) {
+        queue.async { [weak self] in
+            self?.assumeIsolated { $0.flushTunnel(id) }
+        }
+    }
+
+    /// Returns once the tunnel's channel has taken everything sent so far.
+    func drainTunnel(_ id: Int) async throws {
+        try await perform { _ in
+            guard let tunnel = tunnels[id] else { throw failure ?? .closed }
+            if let sendFailure = tunnel.sendFailure { throw sendFailure }
+            return tunnel.input.unsentByteCount == 0 ? () : nil
+        }
+    }
+
+    /// The tunnel's next output, or nil once the far end ended its side or the tunnel was closed.
+    func receiveTunnel(_ id: Int) async throws -> [UInt8]? {
+        try await perform { _ -> [UInt8]?? in
+            guard let channel = channels[id] else { return .some(nil) }
+            switch try readChunk(channel, isStandardError: false) {
+            case .bytes(let bytes): return .some(bytes)
+            case .end: return .some(nil)
+            case .empty: return nil
+            }
+        }
+    }
+
+    /// Ends the tunnel: frees its channel, which libssh closes. Its output ends.
+    func closeTunnel(_ id: Int) {
+        guard tunnels.removeValue(forKey: id) != nil else { return }
+        freeChannel(id)
+        progress += 1
+        wakeWaiters()
+    }
+
+    /// A tunnel's channel as the connection keeps it.
+    private struct Tunnel {
+        let input: TunnelInput
+        /// What the tunnel was given that the channel did not take yet: the far end's window had
+        /// no room.
+        var backlog: [UInt8] = []
+        /// Whether the end of the tunnel's input went out.
+        var sentEOF = false
+        /// Why the channel takes nothing more, once it does not.
+        var sendFailure: SSHError?
+
+        init(input: TunnelInput) {
+            self.input = input
+        }
+
+        var hasPendingInput: Bool { !backlog.isEmpty && sendFailure == nil }
+    }
+
     // MARK: - Channels
 
     private func openSessionChannel() async throws -> Int {
+        try await openChannel { channel in unsafe ssh_channel_open_session(channel.pointer) }
+    }
+
+    /// Opens a new channel with `open`, a non-blocking libssh call that libssh repeats until the
+    /// server has answered, and returns its identifier.
+    private func openChannel(_ open: (Handle) -> Int32) async throws -> Int {
         guard let session, failure == nil else { throw failure ?? SSHError.closed }
         guard let pointer = unsafe ssh_channel_new(session.pointer) else { throw libsshError(session) }
         let id = nextChannelID
@@ -669,7 +863,7 @@ public actor SSHConnection {
         do {
             try await perform { session in
                 let channel = try self.channel(id)
-                switch unsafe ssh_channel_open_session(channel.pointer) {
+                switch open(channel) {
                 case SSH_OK: return ()
                 case SSH_AGAIN: return nil
                 default: throw failure ?? SSHError.channelRefused(libsshMessage(session))
@@ -731,8 +925,10 @@ public actor SSHConnection {
     public func close() {
         connectDeadline?.cancel()
         connectDeadline = nil
+        tunnelOpening?.cancel()
         channels.removeAll()
         shells.removeAll()
+        tunnels.removeAll()
         var closesLibsshSocket = true
         var goodbye: [UInt8] = []
         if let session {
@@ -765,9 +961,9 @@ public actor SSHConnection {
             Darwin.close(sockets.bridge)
             self.sockets = nil
         }
-        if let network {
-            end(network, after: goodbye)
-            self.network = nil
+        if let transport {
+            end(transport, after: goodbye)
+            self.transport = nil
         }
         if failure == nil {
             failure = .closed
@@ -842,13 +1038,31 @@ public actor SSHConnection {
         guard failure == nil else { return }
         Self.logger.notice("Connection ended: \(error.description)")
         failure = error
-        network?.cancel()
+        tunnelOpening?.cancel()
+        switch transport {
+        case .network(let network): network.cancel()
+        case .tunnel(let tunnel): Task { await tunnel.close() }
+        case nil: break
+        }
         endLibsshInput()
         progress += 1
         wakeWaiters()
     }
 
     // MARK: - Bridge
+
+    /// What the bridge passes libssh's bytes over (ADR 0002): the network, through Network.framework,
+    /// or, for the next hop of a route, a tunnel of the connection before it.
+    private enum Transport {
+        case network(NWConnection)
+        case tunnel(SSHTunnel)
+    }
+
+    /// The `NWConnection` the bridge uses, if it uses the network.
+    private var network: NWConnection? {
+        guard case .network(let network) = transport else { return nil }
+        return network
+    }
 
     private func startNetwork(port: NWEndpoint.Port) {
         let tcp = NWProtocolTCP.Options()
@@ -866,7 +1080,7 @@ public actor SSHConnection {
         network.betterPathUpdateHandler = { [weak self] isAvailable in
             self?.assumeIsolated { $0.pathChanged(.betterPathAvailable(isAvailable)) }
         }
-        self.network = network
+        transport = .network(network)
         network.start(queue: queue)
     }
 
@@ -967,39 +1181,98 @@ public actor SSHConnection {
             endLibsshInput()
         }
         if libsshRead {
-            progress += 1
-            wakeWaiters()
-            for (id, shell) in shells where shell.hasPendingInput {
-                scheduleShellFlush(id)
-            }
+            libsshDidRead()
         }
         receive()
     }
 
-    /// Reads what libssh wrote to its socket and hands it to the `NWConnection`. Returns whether
-    /// there was anything.
+    /// libssh read something new: the operations waiting look again, and the shells and tunnels
+    /// with input left write it, in case it was the server's window adjustment.
+    private func libsshDidRead() {
+        progress += 1
+        wakeWaiters()
+        for (id, shell) in shells where shell.hasPendingInput {
+            scheduleShellFlush(id)
+        }
+        for (id, tunnel) in tunnels where tunnel.hasPendingInput {
+            scheduleTunnelFlush(id)
+        }
+    }
+
+    /// Reads what libssh wrote to its socket and hands it to the `NWConnection`, or the tunnel.
+    /// Returns whether there was anything.
     private func sendLibsshOutput() -> Bool {
-        guard let sockets, let network, isNetworkReady, bytesInFlight < Self.maximumBytesInFlight else {
-            return false
-        }
-        let count = unsafe buffer.withUnsafeMutableBytes { buffer in
-            unsafe Darwin.read(sockets.bridge, buffer.baseAddress, buffer.count)
-        }
-        guard count > 0 else { return false }
-        bytesInFlight += count
-        network.send(
-            content: Data(buffer.prefix(count)),
-            completion: .contentProcessed { [weak self] error in
-                self?.assumeIsolated { connection in
-                    connection.bytesInFlight -= count
-                    if let error {
-                        connection.fail(.network(error, ready: true))
-                    } else {
-                        connection.pump()
+        guard let sockets, let transport, isNetworkReady else { return false }
+        switch transport {
+        case .network(let network):
+            guard bytesInFlight < Self.maximumBytesInFlight else { return false }
+            let count = unsafe buffer.withUnsafeMutableBytes { buffer in
+                unsafe Darwin.read(sockets.bridge, buffer.baseAddress, buffer.count)
+            }
+            guard count > 0 else { return false }
+            bytesInFlight += count
+            network.send(
+                content: Data(buffer.prefix(count)),
+                completion: .contentProcessed { [weak self] error in
+                    self?.assumeIsolated { connection in
+                        connection.bytesInFlight -= count
+                        if let error {
+                            connection.fail(.network(error, ready: true))
+                        } else {
+                            connection.pump()
+                        }
                     }
-                }
-            })
-        return true
+                })
+            return true
+        case .tunnel(let tunnel):
+            // The jump host passes the bytes on as the next hop's window lets it; until it has, the
+            // bridge reads no more, libssh's socket fills up, and libssh waits.
+            guard tunnel.unsentByteCount < Self.maximumBytesInFlight else {
+                waitForTunnel(tunnel)
+                return false
+            }
+            let count = unsafe buffer.withUnsafeMutableBytes { buffer in
+                unsafe Darwin.read(sockets.bridge, buffer.baseAddress, buffer.count)
+            }
+            guard count > 0 else { return false }
+            tunnel.send(Array(buffer.prefix(count)))
+            return true
+        }
+    }
+
+    /// Reads libssh's output again once the tunnel has taken what it was given.
+    private func waitForTunnel(_ tunnel: SSHTunnel) {
+        guard !isWaitingForTunnel else { return }
+        isWaitingForTunnel = true
+        Task { [weak self] in
+            let result: Result<Void, any Error>
+            do {
+                result = .success(try await tunnel.drain())
+            } catch {
+                result = .failure(error)
+            }
+            await self?.tunnelDrained(result)
+        }
+    }
+
+    private func tunnelDrained(_ result: Result<Void, any Error>) {
+        isWaitingForTunnel = false
+        if case .failure(let error) = result {
+            fail(.connectionLost(Self.jumpHostEnded(error)))
+        } else {
+            pump()
+        }
+    }
+
+    /// Why the connection ended when the jump host's tunnel under it did: what the jump host's
+    /// connection said, so that the tab says why it reconnects.
+    private static func jumpHostEnded(_ error: any Error) -> String {
+        guard let error = error as? SSHError else { return "the jump host’s connection ended" }
+        switch error {
+        case .connectionLost(let reason): return reason
+        case .closed: return "the jump host’s connection was closed"
+        default: return "the jump host’s connection ended: \(error)"
+        }
     }
 
     /// Everything libssh wrote to its socket that the bridge has not sent yet, as the connection
@@ -1016,18 +1289,36 @@ public actor SSHConnection {
         }
     }
 
-    /// Ends the TCP connection once `goodbye`, libssh's last bytes, is out: the server reads a clean
-    /// disconnect, not a connection that dropped. A network that has not sent them within a second
-    /// is cancelled all the same.
-    private func end(_ network: NWConnection, after goodbye: [UInt8]) {
-        guard isNetworkReady, !goodbye.isEmpty else {
-            network.cancel()
-            return
+    /// Ends the TCP connection, or the tunnel, once `goodbye`, libssh's last bytes, is out: the
+    /// server reads a clean disconnect, not a connection that dropped. A transport that has not sent
+    /// them within a second is cancelled all the same.
+    private func end(_ transport: Transport, after goodbye: [UInt8]) {
+        switch transport {
+        case .network(let network):
+            guard isNetworkReady, !goodbye.isEmpty else {
+                network.cancel()
+                return
+            }
+            network.send(
+                content: Data(goodbye), contentContext: .finalMessage, isComplete: true,
+                completion: .contentProcessed { _ in network.cancel() })
+            queue.asyncAfter(deadline: .now() + 1) { network.cancel() }
+        case .tunnel(let tunnel):
+            // Queued on the jump host's queue now, ahead of anything it is asked later, such as
+            // closing itself, which a route does next.
+            if isNetworkReady, !goodbye.isEmpty {
+                tunnel.send(goodbye)
+            }
+            tunnel.finish()
+            Task {
+                try? await tunnel.drain()
+                await tunnel.close()
+            }
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                await tunnel.close()
+            }
         }
-        network.send(
-            content: Data(goodbye), contentContext: .finalMessage, isComplete: true,
-            completion: .contentProcessed { _ in network.cancel() })
-        queue.asyncAfter(deadline: .now() + 1) { network.cancel() }
     }
 
     /// Writes the server's bytes that libssh's socket had no room for. Returns whether it wrote any.
@@ -1069,24 +1360,55 @@ public actor SSHConnection {
         return read
     }
 
-    /// Asks the `NWConnection` for the server's next bytes, once libssh's socket took the last ones.
+    /// Asks the `NWConnection`, or the tunnel, for the server's next bytes, once libssh's socket
+    /// took the last ones.
     private func receive() {
-        guard let network, isNetworkReady, !isReceiving, !serverClosed, inbound.isEmpty, failure == nil else {
+        guard let transport, isNetworkReady, !isReceiving, !serverClosed, inbound.isEmpty, failure == nil else {
             return
         }
         isReceiving = true
-        network.receive(minimumIncompleteLength: 1, maximumLength: Self.chunkSize) {
-            [weak self] content, _, isComplete, error in
-            self?.assumeIsolated { connection in
-                connection.isReceiving = false
-                if let content { connection.inbound += content }
-                if isComplete { connection.serverClosed = true }
-                if let error {
-                    connection.fail(.network(error, ready: true))
-                } else {
-                    connection.pump()
+        switch transport {
+        case .network(let network):
+            network.receive(minimumIncompleteLength: 1, maximumLength: Self.chunkSize) {
+                [weak self] content, _, isComplete, error in
+                self?.assumeIsolated { connection in
+                    connection.isReceiving = false
+                    if let content { connection.inbound += content }
+                    if isComplete { connection.serverClosed = true }
+                    if let error {
+                        connection.fail(.network(error, ready: true))
+                    } else {
+                        connection.pump()
+                    }
                 }
             }
+        case .tunnel(let tunnel):
+            Task { [weak self] in
+                let result: Result<[UInt8]?, any Error>
+                do {
+                    result = .success(try await tunnel.receive())
+                } catch {
+                    result = .failure(error)
+                }
+                await self?.tunnelReceived(result)
+            }
+        }
+    }
+
+    /// The tunnel's next bytes arrived: nil once the server's side ended. A tunnel that failed, as
+    /// when the jump host's connection is lost, ends this connection too, and the ones after it,
+    /// each as lost.
+    private func tunnelReceived(_ result: Result<[UInt8]?, any Error>) {
+        isReceiving = false
+        switch result {
+        case .success(let bytes?):
+            inbound += bytes
+            pump()
+        case .success(nil):
+            serverClosed = true
+            pump()
+        case .failure(let error):
+            fail(.connectionLost(Self.jumpHostEnded(error)))
         }
     }
 
