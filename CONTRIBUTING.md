@@ -40,7 +40,7 @@ Build settings live in `Configurations/*.xcconfig`, not in the Xcode project. Se
 
 ## Branches and pull requests
 
-- **Early MVP exception (from Oct 20, 2026):** the MVP slices (#19 and its sub-issues, plus spike tickets #8–#10) land directly on the `dev` branch without review, one commit per issue. Each commit passes the same checks as CI before it is pushed, and CI also runs on every push to `dev`. `dev` reaches `main` through one pull request, reviewed as a whole. The rules below still apply to everything else.
+- **Early development exception (from Oct 20, 2026):** the MVP slices (#19 and its sub-issues, plus spike tickets #8–#10) and, from Oct 24, 2026, the v1 slices (#34 and its sub-issues) land directly on the `dev` branch without review, one commit per issue. Each commit passes the same checks as CI before it is pushed, and CI also runs on every push to `dev`. `dev` reaches `main` through one pull request, reviewed as a whole. The rules below still apply to everything else.
 - Nothing is pushed to `main` directly, documents included. Every change goes through a pull request.
 - The other developer is asked for a review automatically (`.github/CODEOWNERS`). Approval is not required: the author may merge their own pull request.
 - Pull requests are squash-merged, so the pull request title becomes the commit on `main`. Write it as one.
