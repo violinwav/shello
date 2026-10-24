@@ -255,7 +255,34 @@ extension XCUIApplication {
         for (index, batch) in batches.enumerated() where !batch.isEmpty {
             // A check that tried the text sizes puts the screen back at its own size as it ends.
             if index > 1 { settleAfterAudit() }
+            try auditInTime(batch, ignoring: isIgnored)
+        }
+    }
+
+    /// The audit's checks on iOS, each of which can run on its own.
+    private static let auditChecks: [XCUIAccessibilityAuditType] = [
+        .contrast, .elementDetection, .hitRegion, .sufficientElementDescription, .dynamicType, .textClipped, .trait,
+    ]
+
+    /// `performAccessibilityAudit(for:_:)` for `batch`, or, if that does not finish in time, for
+    /// each of its checks on its own. Even the batch without the text sizes did not, once, on a slow
+    /// CI runner: "Audit failed to complete in time" after 26 seconds on the Host Key Changed sheet.
+    /// Running out of time is not a finding, and a single check does less.
+    @MainActor
+    private func auditInTime(
+        _ batch: XCUIAccessibilityAuditType, ignoring isIgnored: @escaping (XCUIAccessibilityAuditIssue) -> Bool
+    ) throws {
+        do {
             try performAccessibilityAudit(for: batch, isIgnored)
+        } catch let error as NSError
+            where error.domain == "com.apple.xcode.xctest.accessibilityAudit" && error.code == -56
+        {
+            let checks = Self.auditChecks.filter { batch.contains($0) }
+            guard checks.count > 1 else { throw error }
+            for check in checks {
+                settleAfterAudit()
+                try performAccessibilityAudit(for: check, isIgnored)
+            }
         }
     }
 
@@ -468,6 +495,24 @@ extension XCUIApplication {
                 return
             }
         }
+    }
+
+    /// Turns the switch `toggle` on with a tap on the switch itself, and taps again while it stays
+    /// off, at most three times. In CI, a tap on a switch in the host sheet after the keyboard had
+    /// been up sometimes changed nothing, the screen recording showing no reaction (see
+    /// `addTaggedFavorite`): on Attach tmux session, a second after the list had come to rest, with
+    /// the switch still off when the test failed five seconds later.
+    @MainActor
+    func turnOn(_ toggle: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let isOn = NSPredicate(format: "value == %@", "1")
+        for _ in 0..<3 {
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+            let turnedOn = XCTNSPredicateExpectation(predicate: isOn, object: toggle)
+            if XCTWaiter.wait(for: [turnedOn], timeout: 5) == .completed {
+                return
+            }
+        }
+        XCTFail("\(toggle) stays off", file: file, line: line)
     }
 
     /// Adds `nas`, a favourite in the new group Homelab with the new tag Staging.

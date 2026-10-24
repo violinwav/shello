@@ -198,14 +198,14 @@ final class HostTests: XCTestCase {
         app.enter("nas.lan", into: app.textFields["Address"])
         app.enter("\n", into: app.textFields["User"])
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
-        // A tap on a switch just after the keyboard went changed nothing in CI (`addTaggedFavorite`):
-        // the sheet comes to rest first. The tap goes on the switch itself.
+        // A tap on a switch after the keyboard went changed nothing in CI (`addTaggedFavorite`): the
+        // sheet comes to rest first, and `turnOn` taps again if the switch stays off.
         app.settle()
         let attach = app.switches["Attach tmux session"].firstMatch
         app.reveal(attach)
         let session = app.textFields["tmux session"]
         XCTAssertFalse(session.exists)
-        attach.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        app.turnOn(attach)
         XCTAssertTrue(session.waitForExistence(timeout: 5))
         XCTAssertEqual(session.value as? String, "main")
         app.replace(with: "my work", in: session)
