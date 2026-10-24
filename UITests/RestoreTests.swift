@@ -25,9 +25,7 @@ final class RestoreTests: XCTestCase {
         let output = "\(words.0) \(words.1)"
         app.addKeyHost(address: "127.0.0.1", port: Int(proxy.port), tmuxSession: "restore" + Self.randomLetters(6))
         app.buttons["Connect"].tap()
-        let trustSheet = app.navigationBars["Trust This Server?"]
-        XCTAssertTrue(trustSheet.waitForExistence(timeout: 15))
-        trustSheet.buttons["Trust"].tap()
+        app.trustHostKey()
         let first = TestServer.hostName
         let second = "\(TestServer.hostName) (2)"
         XCTAssertTrue(app.tab(first, connections: 1).waitForExistence(timeout: 30))
@@ -84,10 +82,19 @@ final class RestoreTests: XCTestCase {
 extension XCUIApplication {
     /// Types `text` into the selected tab's terminal on the Shello keyboard, key by key: letters, a
     /// space as Space, and a line break as Return.
+    ///
+    /// The terminal is tapped once the screen has come to rest, and again while its keyboard doesn't
+    /// show, at most three times: on a slow CI runner, a tap now and then goes nowhere
+    /// (`trustHostKey`), and without the keyboard no key can be typed.
     @MainActor
     func typeInTerminal(_ text: String, file: StaticString = #filePath, line: UInt = #line) {
-        terminal.tap()
-        XCTAssertTrue(keys["Space"].waitForExistence(timeout: 10), file: file, line: line)
+        let space = keys["Space"]
+        for _ in 0..<3 where !space.exists {
+            settle()
+            terminal.tap()
+            _ = space.waitForExistence(timeout: 10)
+        }
+        XCTAssertTrue(space.exists, "The terminal doesn’t show its keyboard", file: file, line: line)
         for character in text {
             let key =
                 switch character {

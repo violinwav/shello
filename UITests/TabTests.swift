@@ -21,9 +21,7 @@ final class TabTests: XCTestCase {
             environment: ["SHELLO_UI_TESTING_SSH_KEY": TestServer.clientKeyLaunchValue])
         app.addKeyHost()
         app.buttons["Connect"].tap()
-        let trustSheet = app.navigationBars["Trust This Server?"]
-        XCTAssertTrue(trustSheet.waitForExistence(timeout: 15))
-        trustSheet.buttons["Trust"].tap()
+        app.trustHostKey()
         XCTAssertTrue(app.connectionStatus(containing: "Connecting").waitForNonExistence(timeout: 15))
         XCTAssertTrue(app.tab(TestServer.hostName).waitForExistence(timeout: 5))
         try app.auditAccessibility()
@@ -33,7 +31,7 @@ final class TabTests: XCTestCase {
         let second = app.tab("\(TestServer.hostName) (2)")
         XCTAssertTrue(second.waitForExistence(timeout: 15))
         XCTAssertTrue(second.isSelected)
-        XCTAssertFalse(trustSheet.exists)
+        XCTAssertFalse(app.navigationBars["Trust This Server?"].exists)
         XCTAssertTrue(app.tab("\(TestServer.hostName) (2)", connections: 1).waitForExistence(timeout: 15))
         app.tab(TestServer.hostName).tap()
         XCTAssertTrue(app.tab(TestServer.hostName).wait(for: \.isSelected, toEqual: true, timeout: 5))
@@ -90,9 +88,7 @@ final class TabTests: XCTestCase {
             ])
         app.addKeyHost(address: "127.0.0.1", port: Int(proxy.port))
         app.buttons["Connect"].tap()
-        let trustSheet = app.navigationBars["Trust This Server?"]
-        XCTAssertTrue(trustSheet.waitForExistence(timeout: 15))
-        trustSheet.buttons["Trust"].tap()
+        app.trustHostKey()
         XCTAssertTrue(app.tab(TestServer.hostName, connections: 1).waitForExistence(timeout: 15))
         app.terminal.tap()
         XCTAssertTrue(app.keys["u"].waitForExistence(timeout: 10))
@@ -124,9 +120,7 @@ final class TabTests: XCTestCase {
             environment: ["SHELLO_UI_TESTING_SSH_KEY": TestServer.clientKeyLaunchValue])
         app.addKeyHost(address: "127.0.0.1", port: Int(proxy.port))
         app.buttons["Connect"].tap()
-        let trustSheet = app.navigationBars["Trust This Server?"]
-        XCTAssertTrue(trustSheet.waitForExistence(timeout: 15))
-        trustSheet.buttons["Trust"].tap()
+        app.trustHostKey()
         XCTAssertTrue(app.tab(TestServer.hostName, connections: 1).waitForExistence(timeout: 15))
 
         proxy.cut()

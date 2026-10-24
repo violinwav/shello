@@ -429,6 +429,23 @@ extension XCUIApplication {
         XCTAssertTrue(navigationBars[TestServer.hostName].waitForExistence(timeout: 5))
     }
 
+    /// Trusts the host key that the trust sheet asks about, for a host Shello reaches directly, and
+    /// waits for the sheet to go. In a CI run, a tap on Trust changed nothing: the sheet stayed, asking
+    /// the same, for over a minute (TabTests). Trust is tapped once the sheet has come to rest, and
+    /// again while the sheet stays, at most three times. Through jump hosts, the sheet asks about the
+    /// next hop in its place: tap Trust on it instead (JumpHostTests).
+    @MainActor
+    func trustHostKey(file: StaticString = #filePath, line: UInt = #line) {
+        let sheet = navigationBars["Trust This Server?"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 15), file: file, line: line)
+        for _ in 0..<3 where sheet.exists {
+            settle()
+            sheet.buttons["Trust"].tap()
+            _ = sheet.waitForNonExistence(timeout: 10)
+        }
+        XCTAssertFalse(sheet.exists, "The trust sheet stays", file: file, line: line)
+    }
+
     /// Closes the selected tab with its Close Tab button. Closing the last tab closes the terminal
     /// screen.
     @MainActor
@@ -512,9 +529,19 @@ extension XCUIApplication {
         repeat {
             search(for: text)
             let found = staticTexts["1 of 1"].waitForExistence(timeout: 1)
-            buttons["Done"].tap()
+            closeSearch()
             if found { return true }
         } while Date.now < deadline
         return false
+    }
+
+    /// Closes the search bar with Done, and waits until it has gone and the screen has come to rest.
+    /// In a CI run, the taps right after it closed went nowhere: on the terminal, which got no
+    /// keyboard, and on New Tab.
+    @MainActor
+    private func closeSearch() {
+        buttons["Done"].tap()
+        _ = textFields["Search Terminal"].waitForNonExistence(timeout: 5)
+        settle()
     }
 }
