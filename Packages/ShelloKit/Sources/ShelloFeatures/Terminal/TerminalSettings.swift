@@ -4,9 +4,10 @@ import ShelloTerminalUI
 
 /// The terminal settings of this device (README section 5): the scrollback's length, Option as
 /// Meta, the extra Esc key, whether VoiceOver reads new output, and the font size, which pinch and
-/// the shortcuts change; and the Shello keyboard's (section 6): its letters layout, its haptics and
-/// the swipe key's speed. Like app lock's timeout they stay on the device, and the export leaves
-/// them out (docs/spec/EXPORT.md).
+/// the shortcuts change; and the Shello keyboard's (section 6): its letters layout, its haptics, the
+/// swipe key's speed, and whether the extra keys row stays while a hardware keyboard is attached.
+/// Like app lock's timeout they stay on the device, and the export leaves them out
+/// (docs/spec/EXPORT.md).
 @MainActor
 @Observable
 public final class TerminalSettings {
@@ -41,6 +42,13 @@ public final class TerminalSettings {
             defaults.set(swipeKeySpeed, forKey: Keys.swipeKeySpeed)
         }
     }
+    /// Whether the extra keys row stays while a hardware keyboard is attached, which hides the Shello
+    /// keyboard.
+    public var showsExtraKeysRowWithHardwareKeyboard: Bool {
+        didSet {
+            defaults.set(showsExtraKeysRowWithHardwareKeyboard, forKey: Keys.showsExtraKeysRowWithHardwareKeyboard)
+        }
+    }
 
     /// Whether the cursor blinks, which the composition root decides: Settings does not offer it,
     /// and only UI tests stop it.
@@ -57,6 +65,7 @@ public final class TerminalSettings {
         static let keyboardLetters = "keyboardLetters"
         static let keyboardHaptics = "keyboardHaptics"
         static let swipeKeySpeed = "keyboardSwipeKeySpeed"
+        static let showsExtraKeysRowWithHardwareKeyboard = "keyboardShowsExtraKeysRowWithHardwareKeyboard"
     }
 
     /// The settings stored in `defaults`, or the defaults of `TerminalPreferences` for those never
@@ -77,6 +86,9 @@ public final class TerminalSettings {
         keyboardHaptics = defaults.object(forKey: Keys.keyboardHaptics) as? Bool ?? standard.keyboard.haptics
         swipeKeySpeed = KeyboardPreferences.clampedSwipeSpeed(
             defaults.object(forKey: Keys.swipeKeySpeed) as? Double ?? standard.keyboard.swipeSpeed)
+        showsExtraKeysRowWithHardwareKeyboard =
+            defaults.object(forKey: Keys.showsExtraKeysRowWithHardwareKeyboard) as? Bool
+            ?? standard.keyboard.showsExtraKeysRowWithHardwareKeyboard
     }
 
     /// The settings as a terminal takes them.
@@ -85,7 +97,8 @@ public final class TerminalSettings {
             scrollbackLines: scrollbackLines, optionAsMeta: optionAsMeta, escapeKey: escapeKey,
             announcesOutput: announcesOutput, fontSize: fontSize,
             keyboard: KeyboardPreferences(
-                letters: keyboardLetters, haptics: keyboardHaptics, swipeSpeed: swipeKeySpeed),
+                letters: keyboardLetters, haptics: keyboardHaptics, swipeSpeed: swipeKeySpeed,
+                showsExtraKeysRowWithHardwareKeyboard: showsExtraKeysRowWithHardwareKeyboard),
             cursorBlinks: cursorBlinks)
     }
 }

@@ -161,8 +161,12 @@ A key the user presses: on the Shello keyboard, the extra keys row, a pad or a h
 _Avoid_: Button
 
 **Shello keyboard**:
-The keyboard Shello shows in place of the system keyboard in a terminal, in three layers, under the extra keys row. One key on the row switches to the system keyboard and back.
+The keyboard Shello shows in place of the system keyboard in a terminal, in three layers, under the extra keys row. One key on the row switches to the system keyboard and back. A hardware keyboard hides it.
 _Avoid_: Custom keyboard, soft keyboard, on-screen keyboard (the system keyboard is one too)
+
+**Hardware keyboard**:
+A keyboard connected to the device, such as a Bluetooth keyboard, a Magic Keyboard or an iPad's keyboard folio. While one is attached, a terminal shows no on-screen keyboard, only the extra keys row, or nothing if the user turned the row off. The row's switch key shows the Shello keyboard anyway, in that tab, until the hardware keyboard is detached.
+_Avoid_: External keyboard, physical keyboard, Bluetooth keyboard (one kind)
 
 **Layer**:
 One of the Shello keyboard's sets of keys, shown one at a time: letters, symbols or function keys.
@@ -185,7 +189,7 @@ Control or Alt on the extra keys row, which stays down for the user: one tap arm
 _Avoid_: Latching key, toggle key
 
 **Extra keys row**:
-The scrollable row of terminal keys above whichever keyboard is active.
+The scrollable row of terminal keys above whichever keyboard is active, or alone at the bottom of the screen while a hardware keyboard is attached.
 _Avoid_: Toolbar, accessory bar
 
 **Custom key**:

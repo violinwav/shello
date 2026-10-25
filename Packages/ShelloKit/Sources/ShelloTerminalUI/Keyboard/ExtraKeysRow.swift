@@ -41,10 +41,17 @@ final class ExtraKeysRow: UIInputView, UIInputViewAudioFeedback, UIScrollViewDel
         switchElement = KeyAccessibilityElement(accessibilityContainer: switchKeyView)
         super.init(frame: CGRect(x: 0, y: 0, width: 390, height: 50), inputViewStyle: .default)
         allowsSelfSizing = true
+        // UIKit takes an input accessory view's height from its intrinsic size only when the height
+        // is flexible; otherwise it keeps the frame's.
+        autoresizingMask = .flexibleHeight
         isMultipleTouchEnabled = true
         backgroundColor = keyboard.palette.background
         overrideUserInterfaceStyle = keyboard.palette.isDark ? .dark : .light
         accessibilityIdentifier = "Extra Keys"
+        // Named for VoiceOver, which says it as it enters the row: alone, at the bottom of the screen,
+        // nothing else says what the keys are.
+        accessibilityContainerType = .semanticGroup
+        accessibilityLabel = String(localized: "Extra Keys")
 
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
@@ -97,8 +104,30 @@ final class ExtraKeysRow: UIInputView, UIInputViewAudioFeedback, UIScrollViewDel
 
     var enableInputClicksWhenVisible: Bool { true }
 
+    /// Whether the row shows alone, at the bottom of the screen, while a hardware keyboard hides the
+    /// keyboards (README section 6).
+    var isAlone = false {
+        didSet {
+            guard isAlone != oldValue else { return }
+            invalidateIntrinsicContentSize()
+            setNeedsLayout()
+        }
+    }
+
+    /// The space under the keys. On a keyboard none: the keyboard has a margin of its own. Alone, the
+    /// margin above the keys, and at least the safe area, which keeps the keys clear of the home
+    /// indicator.
+    private var spaceUnderKeys: CGFloat {
+        isAlone ? max(metrics.insets.top, safeAreaInsets.bottom) : 0
+    }
+
+    /// The height of the band the keys take, at the top of the row.
+    private var keysHeight: CGFloat {
+        metrics.insets.top + metrics.keyHeight + metrics.insets.bottom
+    }
+
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: metrics.insets.top + metrics.keyHeight + metrics.insets.bottom)
+        CGSize(width: UIView.noIntrinsicMetric, height: keysHeight + spaceUnderKeys)
     }
 
     override func layoutSubviews() {
@@ -108,6 +137,11 @@ final class ExtraKeysRow: UIInputView, UIInputViewAudioFeedback, UIScrollViewDel
 
     override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
+        if isAlone {
+            // Alone, the row learns the safe area once iOS has placed it at the bottom of the screen.
+            // It grows by it after the layout that placed it, which keeps the height it measured.
+            Task { [weak self] in self?.invalidateIntrinsicContentSize() }
+        }
         setNeedsLayout()
     }
 
@@ -143,7 +177,7 @@ final class ExtraKeysRow: UIInputView, UIInputViewAudioFeedback, UIScrollViewDel
     private func layoutKeys() {
         let switchFrame = switchKeyFrame
         let areaWidth = max(switchFrame.minX - metrics.keySpacing / 2 - safeAreaInsets.left, 0)
-        scrollArea.frame = CGRect(x: safeAreaInsets.left, y: 0, width: areaWidth, height: bounds.height)
+        scrollArea.frame = CGRect(x: safeAreaInsets.left, y: 0, width: areaWidth, height: keysHeight)
         scrollView.frame = scrollArea.bounds
         keysView.frame = CGRect(origin: .zero, size: geometry.size)
         scrollView.contentSize = geometry.size
@@ -184,9 +218,9 @@ final class ExtraKeysRow: UIInputView, UIInputViewAudioFeedback, UIScrollViewDel
         let switchTouchFrame = CGRect(
             x: switchFrame.minX - metrics.keySpacing / 2, y: 0,
             width: bounds.width - switchFrame.minX + metrics.keySpacing / 2,
-            height: bounds.height)
+            height: keysHeight)
         if switchTouchFrame.contains(point) {
-            let key = ExtraKeys.switchKey(toSystemKeyboard: !(keyboard?.usesSystemKeyboard ?? false))
+            let key = keyboard?.switchKey ?? ExtraKeys.switchKey(.toSystemKeyboard)
             return KeyTouches.Hit(index: keys.count, key: key, frame: switchFrame, touchFrame: switchTouchFrame)
         }
         guard scrollArea.frame.contains(point) else { return nil }
@@ -214,9 +248,9 @@ final class ExtraKeysRow: UIInputView, UIInputViewAudioFeedback, UIScrollViewDel
             caps[index].draw(face, frame: cap.frame, cornerRadius: metrics.cornerRadius, scale: scale)
         }
         if changed.contains(keys.count) {
-            let switchKey = ExtraKeys.switchKey(toSystemKeyboard: !keyboard.usesSystemKeyboard)
             let switchFace = keyboard.face(
-                for: switchKey, frame: switchKeyView.bounds, isPressed: pressed.contains(keys.count), metrics: metrics)
+                for: keyboard.switchKey, frame: switchKeyView.bounds, isPressed: pressed.contains(keys.count),
+                metrics: metrics)
             switchCap.draw(switchFace, frame: switchKeyView.bounds, cornerRadius: metrics.cornerRadius, scale: scale)
         }
         CATransaction.commit()
@@ -267,7 +301,7 @@ final class ExtraKeysRow: UIInputView, UIInputViewAudioFeedback, UIScrollViewDel
         keysView.accessibilityElements = elements
         switchElement.press = { [weak self] in
             guard let keyboard = self?.keyboard else { return }
-            keyboard.press(ExtraKeys.switchKey(toSystemKeyboard: !keyboard.usesSystemKeyboard))
+            keyboard.press(keyboard.switchKey)
         }
         switchKeyView.accessibilityElements = [switchElement]
         accessibilityElements = [scrollView, switchKeyView]
@@ -297,7 +331,7 @@ final class ExtraKeysRow: UIInputView, UIInputViewAudioFeedback, UIScrollViewDel
                 element.accessibilityCustomActions = keyboard.accessibilityCustomActions(for: cap.key)
             }
         }
-        let switchKey = ExtraKeys.switchKey(toSystemKeyboard: !keyboard.usesSystemKeyboard)
+        let switchKey = keyboard.switchKey
         switchElement.accessibilityLabel = keyboard.spokenLabel(for: switchKey)
         switchElement.accessibilityUserInputLabels = keyboard.userInputLabels(for: switchKey)
         switchElement.accessibilityTraits = .keyboardKey

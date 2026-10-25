@@ -259,29 +259,70 @@ private struct ShelloKeyboardSettingsView: View {
     }
 }
 
-/// Option as Meta and a key that sends Esc, for hardware keyboards (README section 5).
+/// Hardware keyboards (README sections 5 and 6): a row to their settings, which have a screen of
+/// their own, as the Shello keyboard's do (`ShelloKeyboardSection`). With the extra keys row's
+/// setting added to them in Settings itself, the accessibility audit's Dynamic Type check again
+/// reported rows that the larger text pushed below the screen, Require Unlock and SSH Keys, as not
+/// growing at all.
 private struct HardwareKeyboardSection: View {
-    @Bindable var settings: TerminalSettings
+    let settings: TerminalSettings
 
     var body: some View {
         Section {
-            Toggle("Option Key as Meta", isOn: $settings.optionAsMeta)
-            Picker("Extra Esc Key", selection: $settings.escapeKey) {
-                ForEach(EscapeKey.allCases) { key in
-                    Text(key.displayName).tag(key)
-                }
+            NavigationLink {
+                HardwareKeyboardSettingsView(settings: settings)
+            } label: {
+                Label("Hardware Keyboard", systemImage: "command")
+                    .labelStyle(.row)
             }
-        } header: {
-            SectionHeader("Hardware Keyboard")
         } footer: {
-            FooterText(Self.footer(controlBracket: "Control-["))
-                // VoiceOver can leave the bracket out.
-                .accessibilityLabel(Self.footer(controlBracket: "Control-left bracket"))
+            FooterText("Option as Meta, an extra Esc key, and the extra keys row while a keyboard is attached.")
         }
         .listRowBackground(Palette.cell)
     }
+}
 
-    private static func footer(controlBracket: String) -> String {
+/// Option as Meta and a key that sends Esc, for hardware keyboards (README section 5), and whether
+/// the extra keys row stays while one is attached, which hides the Shello keyboard (section 6).
+private struct HardwareKeyboardSettingsView: View {
+    @Bindable var settings: TerminalSettings
+
+    var body: some View {
+        List {
+            Section {
+                Toggle("Option Key as Meta", isOn: $settings.optionAsMeta)
+                Picker("Extra Esc Key", selection: $settings.escapeKey) {
+                    ForEach(EscapeKey.allCases) { key in
+                        Text(key.displayName).tag(key)
+                    }
+                }
+            } footer: {
+                FooterText(Self.escapeFooter(controlBracket: "Control-["))
+                    // VoiceOver can leave the bracket out.
+                    .accessibilityLabel(Self.escapeFooter(controlBracket: "Control-left bracket"))
+            }
+            .listRowBackground(Palette.cell)
+            Section {
+                Toggle("Extra Keys Row", isOn: $settings.showsExtraKeysRowWithHardwareKeyboard)
+                    // Heard without its footer too, as in VoiceOver's rotor.
+                    .accessibilityHint("Keeps the extra keys row while a hardware keyboard is attached.")
+            } footer: {
+                FooterText(
+                    "While a hardware keyboard is attached, the Shello keyboard hides, and the extra keys row stays "
+                        + "for Esc, the swipe key and other keys a keyboard may lack. The row’s Show Shello Keyboard "
+                        + "key brings the Shello keyboard back. Without the row, the terminal has the whole screen, "
+                        + "Control and Alt turn off, and the Shello keyboard comes back once the keyboard is "
+                        + "detached. With VoiceOver, Show Shello Keyboard is also in the terminal’s Actions rotor.")
+            }
+            .listRowBackground(Palette.cell)
+        }
+        .font(Typography.body)
+        .scrollContentBackground(.hidden)
+        .background(Palette.ground)
+        .navigationTitle("Hardware Keyboard")
+    }
+
+    private static func escapeFooter(controlBracket: String) -> String {
         "As Meta, Option and a key send Esc and the key, as Emacs expects. The extra Esc key is for keyboards "
             + "without one; \(controlBracket) always sends Esc. The Settings app can make Caps Lock an Esc key."
     }

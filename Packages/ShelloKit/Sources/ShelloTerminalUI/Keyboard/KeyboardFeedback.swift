@@ -1,8 +1,9 @@
 import UIKit
 
 /// What the keyboard gives back for a key other than what it types: a light haptic tap, which the
-/// user can turn off, the keyboard click, which follows the Settings app's Keyboard Clicks, and
-/// VoiceOver's announcements of a modifier's state and of a new layer. Tests replace it.
+/// user can turn off, the keyboard click, which follows the Settings app's Keyboard Clicks,
+/// VoiceOver's announcements of a modifier's state and of a new layer, and where VoiceOver goes when
+/// the keys on screen change. Tests replace it.
 struct KeyboardFeedback {
     /// A finger came down on a key: gets the haptic engine ready, so that the tap comes on time.
     var prepare: () -> Void
@@ -10,6 +11,11 @@ struct KeyboardFeedback {
     var click: () -> Void
     var isVoiceOverRunning: () -> Bool
     var announce: (String) -> Void
+    /// The element VoiceOver is on, if VoiceOver can say: none on the system keyboard, whose keys
+    /// are another process's.
+    var voiceOverFocus: () -> AnyObject?
+    /// The keys on screen changed: VoiceOver goes to `element`, or stays where it is for nil.
+    var layoutChanged: (_ element: AnyObject?) -> Void
 
     /// The device's haptics and clicks, for keys on `view`. Announcements wait for VoiceOver to
     /// finish saying the key.
@@ -23,6 +29,12 @@ struct KeyboardFeedback {
             announce: { text in
                 let queued = NSAttributedString(string: text, attributes: [.accessibilitySpeechQueueAnnouncement: true])
                 UIAccessibility.post(notification: .announcement, argument: queued)
+            },
+            voiceOverFocus: {
+                UIAccessibility.focusedElement(using: .notificationVoiceOver).map { $0 as AnyObject }
+            },
+            layoutChanged: { element in
+                UIAccessibility.post(notification: .layoutChanged, argument: element)
             })
     }
 }
@@ -38,11 +50,19 @@ nonisolated public struct KeyboardPreferences: Equatable, Sendable {
     public var swipeSpeed: Double {
         didSet { swipeSpeed = Self.clampedSwipeSpeed(swipeSpeed) }
     }
+    /// Whether the extra keys row stays while a hardware keyboard is attached, which hides the Shello
+    /// keyboard: for the keys a hardware keyboard may lack, such as esc and the swipe key. On by
+    /// default.
+    public var showsExtraKeysRowWithHardwareKeyboard: Bool
 
-    public init(letters: LettersLayout.ID? = nil, haptics: Bool = true, swipeSpeed: Double = 1) {
+    public init(
+        letters: LettersLayout.ID? = nil, haptics: Bool = true, swipeSpeed: Double = 1,
+        showsExtraKeysRowWithHardwareKeyboard: Bool = true
+    ) {
         self.letters = letters
         self.haptics = haptics
         self.swipeSpeed = Self.clampedSwipeSpeed(swipeSpeed)
+        self.showsExtraKeysRowWithHardwareKeyboard = showsExtraKeysRowWithHardwareKeyboard
     }
 
     /// The swipe key's speeds Settings offers: as the UI design's slider, from half to three

@@ -38,13 +38,13 @@ import UIKit
     @Test func keyboardIsTheInputViewAndTheRowItsAccessory() {
         #expect(fixture.view.inputView === keyboard.keyboardView)
         #expect(fixture.view.inputAccessoryView === keyboard.extraKeysRow)
-        keyboard.press(ExtraKeys.switchKey(toSystemKeyboard: true))
+        keyboard.press(ExtraKeys.switchKey(.toSystemKeyboard))
         #expect(keyboard.usesSystemKeyboard)
         #expect(fixture.view.inputView == nil)
         // The row stays above the system keyboard, with the key that brings the Shello keyboard back.
         #expect(fixture.view.inputAccessoryView === keyboard.extraKeysRow)
-        #expect(keyboard.spokenLabel(for: ExtraKeys.switchKey(toSystemKeyboard: true)) == "Switch to Shello Keyboard")
-        keyboard.press(ExtraKeys.switchKey(toSystemKeyboard: false))
+        #expect(keyboard.spokenLabel(for: keyboard.switchKey) == "Switch to Shello Keyboard")
+        keyboard.press(ExtraKeys.switchKey(.toShelloKeyboard))
         #expect(fixture.view.inputView === keyboard.keyboardView)
     }
 
@@ -99,7 +99,7 @@ import UIKit
     /// Sticky modifiers work with the system keyboard too (README section 6): its text goes
     /// through the terminal's `insertText`, and its Delete through `deleteBackward`.
     @Test func modifiersApplyToTheSystemKeyboard() {
-        keyboard.press(ExtraKeys.switchKey(toSystemKeyboard: true))
+        keyboard.press(ExtraKeys.switchKey(.toSystemKeyboard))
         press("ctrl")
         fixture.view.insertText("c")
         fixture.view.insertText("x")
@@ -316,8 +316,7 @@ import UIKit
         #expect(keyboard.userInputLabels(for: key("|")) == ["Vertical Bar", "Pipe"])
         #expect(keyboard.userInputLabels(for: key("q")) == ["q"])
         #expect(
-            keyboard.userInputLabels(for: ExtraKeys.switchKey(toSystemKeyboard: true))
-                == ["Switch to System Keyboard", "Switch Keyboard"])
+            keyboard.userInputLabels(for: keyboard.switchKey) == ["Switch to System Keyboard", "Switch Keyboard"])
         let swipe = ExtraKeys.standard.first { $0.action == .arrows }!
         #expect(keyboard.userInputLabels(for: swipe) == ["Swipe Key", "Arrows"])
     }
@@ -429,6 +428,11 @@ final class RecordedKeyboardFeedback {
     var clicks = 0
     var isVoiceOverRunning = false
     var announcements: [String] = []
+    /// The element VoiceOver is on.
+    var focusedElement: AnyObject?
+    /// The layout changes posted as the keys on screen changed, each with where VoiceOver went: nil
+    /// where it stayed.
+    var layoutChanges: [AnyObject?] = []
 
     var feedback: KeyboardFeedback {
         KeyboardFeedback(
@@ -436,6 +440,8 @@ final class RecordedKeyboardFeedback {
             haptic: { [unowned self] in self.haptics += 1 },
             click: { [unowned self] in self.clicks += 1 },
             isVoiceOverRunning: { [unowned self] in self.isVoiceOverRunning },
-            announce: { [unowned self] in self.announcements.append($0) })
+            announce: { [unowned self] in self.announcements.append($0) },
+            voiceOverFocus: { [unowned self] in self.focusedElement },
+            layoutChanged: { [unowned self] in self.layoutChanges.append($0) })
     }
 }

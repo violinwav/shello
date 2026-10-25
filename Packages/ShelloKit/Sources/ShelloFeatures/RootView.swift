@@ -14,6 +14,7 @@ public struct RootView: View {
     @Environment(\.sshKeyStore) private var keys
     @Environment(\.hostConnector) private var connector
     @Environment(\.terminalSettings) private var terminalSettings
+    @Environment(\.hardwareKeyboard) private var hardwareKeyboard
     @Environment(\.backgroundConnectionTime) private var backgroundConnectionTime
     @Environment(\.rememberedTabs) private var rememberedTabs
 
@@ -27,7 +28,8 @@ public struct RootView: View {
                     tabs: connector.map {
                         TerminalTabsModel(
                             connector: $0, hosts: repository, settings: terminalSettings,
-                            rememberedTabs: rememberedTabs, backgroundTime: backgroundConnectionTime)
+                            hardwareKeyboard: hardwareKeyboard, rememberedTabs: rememberedTabs,
+                            backgroundTime: backgroundConnectionTime)
                     })
             } else {
                 EmptyStateView(

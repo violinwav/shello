@@ -4,9 +4,14 @@ import ShelloFeatures
 import ShelloModel
 import ShelloSecurity
 import ShelloStorage
+import ShelloTerminalUI
 import SwiftUI
 import UIKit
 import os
+
+#if DEBUG
+    import notify
+#endif
 
 /// Composition root. Services are created here and passed to the screens through the SwiftUI environment.
 @main
@@ -23,6 +28,8 @@ struct ShelloApp: App {
     private let appLock: AppLock
     /// The terminal settings of this device.
     private let terminalSettings: TerminalSettings
+    /// Whether a hardware keyboard is attached, which hides the terminals' Shello keyboards.
+    private let hardwareKeyboard: any HardwareKeyboardMonitor
     /// Whether iOS's Local Network question has been explained on this device.
     private let localNetworkNotice: LocalNetworkNotice
     /// The tabs each window has open, for Restore, under the windows' scene sessions.
@@ -43,6 +50,7 @@ struct ShelloApp: App {
             : SSHKeyStore(unlockWindow: unlockWindow)
         appLock = AppLock(window: unlockWindow, defaults: Launch.settings, isEnabled: Launch.locksApp)
         terminalSettings = TerminalSettings(defaults: Launch.settings, cursorBlinks: Launch.blinksCursor)
+        hardwareKeyboard = Launch.makeHardwareKeyboard()
         localNetworkNotice = LocalNetworkNotice(defaults: Launch.settings)
         rememberedTabs = RememberedTabsStore(
             file: Launch.rememberedTabsFile,
@@ -70,6 +78,7 @@ struct ShelloApp: App {
                             .environment(\.sshKeyStore, sshKeys)
                             .environment(\.appLock, appLock)
                             .environment(\.terminalSettings, terminalSettings)
+                            .environment(\.hardwareKeyboard, hardwareKeyboard)
                             .environment(\.hostConnector, services.hostConnector)
                             .environment(\.localNetworkNotice, localNetworkNotice)
                             .environment(\.backgroundConnectionTime, Launch.backgroundConnectionTime)
@@ -174,6 +183,26 @@ private enum Launch {
         /// each step, and while a cursor blinks it never does, so each step would wait a minute.
         static var blinksCursor: Bool { !isUITesting }
 
+        /// UI tests never see the Simulator's own hardware keyboard, which is often attached and would
+        /// hide the Shello keyboard from every test: a stand-in instead, detached unless the test
+        /// attaches it at launch (`SHELLO_UI_TESTING_HARDWARE_KEYBOARD`), and attached and detached
+        /// later with the Darwin notifications below, which UITests/HardwareKeyboardTests.swift posts.
+        static func makeHardwareKeyboard() -> any HardwareKeyboardMonitor {
+            guard isUITesting else { return GameControllerKeyboardMonitor() }
+            let standIn = HardwareKeyboardStandIn(isAttached: environment["SHELLO_UI_TESTING_HARDWARE_KEYBOARD"] == "1")
+            let changes = [
+                ("ch.shello.Shello.UITests.hardwareKeyboardAttached", true),
+                ("ch.shello.Shello.UITests.hardwareKeyboardDetached", false),
+            ]
+            for (name, isAttached) in changes {
+                var token: Int32 = 0
+                notify_register_dispatch(name, &token, .main) { _ in
+                    MainActor.assumeIsolated { standIn.isAttached = isAttached }
+                }
+            }
+            return standIn
+        }
+
         /// Each UI test chooses its appearance, whatever the simulator's.
         static var colorScheme: ColorScheme? {
             switch environment["SHELLO_UI_TESTING_APPEARANCE"] {
@@ -238,6 +267,7 @@ private enum Launch {
         static let fixtureSSHKeys: [SSHKeyStore.FixtureKey] = []
         static let locksApp = true
         static let blinksCursor = true
+        static func makeHardwareKeyboard() -> any HardwareKeyboardMonitor { GameControllerKeyboardMonitor() }
         static let colorScheme: ColorScheme? = nil
         static let showsPrivacyCoverOnly = false
         static let backgroundConnectionTime: Duration? = nil

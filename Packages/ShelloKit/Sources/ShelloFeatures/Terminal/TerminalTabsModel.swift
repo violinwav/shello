@@ -55,11 +55,13 @@ final class TerminalTabsModel {
     @ObservationIgnored private(set) var tabOpenedByTheUser: UUID?
 
     /// Tabs that connect with `connector` and record their connections in `hosts`, with terminals
-    /// made with `settings`, remembered in `rememberedTabs` for Restore. `backgroundTime` replaces the
-    /// background time iOS grants, for the UI tests.
+    /// made with `settings` whose Shello keyboards hide while `hardwareKeyboard` says one is attached,
+    /// remembered in `rememberedTabs` for Restore. `backgroundTime` replaces the background time iOS
+    /// grants, for the UI tests.
     init(
         connector: HostConnector, hosts: HostRepository?, settings: TerminalSettings?,
-        rememberedTabs: RememberedTabsStore? = nil, backgroundTime: Duration? = nil
+        hardwareKeyboard: (any HardwareKeyboardMonitor)? = nil, rememberedTabs: RememberedTabsStore? = nil,
+        backgroundTime: Duration? = nil
     ) {
         self.settings = settings
         self.hosts = hosts
@@ -67,12 +69,31 @@ final class TerminalTabsModel {
         self.backgroundTime = backgroundTime
         let preferences = { settings?.preferences ?? TerminalPreferences() }
         tabs = TerminalTabs(services: TabServices(connector: connector, hosts: hosts)) { _ in
-            TerminalController(preferences: preferences(), theme: .night, typeface: DesignSystem.terminalTypeface)
+            TerminalController(
+                preferences: preferences(), theme: .night, typeface: DesignSystem.terminalTypeface,
+                hardwareKeyboard: hardwareKeyboard)
         }
+        followExtraKeysRowSetting()
     }
 
     isolated deinit {
         offerUpdates?.cancel()
+    }
+
+    /// The terminals take the settings as they are made, except the extra keys row's, which reaches
+    /// the open tabs too, as it changes: without the row, a terminal with a hardware keyboard attached
+    /// shows no keys at all, so turning it back on must bring them back (README section 6).
+    private func followExtraKeysRowSetting() {
+        guard let settings else { return }
+        let shows = withObservationTracking {
+            settings.showsExtraKeysRowWithHardwareKeyboard
+        } onChange: { [weak self] in
+            // Before the change: follow it once it is made.
+            Task { @MainActor in self?.followExtraKeysRowSetting() }
+        }
+        for tab in tabs.tabs {
+            tab.terminal.preferences.keyboard.showsExtraKeysRowWithHardwareKeyboard = shows
+        }
     }
 
     var selectedTab: TerminalTab<TerminalController>? { tabs.selectedTab }

@@ -7,6 +7,7 @@ import SwiftUI
 /// bell and the 10 MB output test.
 struct TerminalDemoView: View {
     @Environment(\.terminalSettings) private var settings
+    @Environment(\.hardwareKeyboard) private var hardwareKeyboard
     @State private var demo = TerminalDemo()
     /// Made once the screen appears: making a terminal makes its UIKit view.
     @State private var controller: TerminalController?
@@ -45,7 +46,7 @@ struct TerminalDemoView: View {
             guard controller == nil else { return }
             let controller = TerminalController(
                 preferences: settings?.preferences ?? TerminalPreferences(), theme: .night,
-                typeface: DesignSystem.terminalTypeface)
+                typeface: DesignSystem.terminalTypeface, hardwareKeyboard: hardwareKeyboard)
             controller.attach(demo)
             self.controller = controller
         }

@@ -85,12 +85,12 @@ final class TerminalFixture {
 
     init(
         preferences: TerminalPreferences = TerminalPreferences(), size: CGSize = CGSize(width: 390, height: 400),
-        voiceOver: Bool = false
+        voiceOver: Bool = false, hardwareKeyboard: (any HardwareKeyboardMonitor)? = nil
     ) {
         recorded.isVoiceOverRunning = voiceOver
         controller = TerminalController(
             preferences: preferences, theme: .night, typeface: .system, renderer: .coreText,
-            feedback: recorded.feedback)
+            hardwareKeyboard: hardwareKeyboard, feedback: recorded.feedback)
         window = UIWindow.withoutScene(frame: CGRect(origin: .zero, size: size))
         controller.view.frame = window.bounds
         window.addSubview(controller.view)

@@ -11,6 +11,8 @@ import Testing
     @Test func startsWithTheDefaults() {
         let terminal = TerminalSettings(defaults: settings.defaults)
         #expect(terminal.preferences == TerminalPreferences())
+        // The extra keys row stays with a hardware keyboard (README section 6).
+        #expect(terminal.showsExtraKeysRowWithHardwareKeyboard)
     }
 
     @Test func keepsWhatTheUserChose() {
@@ -35,10 +37,13 @@ import Testing
         terminal.keyboardLetters = .qwertz
         terminal.keyboardHaptics = false
         terminal.swipeKeySpeed = 2.5
+        terminal.showsExtraKeysRowWithHardwareKeyboard = false
 
         let relaunched = TerminalSettings(defaults: settings.defaults)
         #expect(
-            relaunched.preferences.keyboard == KeyboardPreferences(letters: .qwertz, haptics: false, swipeSpeed: 2.5))
+            relaunched.preferences.keyboard
+                == KeyboardPreferences(
+                    letters: .qwertz, haptics: false, swipeSpeed: 2.5, showsExtraKeysRowWithHardwareKeyboard: false))
         relaunched.keyboardLetters = nil
         #expect(TerminalSettings(defaults: settings.defaults).keyboardLetters == nil)
     }

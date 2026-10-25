@@ -163,14 +163,39 @@ nonisolated public enum ExtraKeys {
                 width: 34 / 42, style: .extraSymbol)
         }
 
-    /// The key that switches to the other keyboard. It stays at the end of the row, outside the
-    /// part that scrolls, and says which keyboard it switches to.
-    static func switchKey(toSystemKeyboard: Bool) -> KeyboardKey {
-        KeyboardKey(
-            .switchKeyboard, label: "",
-            spokenLabel: toSystemKeyboard
-                ? String(localized: "Switch to System Keyboard") : String(localized: "Switch to Shello Keyboard"),
-            style: .extra)
+    /// The key that switches keyboards. It stays at the end of the row, outside the part that
+    /// scrolls, and says what it does: which keyboard it switches to, or, while a hardware keyboard
+    /// is attached, that it shows or hides the Shello keyboard.
+    static func switchKey(_ action: KeyboardSwitch) -> KeyboardKey {
+        let name =
+            switch action {
+            case .toSystemKeyboard: String(localized: "Switch to System Keyboard")
+            case .toShelloKeyboard: String(localized: "Switch to Shello Keyboard")
+            case .showShelloKeyboard: String(localized: "Show Shello Keyboard")
+            case .hideShelloKeyboard: String(localized: "Hide Shello Keyboard")
+            }
+        return KeyboardKey(.switchKeyboard, label: "", spokenLabel: name, style: .extra)
+    }
+}
+
+/// What the extra keys row's switch key does, which its symbol and its name say.
+nonisolated enum KeyboardSwitch: Hashable, Sendable {
+    /// From the Shello keyboard to the system keyboard.
+    case toSystemKeyboard
+    /// From the system keyboard back to the Shello keyboard.
+    case toShelloKeyboard
+    /// Shows the Shello keyboard, which a hardware keyboard hid.
+    case showShelloKeyboard
+    /// Hides the Shello keyboard again, while a hardware keyboard is attached.
+    case hideShelloKeyboard
+
+    /// The key's symbol: the keyboard it brings, or one going down for the one it hides.
+    var symbolName: String {
+        switch self {
+        case .toSystemKeyboard: "keyboard"
+        case .toShelloKeyboard, .showShelloKeyboard: "apple.terminal"
+        case .hideShelloKeyboard: "keyboard.chevron.compact.down"
+        }
     }
 }
 

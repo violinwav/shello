@@ -16,13 +16,14 @@ import os
 /// - Paste goes through the controller, which asks before a paste of more lines.
 /// - Pinch changes the font size.
 /// - Hardware keyboards: SwiftTerm handles Control and Option as Meta; this view adds the key the
-///   user chose to send Esc.
+///   user chose to send Esc. While one is attached, the Shello keyboard hides.
 /// - The Shello keyboard (README section 6) is the input view, and its extra keys row the input
-///   accessory view, above the system keyboard too. Control and Alt, armed on the row, apply to
-///   the next key of either keyboard.
+///   accessory view, above the system keyboard too, or alone. Control and Alt, armed on the row,
+///   apply to the next key of either keyboard, and of a hardware keyboard.
 /// - The cursor stops blinking with Reduce Motion (README section 16), or when the settings say so.
 /// - Assistive technologies: activating the terminal shows the keyboard, and its actions read or
-///   copy the current line, copy the screen, and change the text size without a pinch.
+///   copy the current line, copy the screen, change the text size without a pinch, and while a
+///   hardware keyboard is attached, show or hide the Shello keyboard.
 public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate {
     /// Receives what this view leaves to its controller.
     weak var events: (any TerminalHostViewEvents)?
@@ -50,15 +51,20 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
     /// Whether the alternate screen shows, as a full-screen program such as vim switches to it,
     /// written by SwiftTerm's thread as it does.
     private nonisolated let showsAlternateScreen = Mutex(false)
+    /// Follows whether a hardware keyboard is attached, which hides the Shello keyboard.
+    private var hardwareKeyboardObservation: HardwareKeyboardObservation?
 
     init(
-        preferences: TerminalPreferences, theme: TerminalTheme, typeface: TerminalTypeface, renderer: TerminalRenderer
+        preferences: TerminalPreferences, theme: TerminalTheme, typeface: TerminalTypeface, renderer: TerminalRenderer,
+        hardwareKeyboard: (any HardwareKeyboardMonitor)? = nil
     ) {
         self.preferences = preferences
         self.theme = theme
         self.typeface = typeface
         self.renderer = renderer
-        keyboard = ShelloKeyboard(theme: theme, typeface: typeface, preferences: preferences.keyboard)
+        let keyboard = ShelloKeyboard(theme: theme, typeface: typeface, preferences: preferences.keyboard)
+        keyboard.hardwareKeyboardChanged(isAttached: hardwareKeyboard?.isAttached ?? false)
+        self.keyboard = keyboard
         var options = TerminalOptions.default
         options.scrollback = preferences.scrollbackLines
         // xterm's fixed 6×6×6 cube and grey ramp, which programs expect for colours 16 to 255.
@@ -67,6 +73,9 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
         options.regionalIndicatorWidth = .narrow
         super.init(frame: .zero, font: nil, options: options)
         configure()
+        hardwareKeyboardObservation = hardwareKeyboard?.observe { [weak self] isAttached in
+            self?.keyboard.hardwareKeyboardChanged(isAttached: isAttached)
+        }
     }
 
     @available(*, unavailable)
@@ -83,7 +92,7 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
             self.events?.terminalView(self, modifiersChanged: modifiers)
         }
         inputView = keyboard.inputView
-        inputAccessoryView = keyboard.extraKeysRow
+        inputAccessoryView = keyboard.accessoryView
         contentInsetAdjustmentBehavior = .never
         // The theme is dark whatever the app's appearance, and so are the keyboard, the edit menu
         // and the scroll indicator over it.
@@ -119,13 +128,7 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
         accessibilityIdentifier = "terminal"
         // Smart Invert would turn the dark terminal light, and its colours into others.
         accessibilityIgnoresInvertColors = true
-        accessibilityCustomActions = TerminalAccessibilityAction.allCases.map { action in
-            UIAccessibilityCustomAction(name: action.name) { [weak self] _ in
-                guard let self, let events = self.events else { return false }
-                events.terminalView(self, performs: action)
-                return true
-            }
-        }
+        updateAccessibilityActions()
 
         updateCursorBlink()
         NotificationCenter.default.addObserver(
@@ -497,12 +500,59 @@ public final class TerminalHostView: TerminalView, UIEditMenuInteractionDelegate
         super.deleteBackward()
     }
 
-    /// Shows the keyboard the Shello keyboard's switch key chose, keeping the extra keys row.
-    /// VoiceOver stays on the switch key, which now says it switches back.
-    func keyboardSwitched() {
+    /// Shows what the Shello keyboard says the terminal types with, after its switch key, a hardware
+    /// keyboard or the settings changed it (README section 6). The terminal keeps the keyboard focus:
+    /// its input views reload, and it does not resign. Only the terminal with the keyboard focus tells
+    /// VoiceOver, whose focus never stays on keys that went away, and which hears what changed where
+    /// its focus does not say it: the other terminals' keys are not on screen.
+    func keyboardChanged(_ change: KeysChange) {
+        let focused = keyboard.feedback.voiceOverFocus()
         inputView = keyboard.inputView
+        inputAccessoryView = keyboard.accessoryView
+        updateAccessibilityActions()
+        guard isFirstResponder else { return }
         reloadInputViews()
-        UIAccessibility.post(notification: .layoutChanged, argument: keyboard.extraKeysRow.switchAccessibilityElement)
+        guard hasKeyboardFocus else { return }
+        let focus = keyboard.voiceOverFocus(after: change, from: focused, terminal: self)
+        keyboard.feedback.layoutChanged(focus)
+        let wentToTheSwitchKey = focus === keyboard.extraKeysRow.switchAccessibilityElement
+        if keyboard.feedback.isVoiceOverRunning(),
+            let announcement = keyboard.announcement(for: change, focusWentToTheSwitchKey: wentToTheSwitchKey)
+        {
+            keyboard.feedback.announce(announcement)
+        }
+    }
+
+    /// Whether the terminal has the keyboard focus that VoiceOver follows: it is the first responder
+    /// of the key window, in a scene in front. On iPad, each window has a first responder of its own.
+    private var hasKeyboardFocus: Bool {
+        guard isFirstResponder, let window, window.isKeyWindow else { return false }
+        return window.windowScene.map { $0.activationState == .foregroundActive } ?? true
+    }
+
+    /// The terminal's actions for assistive technologies, and while a hardware keyboard is attached,
+    /// the switch key's: Show Shello Keyboard or Hide Shello Keyboard. Without the extra keys row, it
+    /// is the one way to the Shello keyboard for VoiceOver, Switch Control and Full Keyboard Access.
+    private func updateAccessibilityActions() {
+        var actions = TerminalAccessibilityAction.allCases.map { action in
+            UIAccessibilityCustomAction(name: action.name) { [weak self] _ in
+                guard let self, let events = self.events else { return false }
+                events.terminalView(self, performs: action)
+                return true
+            }
+        }
+        if keyboard.isHardwareKeyboardAttached {
+            actions.append(
+                UIAccessibilityCustomAction(name: keyboard.switchKey.spokenLabel) { [weak self] _ in
+                    guard let self else { return false }
+                    if !self.isFirstResponder {
+                        _ = self.becomeFirstResponder()
+                    }
+                    self.keyboard.switchKeyboard()
+                    return true
+                })
+        }
+        accessibilityCustomActions = actions
     }
 
     // MARK: - Bell

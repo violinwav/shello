@@ -119,6 +119,31 @@ struct TerminalTabsModelTests {
         #expect(latency.latencyText == shown)
     }
 
+    /// The tabs' terminals hide their Shello keyboards while a hardware keyboard is attached. The extra
+    /// keys row's setting reaches the tabs already open too: without the row, such a terminal shows no
+    /// keys at all (README section 6).
+    @Test func terminalsFollowTheHardwareKeyboardAndTheRowsSetting() async throws {
+        let defaults = TestDefaults()
+        let settings = TerminalSettings(defaults: defaults.defaults)
+        let hardwareKeyboard = HardwareKeyboardStandIn()
+        let model = TerminalTabsModel(
+            connector: HostConnector(hostKeys: test.hostKeys, secrets: secrets.store), hosts: test.repository,
+            settings: settings, hardwareKeyboard: hardwareKeyboard)
+        model.connect(to: Self.host)
+        let terminal = try #require(model.selectedTab).terminal
+        #expect(terminal.view.inputView != nil)
+        hardwareKeyboard.isAttached = true
+        #expect(terminal.view.inputView == nil)
+        #expect(terminal.view.inputAccessoryView != nil)
+
+        settings.showsExtraKeysRowWithHardwareKeyboard = false
+        await waitUntil { !terminal.preferences.keyboard.showsExtraKeysRowWithHardwareKeyboard }
+        #expect(terminal.view.inputAccessoryView == nil)
+        settings.showsExtraKeysRowWithHardwareKeyboard = true
+        await waitUntil { terminal.preferences.keyboard.showsExtraKeysRowWithHardwareKeyboard }
+        #expect(terminal.view.inputAccessoryView != nil)
+    }
+
     private func model() -> TerminalTabsModel {
         TerminalTabsModel(
             connector: HostConnector(hostKeys: test.hostKeys, secrets: secrets.store), hosts: test.repository,

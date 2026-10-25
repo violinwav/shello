@@ -1,6 +1,7 @@
 import ShelloCore
 import ShelloSecurity
 import ShelloStorage
+import ShelloTerminalUI
 import SwiftUI
 
 extension EnvironmentValues {
@@ -26,6 +27,11 @@ extension EnvironmentValues {
     /// The terminal settings of this device. Without them, Settings leaves them out, and terminals
     /// use the defaults.
     @Entry public var terminalSettings: TerminalSettings? = nil
+
+    /// Whether a hardware keyboard is attached, which hides the terminals' Shello keyboards: the
+    /// device's keyboards in the app, a stand-in in the UI tests. Without it, terminals always show
+    /// the Shello keyboard.
+    @Entry public var hardwareKeyboard: (any HardwareKeyboardMonitor)? = nil
 
     /// Connects to a host's server, with the trusted host keys, the passwords and the SSH keys.
     /// Without it, a host's Connect button is disabled.

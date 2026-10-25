@@ -94,21 +94,27 @@ public final class TerminalController {
     /// lock: to register a key, or to prepare a frame. A small slice keeps those waits short.
     nonisolated public static let maximumFeedBytes = 4 * 1024
 
+    /// A terminal whose Shello keyboard hides while `hardwareKeyboard` says a hardware keyboard is
+    /// attached; without one, it never hides.
     public convenience init(
         preferences: TerminalPreferences = TerminalPreferences(), theme: TerminalTheme = .night,
-        typeface: TerminalTypeface = .system, renderer: TerminalRenderer = .standard
+        typeface: TerminalTypeface = .system, renderer: TerminalRenderer = .standard,
+        hardwareKeyboard: (any HardwareKeyboardMonitor)? = nil
     ) {
         self.init(
-            preferences: preferences, theme: theme, typeface: typeface, renderer: renderer, feedback: .system)
+            preferences: preferences, theme: theme, typeface: typeface, renderer: renderer,
+            hardwareKeyboard: hardwareKeyboard, feedback: .system)
     }
 
     init(
         preferences: TerminalPreferences, theme: TerminalTheme, typeface: TerminalTypeface,
-        renderer: TerminalRenderer, feedback: TerminalFeedback
+        renderer: TerminalRenderer, hardwareKeyboard: (any HardwareKeyboardMonitor)?, feedback: TerminalFeedback
     ) {
         self.preferences = preferences
         self.feedback = feedback
-        view = TerminalHostView(preferences: preferences, theme: theme, typeface: typeface, renderer: renderer)
+        view = TerminalHostView(
+            preferences: preferences, theme: theme, typeface: typeface, renderer: renderer,
+            hardwareKeyboard: hardwareKeyboard)
         size = view.currentSize
         view.terminalDelegate = self
         view.events = self

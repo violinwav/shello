@@ -34,6 +34,11 @@ final class ShelloKeyboard {
     private(set) var alt = StickyModifier()
     /// Whether the system keyboard shows in place of the Shello keyboard.
     private(set) var usesSystemKeyboard = false
+    /// Whether a hardware keyboard is attached, which hides the Shello keyboard (README section 6).
+    private(set) var isHardwareKeyboardAttached = false
+    /// Whether the switch key showed the Shello keyboard anyway, while a hardware keyboard stays
+    /// attached: until it detaches.
+    private(set) var showsWithHardwareKeyboard = false
     private let keyboardLanguages: @MainActor () -> [String]
     private var publishedModifiers = ArmedModifiers()
     /// Whether the swipe key's drag has sent an arrow yet: its first arrow taps, the others do not.
@@ -58,9 +63,55 @@ final class ShelloKeyboard {
         layer = .letters(letters)
     }
 
-    /// The input view for the keyboard that shows: the Shello keyboard, or nil for the system's.
+    /// What the terminal shows under it to type with. A hardware keyboard hides the Shello keyboard,
+    /// and the system keyboard, which iOS hides itself, unless the switch key showed the Shello
+    /// keyboard anyway.
+    var onScreenKeys: OnScreenKeys {
+        onScreenKeys(showingRow: preferences.showsExtraKeysRowWithHardwareKeyboard)
+    }
+
+    private func onScreenKeys(showingRow: Bool) -> OnScreenKeys {
+        if isHardwareKeyboardAttached && !showsWithHardwareKeyboard {
+            return showingRow ? .extraKeysRow : .nothing
+        }
+        return usesSystemKeyboard ? .systemKeyboard : .shelloKeyboard
+    }
+
+    /// The terminal's input view: the Shello keyboard, or nil for the system keyboard's place, which
+    /// stays empty while a hardware keyboard is attached.
     var inputView: UIView? {
-        usesSystemKeyboard ? nil : keyboardView
+        onScreenKeys == .shelloKeyboard ? keyboardView : nil
+    }
+
+    /// The terminal's input accessory view: the extra keys row, unless the settings leave it out
+    /// while a hardware keyboard is attached.
+    var accessoryView: UIView? {
+        onScreenKeys == .nothing ? nil : extraKeysRow
+    }
+
+    /// What the switch key does now.
+    var keyboardSwitch: KeyboardSwitch {
+        switch onScreenKeys {
+        case .shelloKeyboard: isHardwareKeyboardAttached ? .hideShelloKeyboard : .toSystemKeyboard
+        case .systemKeyboard: .toShelloKeyboard
+        case .extraKeysRow, .nothing: .showShelloKeyboard
+        }
+    }
+
+    /// The switch key, as it is now.
+    var switchKey: KeyboardKey {
+        ExtraKeys.switchKey(keyboardSwitch)
+    }
+
+    /// A hardware keyboard was attached, or the last one detached. Attached, it hides the Shello
+    /// keyboard again, even one the switch key showed before. Detached, the keyboard the user had
+    /// comes back, the Shello keyboard in the layer it was in.
+    func hardwareKeyboardChanged(isAttached: Bool) {
+        guard isAttached != isHardwareKeyboardAttached else { return }
+        let old = onScreenKeys
+        isHardwareKeyboardAttached = isAttached
+        showsWithHardwareKeyboard = false
+        onScreenKeysChanged(from: old)
     }
 
     /// Control and Alt, as they are on.
@@ -231,10 +282,80 @@ final class ShelloKeyboard {
         }
     }
 
-    /// Shows the system keyboard in place of the Shello keyboard, or the Shello keyboard again.
+    /// Shows the system keyboard in place of the Shello keyboard, or the Shello keyboard again. While
+    /// a hardware keyboard is attached, shows the Shello keyboard anyway, or hides it again.
     func switchKeyboard() {
-        usesSystemKeyboard.toggle()
-        terminal?.keyboardSwitched()
+        let old = onScreenKeys
+        if isHardwareKeyboardAttached {
+            showsWithHardwareKeyboard.toggle()
+            usesSystemKeyboard = false
+        } else {
+            usesSystemKeyboard.toggle()
+        }
+        onScreenKeysChanged(from: old, byTheSwitchKey: true)
+    }
+
+    /// The keys the terminal shows changed from `old`: the switch key says what it does now, and the
+    /// terminal shows them. Without the extra keys row, Control and Alt let go: nothing would show
+    /// them, nor turn a locked one off, and they apply to a hardware keyboard's keys too.
+    private func onScreenKeysChanged(from old: OnScreenKeys, byTheSwitchKey: Bool = false) {
+        var released: [Modifier] = []
+        if onScreenKeys == .nothing {
+            released = [Modifier.control, .alt].filter { state(of: $0) != .off }
+            control.set(locked: false)
+            alt.set(locked: false)
+        }
+        extraKeysRow.isAlone = onScreenKeys == .extraKeysRow
+        stateChanged()
+        terminal?.keyboardChanged(
+            KeysChange(from: old, to: onScreenKeys, isByTheSwitchKey: byTheSwitchKey, released: released))
+    }
+
+    /// Where VoiceOver goes once the keys on screen changed, from `focused`, the element it is on:
+    /// nowhere, for nil, unless that element went away (README section 6). From a key of the Shello
+    /// keyboard, of the row, or of the system keyboard, which VoiceOver cannot name, it goes to the
+    /// switch key, as after a switch, or to `terminal` when the row went too. On the switch key, it
+    /// stays and hears the key's new name.
+    func voiceOverFocus(after change: KeysChange, from focused: AnyObject?, terminal: AnyObject) -> AnyObject? {
+        let switchKey = extraKeysRow.switchAccessibilityElement
+        let rowStays = accessoryView != nil
+        let wentAway: Bool
+        if let focused {
+            let keyboardKeys = keyboardView.accessibilityElements as? [AnyObject] ?? []
+            wentAway =
+                focused === switchKey
+                || (change.to != .shelloKeyboard && keyboardKeys.contains { $0 === focused })
+                || (!rowStays && extraKeysRow.keyElements.contains { $0 === focused })
+        } else {
+            wentAway = change.from == .systemKeyboard && change.to != .systemKeyboard
+        }
+        guard wentAway else { return nil }
+        return rowStays ? switchKey : terminal
+    }
+
+    /// What VoiceOver hears of a change of the keys on screen: what shows now, and Control or Alt if
+    /// they let go. Nothing when the switch key changed them, whose new name says it, nor when a
+    /// hardware keyboard hid the keyboard and VoiceOver went to that key, whose name, Show Shello
+    /// Keyboard, says it too.
+    func announcement(for change: KeysChange, focusWentToTheSwitchKey: Bool) -> String? {
+        guard !change.isByTheSwitchKey, change.from != change.to else { return nil }
+        var parts: [String] = []
+        switch change.to {
+        case .shelloKeyboard: parts.append(String(localized: "Shello keyboard shown"))
+        case .systemKeyboard: parts.append(String(localized: "System keyboard shown"))
+        case .extraKeysRow where change.from == .nothing: parts.append(String(localized: "Extra keys shown"))
+        case .extraKeysRow where !focusWentToTheSwitchKey: parts.append(String(localized: "On-screen keyboard hidden"))
+        case .extraKeysRow: break
+        case .nothing where change.from == .extraKeysRow: parts.append(String(localized: "Extra keys hidden"))
+        case .nothing: parts.append(String(localized: "On-screen keyboard and extra keys hidden"))
+        }
+        switch change.released {
+        case []: break
+        case [.control]: parts.append(String(localized: "Control off"))
+        case [.alt]: parts.append(String(localized: "Alt off"))
+        default: parts.append(String(localized: "Control and Alt off"))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ". ")
     }
 
     /// Hands `output` to the terminal, which sends it to its stream at once. The signpost interval
@@ -303,7 +424,7 @@ final class ShelloKeyboard {
         var shift: StickyModifier.State
         var control: StickyModifier.State
         var alt: StickyModifier.State
-        var usesSystemKeyboard: Bool
+        var keyboardSwitch: KeyboardSwitch
     }
 
     private var drawnLooks: Looks?
@@ -311,8 +432,7 @@ final class ShelloKeyboard {
     /// Draws the keys again if what they show changed, which most keys do not change, so that the
     /// next key does not wait for it; and reports Control and Alt if they changed.
     private func stateChanged() {
-        let looks = Looks(
-            shift: shift.state, control: control.state, alt: alt.state, usesSystemKeyboard: usesSystemKeyboard)
+        let looks = Looks(shift: shift.state, control: control.state, alt: alt.state, keyboardSwitch: keyboardSwitch)
         if looks != drawnLooks {
             drawnLooks = looks
             keyboardView.stateChanged()
@@ -327,6 +447,11 @@ final class ShelloKeyboard {
 
     private func preferencesChanged(from old: KeyboardPreferences) {
         extraKeysRow.touches.swipeSpeed = preferences.swipeSpeed
+        if preferences.showsExtraKeysRowWithHardwareKeyboard != old.showsExtraKeysRowWithHardwareKeyboard,
+            isHardwareKeyboardAttached
+        {
+            onScreenKeysChanged(from: onScreenKeys(showingRow: old.showsExtraKeysRowWithHardwareKeyboard))
+        }
         guard preferences.letters != old.letters else { return }
         resolveLetters()
     }
@@ -400,8 +525,7 @@ final class ShelloKeyboard {
             face.glyph = .arrows(colors.secondaryLabel, dot: colors.accent)
         case .switchKeyboard:
             face.label = ""
-            face.glyph = .symbol(
-                usesSystemKeyboard ? "apple.terminal" : "keyboard", weight: metrics.boldText ? .semibold : .regular)
+            face.glyph = .symbol(keyboardSwitch.symbolName, weight: metrics.boldText ? .semibold : .regular)
         default:
             break
         }
@@ -468,7 +592,7 @@ final class ShelloKeyboard {
         case .text(let text) where key.style == .character && text.first?.isLetter == true:
             shifted(text)
         case .switchKeyboard:
-            ExtraKeys.switchKey(toSystemKeyboard: !usesSystemKeyboard).spokenLabel
+            switchKey.spokenLabel
         default:
             key.spokenLabel
         }
@@ -538,12 +662,41 @@ final class ShelloKeyboard {
         }
         if key.action == .switchKeyboard {
             labels.append(String(localized: "Switch Keyboard"))
+            // While a hardware keyboard is attached, also as the system's own key to hide the
+            // keyboard is known.
+            switch keyboardSwitch {
+            case .showShelloKeyboard: labels.append(String(localized: "Show Keyboard"))
+            case .hideShelloKeyboard: labels.append(String(localized: "Hide Keyboard"))
+            case .toSystemKeyboard, .toShelloKeyboard: break
+            }
         }
         if key.action == .arrows {
             labels.append(String(localized: "Arrows"))
         }
         return labels
     }
+}
+
+/// What a terminal shows under it to type with (README section 6).
+nonisolated enum OnScreenKeys: Equatable, Sendable {
+    /// The Shello keyboard, under the extra keys row.
+    case shelloKeyboard
+    /// The system keyboard, under the extra keys row.
+    case systemKeyboard
+    /// The extra keys row alone, while a hardware keyboard is attached.
+    case extraKeysRow
+    /// Nothing, while a hardware keyboard is attached and the settings leave the row out.
+    case nothing
+}
+
+/// A change of the keys a terminal shows, for what VoiceOver hears of it.
+nonisolated struct KeysChange: Equatable, Sendable {
+    var from: OnScreenKeys
+    var to: OnScreenKeys
+    /// Whether the switch key made it, whose new name says it.
+    var isByTheSwitchKey: Bool
+    /// Control and Alt, those of them that let go with the row.
+    var released: [Modifier]
 }
 
 extension TerminalTypeface {

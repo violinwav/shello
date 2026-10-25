@@ -29,11 +29,13 @@ let package = Package(
     name: "ShelloKit",
     platforms: [.iOS(.v26)],
     products: [
-        // The app's screens, plus the storage, the security services and the connector its
-        // composition root opens and hands to them, and the model types they take.
+        // The app's screens, plus the storage, the security services, the connector and the hardware
+        // keyboard monitor its composition root opens and hands to them, and the model types they take.
         .library(
             name: "ShelloFeatures",
-            targets: ["ShelloFeatures", "ShelloStorage", "ShelloSecurity", "ShelloCore", "ShelloModel"]
+            targets: [
+                "ShelloFeatures", "ShelloStorage", "ShelloSecurity", "ShelloCore", "ShelloModel", "ShelloTerminalUI",
+            ]
         )
     ],
     // Pinned exactly; docs/spec/STACK.md section 8 lists every dependency and why.

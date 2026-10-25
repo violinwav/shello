@@ -106,13 +106,11 @@ extension XCUIApplication {
     /// Opens Settings, Diagnostics, Terminal Demo. Settings and Diagnostics are not audited here:
     /// their new rows are further down than a screen, and iOS 26 fades what scrolls under the
     /// navigation bar, which the audit reports as low contrast. LaunchTests audits both unscrolled.
+    /// HardwareKeyboardTests checks that no extra Esc key is set, on the Hardware Keyboard screen.
     @MainActor
     func openTerminalDemo(file: StaticString = #filePath, line: UInt = #line) {
         openSettings()
         XCTAssertTrue(navigationBars["Settings"].waitForExistence(timeout: 5), file: file, line: line)
-        let escapeKey = picker("Extra Esc Key")
-        revealFarDown(escapeKey, file: file, line: line)
-        XCTAssertEqual(escapeKey.label, "Extra Esc Key, None", file: file, line: line)
         openTerminalDemoFromSettings(file: file, line: line)
     }
 
