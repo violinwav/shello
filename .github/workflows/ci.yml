@@ -1,13 +1,19 @@
 name: CI
 
-# Lints, builds and tests the app and ShelloKit on every pull request and on main.
-# Compiler warnings are errors here (docs/spec/STACK.md section 11).
+# Lints, builds and tests the app and ShelloKit on every pull request and on pushes to main and dev.
+# Compiler warnings are errors in Shello's own targets (docs/spec/STACK.md section 11). That is set in
+# Configurations/Project.xcconfig and Package.swift, not here: on the command line it would also reach
+# package dependencies, which Xcode builds with warnings suppressed, and the compiler rejects
+# -warnings-as-errors together with -suppress-warnings.
 # No signing: simulator builds sign to run locally, the device build is unsigned.
+# -skipPackagePluginValidation: SwiftTerm runs a build plugin, which Xcode asks a person to trust
+# once; xcodebuild cannot ask, and fails without it. SwiftTerm is pinned exactly in Package.resolved,
+# so the plugin only changes with the pin.
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
 
 permissions: {}
@@ -19,12 +25,47 @@ concurrency:
 env:
   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
   SIMULATOR: platform=iOS Simulator,name=iPhone 17,OS=26.5
-  STRICT: SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES
 
 jobs:
+  # Jobs in parallel: "checks" runs lint, the unit tests and the device build; the "ui-*" jobs split
+  # the XCUITest target by test class. "ui-files" runs ExportImportTests alone, because waiting for
+  # Files to index a fresh simulator takes about a quarter of an hour by itself. "ui-tests" runs
+  # every class no other job names, so a new class lands there; move classes out when it nears its
+  # timeout.
   macos:
+    name: ${{ matrix.suite }}
     runs-on: macos-26
-    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [checks, ui-tests, ui-files, ui-extra, ui-connect]
+        include:
+          - suite: ui-tests
+            tests: >-
+              -only-testing:ShelloUITests
+              -skip-testing:ShelloUITests/ExportImportTests
+              -skip-testing:ShelloUITests/AppLockTests
+              -skip-testing:ShelloUITests/SSHKeyTests
+              -skip-testing:ShelloUITests/TerminalTests
+              -skip-testing:ShelloUITests/ConnectionTests
+              -skip-testing:ShelloUITests/KeyboardTests
+              -skip-testing:ShelloUITests/JumpHostTests
+              -skip-testing:ShelloUITests/RestoreTests
+          - suite: ui-files
+            tests: -only-testing:ShelloUITests/ExportImportTests
+          - suite: ui-extra
+            tests: >-
+              -only-testing:ShelloUITests/AppLockTests
+              -only-testing:ShelloUITests/SSHKeyTests
+              -only-testing:ShelloUITests/TerminalTests
+          - suite: ui-connect
+            tests: >-
+              -only-testing:ShelloUITests/ConnectionTests
+              -only-testing:ShelloUITests/KeyboardTests
+              -only-testing:ShelloUITests/JumpHostTests
+              -only-testing:ShelloUITests/RestoreTests
+    # A cold vendor build adds about 10 minutes.
+    timeout-minutes: ${{ matrix.suite == 'checks' && 40 || 60 }}
     permissions:
       contents: read
     steps:
@@ -33,20 +74,123 @@ jobs:
           persist-credentials: false
 
       - name: Lint
-        run: xcrun swift-format lint --strict --recursive --parallel App UITests Packages/ShelloKit
+        if: matrix.suite == 'checks'
+        run: xcrun swift-format lint --strict --recursive --parallel App AppTests UITests Packages/ShelloKit
 
-      - name: Unit and UI tests
+      # libssh and OpenSSL, built from verified source by Vendor/build.sh (Vendor/README.md).
+      # Cached by the files that determine the build and by the Xcode version, so they are
+      # rebuilt only when one of those changes.
+      - name: Vendored libraries cache key
+        id: vendor-key
+        env:
+          INPUTS: ${{ hashFiles('Vendor/build.sh', 'Vendor/lib.sh', 'Vendor/sources.sha256', 'Vendor/keys/**', 'Vendor/openssl/**', 'Vendor/libssh/**', 'Vendor/patches/**') }}
+        run: echo "key=vendor-$(xcodebuild -version | shasum -a 256 | cut -c1-16)-$INPUTS" >> "$GITHUB_OUTPUT"
+
+      - name: Restore vendored libraries
+        id: vendor-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Vendor/build/xcframeworks
+          key: ${{ steps.vendor-key.outputs.key }}
+
+      - name: Build vendored libraries
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
+        run: |
+          command -v gpgv >/dev/null || brew install gnupg
+          command -v cmake >/dev/null || brew install cmake
+          Vendor/build.sh
+
+      # Saved straight away, so that a later failing step does not throw the build away.
+      - name: Save vendored libraries
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Vendor/build/xcframeworks
+          key: ${{ steps.vendor-key.outputs.key }}
+
+      # About ten minutes after a new simulator boots, it puts a tip over the keyboard ("Speed up
+      # your typing by sliding your finger across the letters to compose a word"). Both times the
+      # New Tag screen's accessibility audit failed in CI, the tip had just come up on that screen.
+      # Boot the simulator in SIMULATOR first, and mark the tip as shown; the keyboard reads this
+      # key before it shows the tip.
+      - name: Prepare the simulator
+        if: matrix.suite != 'checks'
+        run: |
+          devices=$(xcrun simctl list devices available --json \
+            | jq -r '.devices | to_entries[] | select(.key | endswith(".iOS-26-5")) | .value[]
+                | select(.name == "iPhone 17") | .udid')
+          if [ -z "$devices" ]; then
+            echo "No iPhone 17 simulator with iOS 26.5" >&2
+            exit 1
+          fi
+          for device in $devices; do
+            xcrun simctl bootstatus "$device" -b
+            xcrun simctl spawn "$device" defaults write com.apple.keyboard.preferences \
+              DidShowContinuousPathIntroduction -bool true
+          done
+
+      # tmux for the tmux integration tests (TmuxIntegrationTests) and for RestoreTests, which see
+      # restored tabs reattach their tmux session: the runner image has none. local-sshd.sh puts it on
+      # the PATH of the test server on port 2222 only. Homebrew cannot pin a formula's version, so the
+      # step prints the one it installed.
+      - name: Install tmux
+        if: matrix.suite == 'checks' || matrix.suite == 'ui-connect'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+        run: |
+          command -v tmux >/dev/null || brew install tmux
+          tmux -V
+
+      # The test servers of the SSH integration tests and ConnectionTests (TestServers/README.md):
+      # macOS runners have no Docker, so they are this runner's own sshd (OpenSSH 10), unprivileged
+      # on 127.0.0.1:2222, with post-quantum key exchange off on 2224, and with the NIST curves and
+      # Diffie-Hellman groups only on 2226. KeyExchangeTests check the key exchange on all three;
+      # their OpenSSH 9 and 8.8 servers need Docker. The servers let the runner's user in with the
+      # fixture key only: xcodebuild hands the user to the tests, whose password and
+      # keyboard-interactive sign-ins then skip.
+      - name: Start the test SSH servers
+        if: matrix.suite == 'checks' || matrix.suite == 'ui-tests' || matrix.suite == 'ui-connect'
+        run: |
+          TestServers/local-sshd.sh
+          echo "TEST_RUNNER_SHELLO_TEST_SERVER_USER=$(id -un)" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        if: matrix.suite == 'checks'
         run: >-
           xcodebuild test -quiet
           -project Shello.xcodeproj -scheme Shello
           -destination "$SIMULATOR"
-          $STRICT
+          -skipPackagePluginValidation
+          -skip-testing:ShelloUITests
+          -resultBundlePath TestResults.xcresult
+
+      - name: UI tests
+        if: matrix.suite != 'checks'
+        run: >-
+          xcodebuild test -quiet
+          -project Shello.xcodeproj -scheme Shello
+          -destination "$SIMULATOR"
+          -skipPackagePluginValidation
+          ${{ matrix.tests }}
+          -resultBundlePath TestResults.xcresult
+
+      # -quiet hides why a test failed; the result bundle has the failure, logs and screenshots.
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results-${{ matrix.suite }}
+          path: TestResults.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
 
       # Enhanced Security adds an arm64e slice, which every linked target must have.
       - name: Device build (arm64 and arm64e)
+        if: matrix.suite == 'checks'
         run: |
           xcodebuild build -quiet \
             -project Shello.xcodeproj -scheme Shello -configuration Release \
             -destination generic/platform=iOS -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO $STRICT
+            -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO
           lipo build/Build/Products/Release-iphoneos/Shello.app/Shello -verify_arch arm64 arm64e

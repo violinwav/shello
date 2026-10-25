@@ -16,3 +16,6 @@ DerivedData/
 .build/
 Packages/ShelloKit/.swiftpm/
 *.xcresult
+
+# Vendored C libraries: downloads, build trees and XCFrameworks (Vendor/build.sh)
+/Vendor/build/

@@ -1,0 +1,18 @@
+// Unit tests that run inside the Shello app, with its entitlements: the Keychain needs them, and a
+// test bundle on its own has none. Project-wide settings are in Project.xcconfig.
+
+PRODUCT_NAME = $(TARGET_NAME)
+PRODUCT_BUNDLE_IDENTIFIER = ch.shello.ShelloAppTests
+MARKETING_VERSION = 0.1
+CURRENT_PROJECT_VERSION = 1
+CODE_SIGN_STYLE = Automatic
+GENERATE_INFOPLIST_FILE = YES
+SWIFT_EMIT_LOC_STRINGS = NO
+
+// The app loads the test bundle and runs it. The tests use the app's own copy of ShelloSecurity:
+// they import its module from the build products, which the target's dependency on the app builds
+// first, and link against the app. Linking the package product as well would put every class into
+// the process twice, and depending on it would make Xcode turn ShelloKit's targets into dynamic
+// frameworks inside the app.
+TEST_HOST = $(BUILT_PRODUCTS_DIR)/Shello.app/Shello
+BUNDLE_LOADER = $(TEST_HOST)
