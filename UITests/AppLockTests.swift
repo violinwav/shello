@@ -95,10 +95,16 @@ final class AppLockTests: XCTestCase {
         let cover = app.images["Shello"]
         XCTAssertFalse(cover.exists)
 
+        // Notification Center comes down. In a CI run, in the first test since the simulator started,
+        // the pull went nowhere, and the screen did not change: it pulls again while the cover does
+        // not show, at most three times.
         let springboard = XCUIApplication.springboard
-        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0)).press(
-            forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.7)))
-        XCTAssertTrue(cover.waitForExistence(timeout: 5))
+        for _ in 0..<3 where !cover.exists {
+            springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0)).press(
+                forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.7)))
+            _ = cover.waitForExistence(timeout: 5)
+        }
+        XCTAssertTrue(cover.exists, "Notification Center does not come down")
 
         // Notification Center goes back up, as the user pushes it, and Shello is active again. Home
         // with Notification Center down is unpredictable: here it only closes Notification Center,

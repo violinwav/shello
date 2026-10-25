@@ -85,7 +85,7 @@ final class ConnectionTests: XCTestCase {
         XCTAssertEqual(app.fingerprints.element(boundBy: 1).value as? String, TestServer.hostKeyA.spokenFingerprint)
         try app.auditAccessibility()
 
-        blockSheet.buttons["Close"].tap()
+        app.closeSheet(blockSheet)
         XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["Close Tab"].exists)
 
@@ -98,7 +98,7 @@ final class ConnectionTests: XCTestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         try app.auditAlertAccessibility()
         confirm.tap()
-        app.confirmWithFaceID(until: blockSheet)
+        app.confirmReplacementWithFaceID(until: blockSheet)
 
         XCTAssertTrue(app.connectionStatus(containing: "didn’t accept").waitForExistence(timeout: 15))
         app.closeTab()
@@ -467,6 +467,21 @@ extension XCUIApplication {
         XCTAssertFalse(sheet.exists, "The trust sheet stays", file: file, line: line)
     }
 
+    /// Closes the sheet whose navigation bar is `sheet` with its Close button, and waits for it to
+    /// go. On a simulator that had just started, a tap on Close after the audit of the Host Key
+    /// Changed sheet changed nothing, and the sheet stayed, as a tap on Trust did in a CI run
+    /// (`trustHostKey()`): Close is tapped once the sheet has come to rest, and again while the sheet
+    /// stays, at most three times.
+    @MainActor
+    func closeSheet(_ sheet: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        for _ in 0..<3 where sheet.exists {
+            settle()
+            sheet.buttons["Close"].tap()
+            _ = sheet.waitForNonExistence(timeout: 10)
+        }
+        XCTAssertFalse(sheet.exists, "The sheet stays", file: file, line: line)
+    }
+
     /// Drags the sheet whose navigation bar is `sheet` down and away, as a user dismisses a sheet,
     /// and waits for it to go. A drag on a slow runner can go nowhere, as taps do: it drags again
     /// while the sheet stays, at most three times.
@@ -505,16 +520,39 @@ extension XCUIApplication {
         settle()
     }
 
-    /// Shows the enrolled face to the Face ID prompt until `element` goes, as the confirmation
-    /// makes it: the face only counts while the prompt looks for one, so it is shown every second.
+    /// Confirms with Face ID the replacement of a trusted host key, once Replace Key was tapped:
+    /// shows the enrolled face to the prompt until the block sheet `sheet` goes. The face only
+    /// counts while the prompt looks for one, so it is shown every second.
+    ///
+    /// When no prompt is up, and no replacement is under way, as Replace Trusted Key… is enabled
+    /// again, this asks again as the user would, at most three times in all. In a CI run, after the
+    /// tap on Replace Key, in the first test since the simulator started, no prompt came up, nor
+    /// Shello's privacy cover, which shows while a prompt makes the scene inactive, and the sheet
+    /// stayed: LocalAuthentication answers a request now and then with its internal error -1000
+    /// and puts up no prompt (`unlockWithFaceID`), and a tap on a slow runner can go nowhere.
     @MainActor
-    func confirmWithFaceID(until element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
-        let deadline = Date.now.addingTimeInterval(30)
-        while element.exists, Date.now < deadline {
+    func confirmReplacementWithFaceID(until sheet: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let replace = buttons["Replace Trusted Key…"]
+        let confirm = buttons["Replace Key"]
+        let privacyCover = images["Shello"]
+        let deadline = Date.now.addingTimeInterval(60)
+        var asked = 1
+        var lastAsked = Date.now
+        while sheet.exists, Date.now < deadline {
             SimulatedFaceID.match()
-            _ = element.waitForNonExistence(timeout: 1)
+            if sheet.waitForNonExistence(timeout: 1) { break }
+            // A prompt takes a few seconds to come up on a slow runner.
+            guard asked < 3, !privacyCover.exists, Date.now.timeIntervalSince(lastAsked) > 5 else { continue }
+            reveal(replace, file: file, line: line)
+            guard replace.isEnabled else { continue }
+            replace.tap()
+            if confirm.waitForExistence(timeout: 5) {
+                confirm.tap()
+            }
+            asked += 1
+            lastAsked = .now
         }
-        XCTAssertFalse(element.exists, "Face ID does not confirm", file: file, line: line)
+        XCTAssertFalse(sheet.exists, "Face ID does not confirm", file: file, line: line)
     }
 
     /// The host key fingerprints on a sheet, in their order.
