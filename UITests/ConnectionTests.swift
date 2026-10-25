@@ -378,9 +378,13 @@ extension XCUIApplication {
     /// Adds the host `test-server` for the test server at `address` and `port`, signing in with the
     /// SSH key `shello-test-client`, which the launch option `SHELLO_UI_TESTING_SSH_KEY` keeps in
     /// memory, and opens its details. SSH Key is a new host's method; the key goes first, before the
-    /// keyboard is up. With `tmuxSession`, the host attaches that tmux session.
+    /// keyboard is up. With `tmuxSession`, the host attaches that tmux session; with
+    /// `startupCommand`, it types that command first.
     @MainActor
-    func addKeyHost(address: String = TestServer.address, port: Int = TestServer.port, tmuxSession: String? = nil) {
+    func addKeyHost(
+        address: String = TestServer.address, port: Int = TestServer.port, tmuxSession: String? = nil,
+        startupCommand: String? = nil
+    ) {
         buttons["Add Host"].firstMatch.tap()
         let sshKey = picker("SSH Key")
         reveal(sshKey)
@@ -389,7 +393,9 @@ extension XCUIApplication {
         buttons["shello-test-client"].tap()
         XCTAssertTrue(navigationBars["New Host"].waitForExistence(timeout: 5))
         XCTAssertEqual(picker("SSH Key").label, "SSH Key, shello-test-client")
-        saveAndOpenTestServerHost(address: address, port: port, user: TestServer.user, tmuxSession: tmuxSession)
+        saveAndOpenTestServerHost(
+            address: address, port: port, user: TestServer.user, tmuxSession: tmuxSession,
+            startupCommand: startupCommand)
     }
 
     /// Adds the host `test-server` for the test server as `user`, signing in with keyboard-interactive,
@@ -401,10 +407,13 @@ extension XCUIApplication {
         saveAndOpenTestServerHost(address: TestServer.address, port: TestServer.port, user: user)
     }
 
-    /// Fills in the open host editor's name `test-server`, `address`, `port` and `user`, and, with
-    /// `tmuxSession`, turns on auto-attach for that tmux session; saves, and opens the host's details.
+    /// Fills in the open host editor's name `test-server`, `address`, `port` and `user`, with
+    /// `tmuxSession` turns on auto-attach for that tmux session, and with `startupCommand` fills in
+    /// the startup command; saves, and opens the host's details.
     @MainActor
-    private func saveAndOpenTestServerHost(address: String, port: Int, user: String, tmuxSession: String? = nil) {
+    private func saveAndOpenTestServerHost(
+        address: String, port: Int, user: String, tmuxSession: String? = nil, startupCommand: String? = nil
+    ) {
         enter(TestServer.hostName, into: textFields["Name"])
         enter(address, into: textFields["Address"])
         replace(with: String(port), in: textFields["Port"])
@@ -421,6 +430,13 @@ extension XCUIApplication {
             let session = textFields["tmux session"]
             XCTAssertTrue(session.waitForExistence(timeout: 5))
             replace(with: tmuxSession, in: session)
+        }
+        if let startupCommand {
+            // Above the switch, but filled in after it: a tap on a switch after the keyboard was up
+            // can get lost (`turnOn`).
+            let field = textFields["Startup command"]
+            reveal(field)
+            enter(startupCommand, into: field)
         }
         navigationBars["New Host"].buttons["Save"].tap()
         let row = buttons[TestServer.hostName].firstMatch

@@ -23,7 +23,13 @@ final class RestoreTests: XCTestCase {
         // and echo prints one.
         let words = (Self.randomLetters(4), Self.randomLetters(4))
         let output = "\(words.0) \(words.1)"
-        app.addKeyHost(address: "127.0.0.1", port: Int(proxy.port), tmuxSession: "restore" + Self.randomLetters(6))
+        // The startup command makes the tmux session, with the mouse off, before auto-attach attaches
+        // it. Where the server's tmux has the mouse on, as on CI's runner, a tap on the terminal is a
+        // click for tmux, and the terminal never takes the keyboard to type with (TerminalHostView).
+        let session = "restore" + Self.randomLetters(6)
+        app.addKeyHost(
+            address: "127.0.0.1", port: Int(proxy.port), tmuxSession: session,
+            startupCommand: "tmux new-session -d -s \(session); tmux set-option -t \(session) mouse off")
         app.buttons["Connect"].tap()
         app.trustHostKey()
         let first = TestServer.hostName
