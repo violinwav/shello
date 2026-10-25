@@ -15,18 +15,17 @@ final class HardwareKeyboardTests: XCTestCase {
     func testHardwareKeyboardHidesTheShelloKeyboardButNotTheRow() throws {
         let app = XCUIApplication.launchWithEmptyDatabase()
         app.openTerminalDemo()
-        app.terminal.tap()
+        app.showShelloKeyboard()
         // The Shello keyboard, on its symbols layer.
         let keyboard = app.shelloKeyboard
-        XCTAssertTrue(keyboard.keys["q"].waitForExistence(timeout: 10))
         keyboard.keys["Symbols"].tap()
-        XCTAssertTrue(keyboard.keys["1"].waitForExistence(timeout: 5))
+        XCTAssertTrue(keyboard.keys["1"].waitForExistence(timeout: 10))
 
         SimulatedHardwareKeyboard.attach()
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10))
         let row = app.extraKeysRow
         let show = row.keys["Show Shello Keyboard"]
-        XCTAssertTrue(show.waitForExistence(timeout: 5))
+        XCTAssertTrue(show.waitForExistence(timeout: 10))
         XCTAssertTrue(row.keys["Escape"].exists)
         try app.auditAccessibility()
 
@@ -66,7 +65,7 @@ final class HardwareKeyboardTests: XCTestCase {
         let hardwareKeyboardSettings = app.buttons["Hardware Keyboard"]
         app.revealFarDown(hardwareKeyboardSettings)
         hardwareKeyboardSettings.tap()
-        XCTAssertTrue(app.navigationBars["Hardware Keyboard"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Hardware Keyboard"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.switches["Option Key as Meta"].value as? String, "1")
         XCTAssertEqual(app.picker("Extra Esc Key").label, "Extra Esc Key, None")
         let row = app.switches["Extra Keys Row"]
@@ -74,13 +73,10 @@ final class HardwareKeyboardTests: XCTestCase {
         app.turnOff(row)
         try app.auditAccessibility()
         app.navigationBars["Hardware Keyboard"].buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
         app.openTerminalDemoFromSettings()
 
-        app.terminal.tap()
-        let focused = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: app.terminal)
-        XCTAssertEqual(XCTWaiter.wait(for: [focused], timeout: 10), .completed, "The terminal has no keyboard focus")
+        app.focusTerminal()
         XCTAssertFalse(app.shelloKeyboard.exists)
         XCTAssertFalse(app.extraKeysRow.exists)
 
@@ -120,6 +116,35 @@ extension XCUIApplication {
     @MainActor
     var extraKeysRow: XCUIElement {
         descendants(matching: .any).matching(NSPredicate(format: "identifier == %@", "Extra Keys")).firstMatch
+    }
+
+    /// Taps the terminal until the Shello keyboard shows, at most three times, waiting 15 seconds
+    /// after each tap. In a CI run, the first test of its job on a simulator that had just started,
+    /// the keyboard came 20 seconds after the tap, while the app's main thread stalled (`focus` in
+    /// TestApp.swift); and on a slow runner a tap now and then goes nowhere (`typeInTerminal`).
+    @MainActor
+    func showShelloKeyboard(file: StaticString = #filePath, line: UInt = #line) {
+        let q = shelloKeyboard.keys["q"]
+        for _ in 0..<3 where !q.exists {
+            terminal.tap()
+            _ = q.waitForExistence(timeout: 15)
+        }
+        XCTAssertTrue(q.exists, "The terminal doesn’t show the Shello keyboard", file: file, line: line)
+    }
+
+    /// Taps the terminal until it has the keyboard focus, at most three times, waiting 15 seconds
+    /// after each tap, as `showShelloKeyboard()` does: for a terminal that shows no keys.
+    @MainActor
+    func focusTerminal(file: StaticString = #filePath, line: UInt = #line) {
+        let focused = NSPredicate(format: "hasKeyboardFocus == true")
+        for _ in 0..<3 {
+            terminal.tap()
+            let expectation = XCTNSPredicateExpectation(predicate: focused, object: terminal)
+            if XCTWaiter.wait(for: [expectation], timeout: 15) == .completed {
+                return
+            }
+        }
+        XCTFail("The terminal doesn’t take the keyboard focus", file: file, line: line)
     }
 
     /// Turns the switch `toggle` off with a tap on the switch itself, and taps again while it stays
