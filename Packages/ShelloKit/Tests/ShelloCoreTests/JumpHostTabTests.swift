@@ -69,7 +69,7 @@ struct JumpHostTabTests {
         #expect(question.server == inner.server)
         #expect(tab.currentJumpHost?.name == "inner")
         #expect(tab.state == .connecting(.verifyingHostKey))
-        tab.answerTrust(true)
+        tab.answerTrust(true, to: question)
         await waitUntil { tab.state == .active }
         #expect(tab.currentJumpHost == nil)
     }
@@ -83,7 +83,7 @@ struct JumpHostTabTests {
 
         #expect(tab.trustQuestion?.hop == RouteHop(name: "web-01", place: .behindJumpHost("inner")))
         #expect(tab.currentJumpHost == nil)
-        tab.answerTrust(false)
+        try tab.answerTrust(false, to: #require(tab.trustQuestion))
         // A tab that never connected closes, as for a host without jump hosts.
         await waitUntil { tab.state == .closed }
         #expect(test.tabs.tabs.isEmpty)
@@ -114,9 +114,85 @@ struct JumpHostTabTests {
 
         #expect(tab.trustQuestion?.hop == RouteHop(name: "bastion", place: .direct))
         #expect(test.server.routes.last?.hops == [bastion])
-        tab.answerTrust(true)
+        try tab.answerTrust(true, to: #require(tab.trustQuestion))
         await waitUntil { tab.state == .active }
         #expect(tab.keyExchanges.map(\.hostName) == ["bastion"])
+    }
+
+    // MARK: - Each sheet answers its own question
+
+    /// A new route asks to trust each hop's host key in turn. The first sheet goes a moment after
+    /// the user trusted bastion's key, and on a fast connection the tab already asks about web-01's
+    /// as SwiftUI ends the dismissal by setting the sheet's item to nil. That dismissal, and a tap on
+    /// the sheet as it goes, are about bastion's question: web-01's waits for its own sheet.
+    @Test func goingTrustSheetLeavesTheNextHopsQuestionToItsOwnSheet() async throws {
+        test.server.queue(.asks([.trust(Self.hostKey, hop: 0), .trust(Self.hostKey)]))
+        let tab = test.tabs.open(web)
+        await waitUntil { tab.trustQuestion != nil }
+        let first = try #require(tab.trustQuestion)
+        #expect(first.hop.name == "bastion")
+
+        tab.answerTrust(true, to: first)
+        await waitUntil { tab.trustQuestion != nil }
+        let second = try #require(tab.trustQuestion)
+        #expect(second.hop.name == "web-01")
+        tab.dismissPrompt(.trust(first))
+        tab.answerTrust(false, to: first)
+        tab.answerTrust(true, to: first)
+
+        #expect(tab.trustQuestion == second)
+        #expect(tab.prompt == .trust(second))
+        #expect(tab.state == .connecting(.verifyingHostKey))
+        tab.answerTrust(true, to: second)
+        await waitUntil { tab.state == .active }
+        #expect(test.tabs.tabs.map(\.id) == [tab.id])
+    }
+
+    /// The sign-in sheet stays while the route signs in, and gives way to the trust sheet when the
+    /// next hop's host key is new: its dismissal then, or its Cancel as it goes, leaves that
+    /// question to the trust sheet.
+    @Test func goingSignInSheetLeavesTheNextHopsQuestionToItsOwnSheet() async throws {
+        let challenge = KeyboardInteractiveChallenge(
+            name: "", instruction: "", prompts: [KeyboardInteractivePrompt(text: "Password:", showsAnswer: false)])
+        test.server.queue(.asks([.signIn(challenge, hop: 0), .trust(Self.hostKey)]))
+        let tab = test.tabs.open(web)
+        await waitUntil { tab.signInQuestion != nil }
+
+        tab.answerSignIn([Secret(utf8: "jump-password")])
+        await waitUntil { tab.trustQuestion != nil }
+        let question = try #require(tab.trustQuestion)
+        tab.dismissPrompt(.signIn)
+
+        #expect(tab.prompt == .trust(question))
+        tab.answerTrust(true, to: question)
+        await waitUntil { tab.state == .active }
+        #expect(test.tabs.tabs.map(\.id) == [tab.id])
+    }
+
+    /// Replacing bastion's changed key connects again, which finds web-01's key changed too. The
+    /// first block sheet goes once its key was replaced, and its dismissal leaves web-01's block to
+    /// its own sheet, whose dismissal closes the tab, which never connected.
+    @Test func goingBlockSheetLeavesTheNextHopsBlockToItsOwnSheet() async throws {
+        let trusted = TrustedHostKey(key: Self.hostKey, trustedAt: .now)
+        let presented = HostKey(algorithm: "ssh-ed25519", wireRepresentation: Data([3]), fingerprint: "SHA256:Aw")
+        test.server.queue(
+            .failsAt(hop: 0, ConnectError.hostKeyChanged(bastion.server, trusted: trusted, presented: presented)),
+            .failsAt(hop: 2, ConnectError.hostKeyChanged(web.server, trusted: trusted, presented: presented)))
+        let tab = test.tabs.open(web)
+        await waitUntil { tab.hostKeyChange != nil }
+        let first = try #require(tab.hostKeyChange)
+
+        await tab.replaceTrustedHostKey()
+        await waitUntil { tab.hostKeyChange != nil }
+        let second = try #require(tab.hostKeyChange)
+        #expect(second.hop.name == "web-01")
+        tab.hostKeyChangeDismissed(first)
+
+        #expect(tab.hostKeyChange == second)
+        #expect(test.tabs.tabs.map(\.id) == [tab.id])
+        tab.hostKeyChangeDismissed(second)
+        #expect(tab.state == .closed)
+        #expect(test.tabs.tabs.isEmpty)
     }
 
     // MARK: - Refused routes

@@ -92,8 +92,9 @@ struct TerminalTabsTests {
         await waitUntil { tab.trustQuestion != nil }
 
         #expect(tab.state == .connecting(.verifyingHostKey))
-        #expect(tab.prompt == tab.trustQuestion.map(TerminalTab<FakeTerminal>.Prompt.trust))
-        tab.answerTrust(false)
+        let question = try #require(tab.trustQuestion)
+        #expect(tab.prompt == .trust(question))
+        tab.answerTrust(false, to: question)
         await waitUntil { tab.state == .closed }
 
         #expect(test.tabs.tabs.isEmpty)
@@ -104,11 +105,32 @@ struct TerminalTabsTests {
         let tab = test.tabs.open(TabTest.host())
         await waitUntil { tab.trustQuestion != nil }
 
-        tab.answerTrust(true)
+        try tab.answerTrust(true, to: #require(tab.trustQuestion))
         await waitUntil { tab.state == .active }
 
         #expect(tab.state == .active)
         #expect(tab.prompt == nil)
+    }
+
+    /// A new server's host key, then its questions. The trust sheet goes a moment after the user
+    /// trusted the key, and the server may ask by the time SwiftUI ends the dismissal by setting the
+    /// sheet's item to nil: that dismissal is about the trust question, and leaves the server's to
+    /// the sign-in sheet.
+    @Test func goingTrustSheetLeavesTheServersQuestionsToTheSignInSheet() async throws {
+        test.server.queue(.asks([.trust(Self.hostKey), .signIn(Self.challenge)]))
+        let tab = test.tabs.open(TabTest.host())
+        await waitUntil { tab.trustQuestion != nil }
+        let question = try #require(tab.trustQuestion)
+
+        tab.answerTrust(true, to: question)
+        await waitUntil { tab.signInQuestion != nil }
+        tab.dismissPrompt(.trust(question))
+
+        #expect(tab.prompt == .signIn)
+        #expect(tab.signInQuestion != nil)
+        tab.answerSignIn([Secret(utf8: "hunter2")])
+        await waitUntil { tab.state == .active }
+        #expect(tab.state == .active)
     }
 
     /// The startup command is typed once the shell shows its prompt, its lines each with Return, so
@@ -392,6 +414,9 @@ struct TerminalTabsTests {
 
     static let hostKey = HostKey(
         algorithm: "ssh-ed25519", wireRepresentation: Data([1, 2, 3]), fingerprint: "SHA256:fixture")
+
+    static let challenge = KeyboardInteractiveChallenge(
+        name: "", instruction: "", prompts: [KeyboardInteractivePrompt(text: "Password:", showsAnswer: false)])
 }
 
 /// A host's startup command, typed as the user would: each line with Return.

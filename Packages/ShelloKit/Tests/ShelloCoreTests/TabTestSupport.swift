@@ -17,16 +17,33 @@ final class FakeServer: TabConnector {
     enum Outcome: Sendable {
         case connects
         case fails(SSHError)
-        /// Asks to trust `key` at the hop `hop`, the route's last if nil, then connects if the user
-        /// trusts it.
-        case asksToTrust(HostKey, hop: Int? = nil)
-        /// Asks the question at the hop `hop`, the route's last if nil, then connects with the
-        /// answers.
-        case asksToSignIn(KeyboardInteractiveChallenge, hop: Int? = nil)
+        /// Asks each question at its hop, in their order, as `HostConnector` does: a hop's host key
+        /// before its sign-in. Connects if the user trusts every key and answers every question.
+        case asks([Question])
         /// Fails with `error` at the hop `hop`, as `HostConnector` does: one at a jump host names it.
         case failsAt(hop: Int, any Error)
         /// Waits until the try is cancelled.
         case hangs
+
+        /// Asks to trust `key` at the hop `hop`, the route's last if nil, then connects if the user
+        /// trusts it.
+        static func asksToTrust(_ key: HostKey, hop: Int? = nil) -> Outcome {
+            .asks([.trust(key, hop: hop)])
+        }
+
+        /// Asks the question at the hop `hop`, the route's last if nil, then connects with the
+        /// answers.
+        static func asksToSignIn(_ challenge: KeyboardInteractiveChallenge, hop: Int? = nil) -> Outcome {
+            .asks([.signIn(challenge, hop: hop)])
+        }
+    }
+
+    /// What a try asks the user, at the hop `hop`, the route's last if nil.
+    enum Question: Sendable {
+        /// To trust the hop's host key.
+        case trust(HostKey, hop: Int? = nil)
+        /// The hop's keyboard-interactive questions.
+        case signIn(KeyboardInteractiveChallenge, hop: Int? = nil)
     }
 
     private struct State {
@@ -82,16 +99,13 @@ final class FakeServer: TabConnector {
             await progress(reached)
         }
         let last = route.hops.count - 1
+        let questions = if case .asks(let asked) = outcome { asked } else { [Question]() }
         for (index, hop) in route.hops.enumerated() {
             await report(index, .connecting)
             await report(index, .verifyingHostKey)
             switch outcome {
-            case .connects:
-                break
             case .fails(let error) where index == last:
                 throw error
-            case .asksToTrust(let key, let at) where index == at ?? last:
-                guard await askToTrust(hop, key) else { throw ConnectError.hostKeyNotTrusted }
             case .failsAt(let at, let error) where index == at:
                 throw index < last ? JumpHostError(jumpHost: hop, error: error) : error
             case .hangs where index == last:
@@ -99,8 +113,11 @@ final class FakeServer: TabConnector {
             default:
                 break
             }
+            for case .trust(let key, let at) in questions where index == at ?? last {
+                guard await askToTrust(hop, key) else { throw ConnectError.hostKeyNotTrusted }
+            }
             await report(index, .signingIn)
-            if case .asksToSignIn(let challenge, let at) = outcome, index == at ?? last {
+            for case .signIn(let challenge, let at) in questions where index == at ?? last {
                 guard await answer(hop, challenge) != nil else { throw ConnectError.signInCancelled }
             }
         }

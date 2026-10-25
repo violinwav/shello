@@ -67,7 +67,7 @@ struct RememberedTabsTests {
         let tab = test.tabs.open(nas)
         await waitUntil { tab.trustQuestion != nil }
 
-        tab.answerTrust(false)
+        try tab.answerTrust(false, to: #require(tab.trustQuestion))
         await waitUntil { tab.state == .closed }
 
         #expect(test.tabs.remembered.isEmpty)

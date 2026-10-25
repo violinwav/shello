@@ -631,7 +631,7 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         retry?.cancel()
         retry = nil
         isSigningIn = false
-        answerTrust(false)
+        endTrustQuestion(false)
         answerSignIn(nil)
     }
 
@@ -694,8 +694,16 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         return RouteHop(route, at: index)
     }
 
-    /// The user's answer to the trust sheet.
-    public func answerTrust(_ trusts: Bool) {
+    /// The user's answer to the trust sheet that asks `question`. A sheet goes a moment after its
+    /// question was answered, and the tab may ask its next one by then, such as the next hop's host
+    /// key: a tap on the sheet as it goes changes nothing, so that no key is trusted unseen.
+    public func answerTrust(_ trusts: Bool, to question: TrustQuestion) {
+        guard question == trustQuestion else { return }
+        endTrustQuestion(trusts)
+    }
+
+    /// Ends the wait for the trust sheet with `trusts`, if the tab waits for it.
+    private func endTrustQuestion(_ trusts: Bool) {
         trustQuestion = nil
         trustAnswer?.resume(returning: trusts)
         trustAnswer = nil
@@ -721,13 +729,19 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         signInAnswer = nil
     }
 
-    /// The user dismissed the prompt: no trust, or no answers. Between rounds of questions, while
-    /// the server checks the last answers, nothing waits for an answer: signing in stops all the
-    /// same.
-    public func dismissPrompt() {
-        if trustQuestion != nil {
-            answerTrust(false)
-        } else if isSigningIn {
+    /// The user dismissed the sheet that showed `prompt`: no trust, or no answers. Between rounds of
+    /// questions, while the server checks the last answers, nothing waits for an answer: signing in
+    /// stops all the same.
+    ///
+    /// A prompt the tab no longer asks changes nothing. A sheet goes a moment after its question was
+    /// answered, and on a fast connection the tab asks its next question by then, such as the next
+    /// hop's host key: the user hasn't seen that one, which waits for its own sheet.
+    public func dismissPrompt(_ prompt: Prompt) {
+        guard prompt == self.prompt else { return }
+        switch prompt {
+        case .trust:
+            endTrustQuestion(false)
+        case .signIn:
             isSigningIn = false
             if signInAnswer != nil {
                 answerSignIn(nil)
@@ -761,9 +775,12 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         }
     }
 
-    /// The block sheet went away without a replacement. A tab that never connected closes with it.
-    public func hostKeyChangeDismissed() {
-        guard hostKeyChange != nil else { return }
+    /// The block sheet that showed `change` went away without a replacement. A tab that never
+    /// connected closes with it. A change that no longer blocks the tab changes nothing: once its key
+    /// was replaced, the connection that follows may be blocked at the next hop at once, and that
+    /// block has a sheet of its own.
+    public func hostKeyChangeDismissed(_ change: HostKeyChange) {
+        guard change == hostKeyChange else { return }
         hostKeyChange = nil
         if connectionCount == 0 {
             state = .closed

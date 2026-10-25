@@ -97,7 +97,7 @@ struct SignInPromptTests {
         model.connect(to: Self.host)
         let tab = try #require(model.selectedTab)
         await waitUntil { tab.signInQuestion != nil || !tab.state.isConnecting }
-        tab.dismissPrompt()
+        tab.dismissPrompt(.signIn)
         await waitUntil { !tab.state.isConnecting }
 
         #expect(tab.state == .closed)

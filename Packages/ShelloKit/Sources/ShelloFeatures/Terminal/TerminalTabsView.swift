@@ -115,21 +115,20 @@ private struct TabContent: View {
             }
             // One sheet asks to trust a new host key, then the server's questions: one presentation
             // follows the other without one sheet coming up while the last one is still going.
-            .sheet(item: Binding(get: { tab.prompt }, set: { if $0 == nil { tab.dismissPrompt() } })) { prompt in
+            .questionSheet(item: { tab.prompt }, dismissed: { tab.dismissPrompt($0) }) { prompt in
                 switch prompt {
                 case .trust(let question):
-                    HostKeyTrustSheet(question: question) { trusts in tab.answerTrust(trusts) }
+                    HostKeyTrustSheet(question: question) { trusts in tab.answerTrust(trusts, to: question) }
                 case .signIn:
                     // Named for the hop that signs in, a jump host's or the tab's own (README section 3).
                     SignInSheet(
                         question: tab.signInQuestion,
                         hostName: tab.signInQuestion?.hop.name ?? tab.currentJumpHost?.name ?? tab.host.name,
                         isThroughJumpHosts: tab.route.map { !$0.jumpHosts.isEmpty } ?? false,
-                        answer: { answers in tab.answerSignIn(answers) }, cancel: { tab.dismissPrompt() })
+                        answer: { answers in tab.answerSignIn(answers) }, cancel: { tab.dismissPrompt(prompt) })
                 }
             }
-            .sheet(item: Binding(get: { tab.hostKeyChange }, set: { if $0 == nil { tab.hostKeyChangeDismissed() } })) {
-                change in
+            .questionSheet(item: { tab.hostKeyChange }, dismissed: { tab.hostKeyChangeDismissed($0) }) { change in
                 HostKeyChangedSheet(
                     change: change, isReplacing: tab.isReplacingHostKey, problem: tab.replacementProblem,
                     replace: {
@@ -141,7 +140,7 @@ private struct TabContent: View {
                                 announce(problem)
                             }
                         }
-                    }, close: { tab.hostKeyChangeDismissed() })
+                    }, close: { tab.hostKeyChangeDismissed(change) })
             }
             .toolbar {
                 // While the connection works: otherwise the status bar says what it does. Marked for
@@ -161,6 +160,44 @@ private struct TabContent: View {
                     ConnectionSheet(keyExchanges: tab.keyExchanges) { model.isShowingConnection = false }
                 }
             }
+    }
+}
+
+extension View {
+    /// A sheet for one of a tab's questions, as `sheet(item:)` shows it, whose dismissal answers the
+    /// question it showed and no other: whenever the sheet goes, by the user or once its question
+    /// was answered, `dismissed` gets that question, which the tab declines if it still asks it.
+    ///
+    /// A sheet goes a moment after its question was answered, and SwiftUI then sets its item to nil.
+    /// On a fast connection, the tab asks its next question by then, such as the next hop's host key
+    /// on a route: that one has a sheet of its own next, which the dismissal leaves to it.
+    fileprivate func questionSheet<Question: Identifiable, Sheet: View>(
+        item question: @escaping () -> Question?, dismissed: @escaping (Question) -> Void,
+        @ViewBuilder content: @escaping (Question) -> Sheet
+    ) -> some View {
+        modifier(QuestionSheet(question: question, dismissed: dismissed, sheet: content))
+    }
+}
+
+/// `View.questionSheet(item:dismissed:content:)`.
+private struct QuestionSheet<Question: Identifiable, Sheet: View>: ViewModifier {
+    let question: () -> Question?
+    let dismissed: (Question) -> Void
+    let sheet: (Question) -> Sheet
+    /// The question the sheet shows, from the moment it comes up until it goes.
+    @State private var shown: Question?
+
+    func body(content: Content) -> some View {
+        content.sheet(item: Binding(get: { question() }, set: { if $0 == nil { dismissShown() } })) { item in
+            sheet(item)
+                .onAppear { shown = item }
+        }
+    }
+
+    private func dismissShown() {
+        guard let shown else { return }
+        self.shown = nil
+        dismissed(shown)
     }
 }
 

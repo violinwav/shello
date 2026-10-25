@@ -177,10 +177,10 @@ final class TerminalTabsModel {
         guard let tab = selectedTab else { return }
         if isShowingConnection {
             isShowingConnection = false
-        } else if tab.prompt != nil {
-            tab.dismissPrompt()
-        } else if tab.hostKeyChange != nil {
-            tab.hostKeyChangeDismissed()
+        } else if let prompt = tab.prompt {
+            tab.dismissPrompt(prompt)
+        } else if let change = tab.hostKeyChange {
+            tab.hostKeyChangeDismissed(change)
         } else {
             close(tab)
         }

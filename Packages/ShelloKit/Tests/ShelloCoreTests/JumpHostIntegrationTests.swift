@@ -239,7 +239,7 @@ struct JumpHostIntegrationTests {
             guard let question = tab.trustQuestion else { break }
             #expect(question.key == TestServer.hostKeyA)
             asked.append(question.hop)
-            tab.answerTrust(true)
+            tab.answerTrust(true, to: question)
         }
         return asked
     }

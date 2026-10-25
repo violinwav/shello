@@ -13,10 +13,10 @@ final class ConnectionTests: XCTestCase {
         continueAfterFailure = false
     }
 
-    /// The first connection asks to trust the host key, with its type and fingerprint; Cancel closes
-    /// the tab, which never connected, and trusts nothing, so the next connection asks again. Once
-    /// trusted, a connection asks nothing. A password the server refuses fails the sign-in, which the
-    /// terminal screen says.
+    /// The first connection asks to trust the host key, with its type and fingerprint. Swiping the
+    /// sheet away and Cancel each close the tab, which never connected, and trust nothing, so the
+    /// next connection asks again. Once trusted, a connection asks nothing. A password the server
+    /// refuses fails the sign-in, which the terminal screen says.
     @MainActor
     func testFirstConnectionAsksToTrustTheHostKey() throws {
         try XCTSkipUnless(TestServer.isRunning, TestServer.notRunning)
@@ -25,6 +25,11 @@ final class ConnectionTests: XCTestCase {
 
         app.buttons["Connect"].tap()
         let trustSheet = app.navigationBars["Trust This Server?"]
+        XCTAssertTrue(trustSheet.waitForExistence(timeout: 15))
+        app.swipeAway(trustSheet)
+        XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
+
+        app.buttons["Connect"].tap()
         XCTAssertTrue(trustSheet.waitForExistence(timeout: 15))
         trustSheet.buttons["Cancel"].tap()
         XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 10))
@@ -460,6 +465,21 @@ extension XCUIApplication {
             _ = sheet.waitForNonExistence(timeout: 10)
         }
         XCTAssertFalse(sheet.exists, "The trust sheet stays", file: file, line: line)
+    }
+
+    /// Drags the sheet whose navigation bar is `sheet` down and away, as a user dismisses a sheet,
+    /// and waits for it to go. A drag on a slow runner can go nowhere, as taps do: it drags again
+    /// while the sheet stays, at most three times.
+    @MainActor
+    func swipeAway(_ sheet: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        for _ in 0..<3 where sheet.exists {
+            settle()
+            sheet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(
+                forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)),
+                withVelocity: .fast, thenHoldForDuration: 0)
+            _ = sheet.waitForNonExistence(timeout: 10)
+        }
+        XCTAssertFalse(sheet.exists, "The sheet stays", file: file, line: line)
     }
 
     /// Closes the selected tab with its Close Tab button. Closing the last tab closes the terminal
