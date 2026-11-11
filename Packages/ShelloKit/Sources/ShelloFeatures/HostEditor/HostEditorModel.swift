@@ -183,6 +183,8 @@ final class HostEditorModel {
     /// jump hosts' problem shows at once: it is no typing error, and may come from another host.
     func visibleProblem(for field: HostDraft.Field) -> String? {
         if field == .jumpHosts { return jumpHostsProblem }
+        // Not a typing error either: it comes from the forwards' own screens.
+        if field == .portForwards { return draft.problems[.portForwards] }
         guard attemptedSave || leftFields.contains(field) else { return nil }
         return draft.problems[field]
     }
@@ -347,6 +349,58 @@ final class HostEditorModel {
 
     private var savedHostsByID: [Host.ID: Host] {
         Dictionary(savedHosts.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    // MARK: - Port forwards
+
+    /// The draft's port forward `id`, if it has one.
+    func portForward(_ id: PortForwardDraft.ID) -> PortForwardDraft? {
+        draft.portForwards.first { $0.id == id }
+    }
+
+    /// Adds `forward` after the others.
+    func addPortForward(_ forward: PortForwardDraft) {
+        guard portForward(forward.id) == nil else { return }
+        draft.portForwards.append(forward)
+    }
+
+    /// Replaces the forward with `forward`'s identifier by `forward`.
+    func updatePortForward(_ forward: PortForwardDraft) {
+        guard let index = draft.portForwards.firstIndex(where: { $0.id == forward.id }) else { return }
+        draft.portForwards[index] = forward
+    }
+
+    /// Removes the forward `id`. VoiceOver goes on to the forward after it, or else to Add Port
+    /// Forward, rather than to the top of the editor (`deletedPortForwardFocus`).
+    func removePortForward(_ id: PortForwardDraft.ID) {
+        guard let index = draft.portForwards.firstIndex(where: { $0.id == id }) else { return }
+        draft.portForwards.remove(at: index)
+        deletedPortForwardFocus =
+            draft.portForwards.indices.contains(index) ? .row(draft.portForwards[index].id) : .add
+    }
+
+    /// Where VoiceOver goes once a forward was deleted, until the editor has moved it there.
+    var deletedPortForwardFocus: PortForwardFocus?
+
+    /// A place in the editor's Port Forwards section that VoiceOver can go to.
+    enum PortForwardFocus: Hashable {
+        case row(PortForwardDraft.ID)
+        case add
+    }
+
+    /// Turns the forward `id` on or off.
+    func setPortForward(_ id: PortForwardDraft.ID, isEnabled: Bool) {
+        guard let index = draft.portForwards.firstIndex(where: { $0.id == id }) else { return }
+        draft.portForwards[index].isEnabled = isEnabled
+    }
+
+    /// Whether `forward`, if it is on, would listen on a port that another of the draft's forwards
+    /// that is on listens on: only one of them could listen.
+    func sharesPort(_ forward: PortForwardDraft) -> Bool {
+        guard forward.isEnabled, let port = forward.forward?.localPort else { return false }
+        return draft.portForwards.contains { other in
+            other.id != forward.id && other.isEnabled && other.forward?.localPort == port
+        }
     }
 
     /// Follows the saved hosts, for the jump hosts, until the task is cancelled.

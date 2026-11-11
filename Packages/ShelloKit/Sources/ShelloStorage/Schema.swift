@@ -10,7 +10,8 @@ import GRDB
 /// The schema is ready for sync (docs/spec/STACK.md section 7.10):
 /// - Identifiers are UUIDs, stored as 16-byte blobs.
 /// - Every synced field has a modification time next to it, `<field>ModifiedAt`, so that sync can
-///   merge per field. A host's tags are one field, `tagsModifiedAt`, and so are its jump hosts.
+///   merge per field. A host's tags are one field, `tagsModifiedAt`, and so are its jump hosts and
+///   its port forwards.
 /// - Deleting writes a tombstone: `deletedAt` is set and the row stays, so that the deletion can sync
 ///   and be undone. `deletedAt` has its own modification time, which also covers an undo.
 /// - Foreign keys are deferred to the end of the transaction, so that a write can store related rows
@@ -24,6 +25,7 @@ enum Schema {
         migrator.registerMigration("v2", migrate: v2)
         migrator.registerMigration("v3", migrate: v3)
         migrator.registerMigration("v4", migrate: v4)
+        migrator.registerMigration("v5", migrate: v5)
         return migrator
     }()
 
@@ -130,6 +132,17 @@ enum Schema {
         try db.alter(table: "host") { t in
             t.add(column: "jumpHostIDs", .blob).notNull().defaults(to: Data())
             t.add(column: "jumpHostIDsModifiedAt", .real).notNull().defaults(to: 0)
+        }
+    }
+
+    /// Port forwards (README section 4): a host's local and dynamic forwards, in order. The list is
+    /// one field, as the jump hosts are, so that sync's per-field merge takes the whole list of the
+    /// later change: JSON, an array of objects (`StoredPortForwards`). The hosts that exist get none,
+    /// modified at 0, as in v3.
+    private static func v5(_ db: Database) throws {
+        try db.alter(table: "host") { t in
+            t.add(column: "portForwards", .text).notNull().defaults(to: "[]")
+            t.add(column: "portForwardsModifiedAt", .real).notNull().defaults(to: 0)
         }
     }
 }

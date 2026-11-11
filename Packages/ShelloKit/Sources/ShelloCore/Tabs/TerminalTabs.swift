@@ -43,6 +43,21 @@ public final class TerminalTabs<Terminal: TabTerminal> {
     /// Whether the device has a network, as `NetworkMonitor` last said.
     public var isNetworkAvailable: Bool { conditions.isNetworkAvailable }
 
+    /// Whether Shello is in the foreground: on screen, active or not. Set by the screens. The tabs'
+    /// port forwards listen only meanwhile (README section 4): as Shello leaves the foreground they
+    /// stop at once, before the background time closes the connections, and they listen again on a
+    /// connection still open once it is back.
+    public var isInForeground: Bool {
+        get { conditions.isInForeground }
+        set {
+            guard newValue != conditions.isInForeground else { return }
+            conditions.isInForeground = newValue
+            for tab in tabs {
+                tab.foregroundChanged()
+            }
+        }
+    }
+
     /// What Restore would recreate of the tabs, were Shello terminated now (GLOSSARY: Restore): the
     /// host of each tab, in the tabs' order, and the selected tab.
     public var remembered: RememberedTabs {
@@ -287,9 +302,11 @@ public struct TabServices: Sendable {
     }
 }
 
-/// What a tab waits for before it reconnects: Shello unlocked in the foreground, and a network.
+/// What a tab waits for before it reconnects: Shello unlocked in the foreground, and a network; and
+/// what its port forwards wait for: Shello in the foreground.
 @MainActor
 final class TabConditions {
     var canConnect = true
     var isNetworkAvailable = true
+    var isInForeground = true
 }

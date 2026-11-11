@@ -18,14 +18,14 @@ struct HostEditorView: View {
         case terminalType
         case notes
 
-        /// The text field of `field`, or nil for the jump hosts, which have none.
+        /// The text field of `field`, or nil for the jump hosts and the port forwards, which have none.
         init?(_ field: HostDraft.Field) {
             switch field {
             case .name: self = .name
             case .address: self = .address
             case .port: self = .port
             case .tmuxSessionName: self = .tmuxSessionName
-            case .jumpHosts: return nil
+            case .jumpHosts, .portForwards: return nil
             case .terminalType: self = .terminalType
             }
         }
@@ -46,11 +46,13 @@ struct HostEditorView: View {
     @State private var model: HostEditorModel
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focus: FocusField?
-    /// Whether VoiceOver is on the jump hosts row, which has no text field to take the focus when
-    /// their problem keeps the host from being saved.
-    @AccessibilityFocusState private var isJumpHostsFocused: Bool
-    /// Set when saving stopped at the jump hosts' problem: the form scrolls to their row.
-    @State private var revealsJumpHosts = false
+    /// Where VoiceOver is among the rows that have no text field to take the focus when their
+    /// problem keeps the host from being saved: the jump hosts', or the port forwards' problem.
+    @AccessibilityFocusState private var focusedRow: HostDraft.Field?
+    /// Set when saving stopped at the problem of such a row: the form scrolls to it.
+    @State private var revealedRow: HostDraft.Field?
+    /// Where VoiceOver is among the port forwards' rows and Add Port Forward.
+    @AccessibilityFocusState private var portForwardFocus: HostEditorModel.PortForwardFocus?
 
     @State private var isSaving = false
     @State private var confirmsDiscard = false
@@ -74,6 +76,10 @@ struct HostEditorView: View {
                     organizeSection
                     tagsSection
                     onConnectSection
+                    // A VNC host has no SSH connection to forward over; its own tunnel comes with VNC.
+                    if model.draft.protocol != .vnc {
+                        portForwardsSection
+                    }
                     notesSection
                     if model.isEditing {
                         Section {
@@ -83,11 +89,11 @@ struct HostEditorView: View {
                         .listRowBackground(Palette.cell)
                     }
                 }
-                .onChange(of: revealsJumpHosts) { _, reveals in
-                    guard reveals else { return }
-                    revealsJumpHosts = false
-                    withAnimation { scroller.scrollTo(HostDraft.Field.jumpHosts, anchor: .center) }
-                    isJumpHostsFocused = true
+                .onChange(of: revealedRow) { _, row in
+                    guard let row else { return }
+                    revealedRow = nil
+                    withAnimation { scroller.scrollTo(row, anchor: .center) }
+                    focusedRow = row
                 }
             }
             // On the form only: toolbar items keep the system font, which follows Dynamic Type.
@@ -415,7 +421,7 @@ struct HostEditorView: View {
             .accessibilityValue(model.spokenJumpHostsSummary)
         }
         .accessibilityHint(model.visibleProblem(for: .jumpHosts) ?? "")
-        .accessibilityFocused($isJumpHostsFocused)
+        .accessibilityFocused($focusedRow, equals: .jumpHosts)
         .id(HostDraft.Field.jumpHosts)
         if let problem = model.visibleProblem(for: .jumpHosts) {
             ProblemText(problem: problem)
@@ -432,6 +438,69 @@ struct HostEditorView: View {
         return "Shello runs the startup command once it has signed in, then attaches the tmux session, or starts "
             + "it, so that the work in it carries on while Shello is away. It checks the connection every "
             + "keepalive interval, and stops connecting after the timeout."
+    }
+
+    /// The port forwards (README section 4): each opens its own screen, where it is edited, switched
+    /// off and deleted; a swipe, its menu or VoiceOver's actions, which SwiftUI makes of the swipe's,
+    /// turn it off or delete it from here too. A problem with them shows under them, before Add Port
+    /// Forward, and is announced as it appears.
+    private var portForwardsSection: some View {
+        Section {
+            ForEach(model.draft.portForwards) { forward in
+                PortForwardRow(
+                    forward: forward, focus: $portForwardFocus,
+                    setEnabled: { forward, title, isEnabled in
+                        setPortForward(forward, title: title, isEnabled: isEnabled)
+                    },
+                    delete: { forward, title in deletePortForward(forward, title: title) }
+                ) {
+                    PortForwardView(model: model, forwardID: forward.id)
+                }
+            }
+            if let problem = model.visibleProblem(for: .portForwards) {
+                ProblemText(problem: problem)
+                    .labelStyle(.row)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityFocused($focusedRow, equals: .portForwards)
+                    .id(HostDraft.Field.portForwards)
+            }
+            NavigationLink {
+                PortForwardView(model: model, forwardID: nil)
+            } label: {
+                Label("Add Port Forward…", systemImage: "plus")
+                    .labelStyle(.row)
+                    .foregroundStyle(Palette.accentInk)
+            }
+            .accessibilityFocused($portForwardFocus, equals: .add)
+        } header: {
+            SectionHeader("Port Forwards")
+        } footer: {
+            FooterText(PortForwardDisplay.lifetimeNote)
+        }
+        .listRowBackground(Palette.cell)
+        .onChange(of: model.visibleProblem(for: .portForwards)) { old, new in
+            if let new, new != old { announce(new, priority: .low) }
+        }
+        // A deleted forward's row has gone: VoiceOver goes on to the next one, or to Add Port Forward,
+        // once a screen that deleted it has gone back, rather than to the top of the editor.
+        .onChange(of: model.deletedPortForwardFocus) { _, target in
+            guard let target else { return }
+            model.deletedPortForwardFocus = nil
+            Task {
+                try? await Task.sleep(for: .milliseconds(600))
+                portForwardFocus = target
+            }
+        }
+    }
+
+    private func setPortForward(_ forward: PortForwardDraft, title: String, isEnabled: Bool) {
+        model.setPortForward(forward.id, isEnabled: isEnabled)
+        announce("\(title), \(isEnabled ? "on" : "off")")
+    }
+
+    private func deletePortForward(_ forward: PortForwardDraft, title: String) {
+        model.removePortForward(forward.id)
+        announce("Deleted the port forward \(title)")
     }
 
     private var notesSection: some View {
@@ -471,7 +540,10 @@ struct HostEditorView: View {
                     .onSubmit { focus = next }
             }
             if let problem {
+                // Beside its icon: a problem of two lines that wraps under the icon is reported as
+                // clipped text by the accessibility audit.
                 ProblemText(problem: problem)
+                    .labelStyle(.row)
             }
         }
     }
@@ -487,9 +559,10 @@ struct HostEditorView: View {
             dismiss()
         } else if let field = model.firstProblemField, let problem = model.visibleProblem(for: field) {
             focus = FocusField(field)
-            // The jump hosts have no text field to take the focus: the form goes to their row.
-            if field == .jumpHosts {
-                revealsJumpHosts = true
+            // The jump hosts and the port forwards have no text field to take the focus: the form goes
+            // to their row.
+            if field == .jumpHosts || field == .portForwards {
+                revealedRow = field
             }
             // High priority: VoiceOver would otherwise cut it off to read the field that takes the focus.
             let count = model.visibleProblems.count

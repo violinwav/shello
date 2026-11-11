@@ -90,6 +90,18 @@ _Avoid_: Auto-connect, tmux mode
 The login shell of a tab that attaches no tmux session: what a host with auto-attach on gets when the server's tmux is missing or too old, which the tab's terminal then says.
 _Avoid_: Bare shell, raw shell
 
+**Port forward**:
+A host's setting by which Shello listens on a port of this device's loopback, 127.0.0.1, while one of the host's tabs is connected and Shello is in the foreground, and carries each connection it accepts over the tab's connection to a destination the server reaches: a local forward or a dynamic forward. Behind jump hosts it runs over the connection to the host, so the destination is reached from the host. Other apps on the device can reach it meanwhile; one that is off is kept, and does nothing.
+_Avoid_: Tunnel (what each forwarded connection runs through), port mapping, port redirect
+
+**Local forward**:
+A port forward whose connections all go to one destination, an address and port as the server reaches them, such as `localhost:8080` on the server, as OpenSSH's `LocalForward` and `ssh -L` do.
+_Avoid_: Static forward, local tunnel
+
+**Dynamic forward**:
+A port forward that is a SOCKS5 proxy: each app that connects says where to go, and the server connects there, resolving names itself, as OpenSSH's `DynamicForward` and `ssh -D` do.
+_Avoid_: SOCKS tunnel, proxy (on its own)
+
 **Hidden channel**:
 An SSH channel Shello opens for its own commands, which never appears in a tab.
 _Avoid_: Side channel, exec channel, background channel

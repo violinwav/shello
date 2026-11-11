@@ -13,6 +13,7 @@ struct HostDraft: Equatable {
         case tmuxSessionName
         case jumpHosts
         case terminalType
+        case portForwards
     }
 
     /// Changing the protocol moves the port along while it is still the old protocol's default.
@@ -40,6 +41,8 @@ struct HostDraft: Equatable {
     var tmuxSessionName: String
     /// The hosts to connect through, in order (README section 3).
     var jumpHostIDs: [Host.ID]
+    /// The port forwards, in the order they were added (README section 4).
+    var portForwards: [PortForwardDraft]
     var terminalType: String
     var keepaliveInterval: Duration
     var connectTimeout: Duration
@@ -60,6 +63,7 @@ struct HostDraft: Equatable {
         tmuxAutoAttach = host.tmuxAutoAttach
         tmuxSessionName = host.tmuxSessionName
         jumpHostIDs = host.jumpHostIDs
+        portForwards = host.portForwards.map(PortForwardDraft.init)
         terminalType = host.terminalType
         keepaliveInterval = host.keepaliveInterval
         connectTimeout = host.connectTimeout
@@ -121,7 +125,22 @@ struct HostDraft: Equatable {
                     "Use up to 64 letters, digits, hyphens and underscores, not starting with a hyphen."
             }
         }
+        // The forwards only show, and only count, for a host with an SSH connection to forward over.
+        if `protocol` != .vnc, let problem = portForwardsProblem {
+            problems[.portForwards] = problem
+        }
         return problems
+    }
+
+    /// What is wrong with the port forwards: one that is not complete, which its screen shows, or
+    /// two that are on and would listen on the same port, of which only one could.
+    private var portForwardsProblem: String? {
+        if portForwards.contains(where: { !$0.problems.isEmpty }) {
+            return "A port forward isn’t complete. Open it to finish it, or delete it."
+        }
+        let shared = PortForward.sharedPorts(portForwards.compactMap(\.forward))
+        guard let port = shared.min() else { return nil }
+        return "Two port forwards that are on listen on port \(port). Turn one off, or change its port."
     }
 
     /// `base` with every field the user changed since `original` set to the draft's value. Text is
@@ -150,6 +169,7 @@ struct HostDraft: Equatable {
             host.tmuxSessionName = name.rawValue
         }
         if jumpHostIDs != original.jumpHostIDs { host.jumpHostIDs = jumpHostIDs }
+        if portForwards != original.portForwards { host.portForwards = portForwards.compactMap(\.forward) }
         if terminalType != original.terminalType { host.terminalType = terminalType.trimmed }
         if keepaliveInterval != original.keepaliveInterval { host.keepaliveInterval = keepaliveInterval }
         if connectTimeout != original.connectTimeout { host.connectTimeout = connectTimeout }

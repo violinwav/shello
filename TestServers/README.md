@@ -49,7 +49,7 @@ OpenSSH 9.8 and later refuse an address for a while once its connections fail to
 
 ## Jump hosts
 
-Each server is a jump host for the others, as OpenSSH's `ProxyJump` uses one (README section 3): every sshd allows TCP forwarding (`AllowTcpForwarding yes`, written out because Alpine's own `sshd_config` turns it off). The Docker servers share a Docker network of their own, `shello-test`, which `ssh-server.sh` creates and `stop` removes, so that each reaches the others by container name, on port 22. Docker's default bridge resolves no names. This Mac's own sshd (below) reaches its other ports on the loopback.
+Each server is a jump host for the others, as OpenSSH's `ProxyJump` uses one (README section 3), and the far end of Shello's port forwards (README section 4): every sshd allows TCP forwarding (`AllowTcpForwarding yes`, written out because Alpine's own `sshd_config` turns it off). The Docker servers share a Docker network of their own, `shello-test`, which `ssh-server.sh` creates and `stop` removes, so that each reaches the others by container name, on port 22. Docker's default bridge resolves no names. This Mac's own sshd (below) reaches its other ports on the loopback.
 
 | Server, as a jump host reaches it | In Docker | This Mac's sshd |
 | --- | --- | --- |
@@ -116,14 +116,17 @@ With `SHELLO_TEST_SERVER_USER` set, the tests that sign in with a password or ke
 - `ShelloSSHTests` (`KeyExchangeTests`): the key exchange libssh negotiates with each server, the classical ones without curve25519 each on its own, the ciphers and MACs, and the server's banner.
 - `ShelloSSHTests` (`KeyboardInteractiveTests`, `AgentAuthenticationTests`): keyboard-interactive sign-in, on ports 2222 and 2225, and signing in through an SSH agent, with a stand-in agent.
 - `ShelloSSHTests` (`TunnelTests`): tunnels through the server on port 2222, both ways and their ends, and connections through one and two jump hosts, to the servers on ports 2224 and 2226 as the one before reaches them, with ten megabytes from the far server and four to it, and a jump host that ends.
+- `ShelloSSHTests` (`ForwardTests`): port forwards over a connection to port 2222, to the server's own sshd as the server reaches it: a local forward, and a dynamic forward that a SOCKS5 client in the test asks for it by IP address and by the name `localhost`, which the server resolves; a port nothing listens on, refused; and fifty megabytes through a local forward, counted by `seq` in a shell over an SSH connection through the forward, with the process's memory measured.
 - `ShelloCoreTests` (`HostConnectorTests`, `SignInTests`): the first connection's trust question, a trusted key, a changed one and its replacement; signing in with the SSH key through Shello's SSH agent, keyboard-interactive with the one-time codes, and two-factor sign-in, on ports 2222 and 2225.
 - `ShelloCoreTests` (`TmuxIntegrationTests`): tmux auto-attach, which attaches the same tmux session, with what ran in it, after a dropped connection, on port 2222; the plain shell of a server without tmux, on port 2225 in Docker or 2224 with this Mac's sshd; and the tmux parsers on what tmux 3.7c and 3.4 print, on ports 2222 and 2223. Each test leaves no tmux session behind.
 - `ShelloCoreTests` (`ImportedKeySignInTests`, `KeyInstallTests`): signing in with an imported key of each type, on port 2222, and with RSA on port 2225, OpenSSH 8.8; installing a key on a host, once, then signing in with it, on port 2224.
+- `ShelloCoreTests` (`ForwardIntegrationTests`): a tab's local forward to the host's own sshd, directly and through a jump host, port 2222 to 2223 in Docker, whose OpenSSH 9.6 banner shows that the destination is reached from the host, or to 2224 with this Mac's sshd; and a forward that stops while the tab reconnects through `FaultyProxy`, then listens again.
 - `ShelloCoreTests` (`JumpHostIntegrationTests`): tabs through one jump host, port 2222 to 2224, and two, to 2226 too, trusting each hop's host key; a changed host key on the jump host; a password, keyboard-interactive and an SSH key on one route, in Docker only; and a first hop through `FaultyProxy` to port 2224 that drops, after which the tab reconnects the route to port 2222, which has tmux, and reattaches its tmux session.
 - `ShelloFeaturesTests` (`SignInPromptTests`): the terminal's sign-in sheet, on port 2222.
 - `ShelloUITests/ConnectionTests`: the trust sheet, the changed host key sheet and its replacement, sign-in with a password, the SSH key and keyboard-interactive to the shell, and the Connection sheet, post-quantum on port 2222 and classical on port 2224.
 - `ShelloUITests/ImportedKeyTests`: installing a key on a host over a tab's connection, on port 2224.
 - `ShelloUITests/JumpHostTests`: a host behind a jump host set up in the host editor, port 2222 to 2224, connected to the shell.
+- `ShelloUITests/PortForwardTests`: a host with port forwards set up in the host editor, connected on port 2222, whose Connection sheet lists one forward that listens, through which the test reads the sshd's banner, one whose port the test already has, and one that is off.
 
 They check that a server greets on its port, and skip with a message that points here when none does. Each needs a fresh connection, and the server's default `MaxStartups` would drop some of many at once, so the test servers raise it.
 

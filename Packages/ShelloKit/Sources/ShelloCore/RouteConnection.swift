@@ -6,10 +6,11 @@ import ShelloTmux
 /// one before: what `HostConnector.connect(along:progress:askToTrust:answer:)` returns, and a tab's
 /// connection (README section 4).
 ///
-/// The tab works on the last connection, its own host's: the shell, the hidden channels, and the
-/// keepalive, whose round trip through the jump hosts is the tab's latency. Its network is the first
-/// connection's, the only one Shello makes from the device. A hop that drops ends the connections
-/// after it, each as lost, so the tab sees one failure, and reconnects the whole route.
+/// The tab works on the last connection, its own host's: the shell, the hidden channels, the port
+/// forwards' tunnels, and the keepalive, whose round trip through the jump hosts is the tab's
+/// latency. Its network is the first connection's, the only one Shello makes from the device. A hop
+/// that drops ends the connections after it, each as lost, so the tab sees one failure, and
+/// reconnects the whole route.
 public final class RouteConnection: TabConnection {
     /// The route the connections follow.
     public let route: Route
@@ -54,6 +55,12 @@ public final class RouteConnection: TabConnection {
 
     public func run(_ command: String) async throws -> SSHCommandResult {
         try await last.run(command)
+    }
+
+    /// A tunnel over the last connection: the destination is reached from the tab's own host, past
+    /// its jump hosts, as OpenSSH's `LocalForward` reaches it with `ProxyJump`.
+    public func openForwardTunnel(to address: String, port: UInt16) async throws -> any ForwardTunnel {
+        try await last.openTunnel(to: address, port: port)
     }
 
     /// Closes every connection, cleanly, the last first: each one's goodbye goes out through the

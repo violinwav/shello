@@ -64,10 +64,10 @@ struct ImportValidationTests {
         Damage("a list that is not one", replacing: #""hosts" : ["#, with: #""hosts" : 1, "x" : ["#, path: "hosts"),
         Damage("an identifier that is not one", replacing: #"000000000001""#, with: #"1""#, path: "groups[0].id"),
         Damage(
-            "a schema version that is not a number", replacing: #""schemaVersion" : 3"#,
-            with: #""schemaVersion" : "3""#, path: "schemaVersion"),
+            "a schema version that is not a number", replacing: #""schemaVersion" : 4"#,
+            with: #""schemaVersion" : "4""#, path: "schemaVersion"),
         Damage(
-            "schema version 0", replacing: #""schemaVersion" : 3"#, with: #""schemaVersion" : 0"#,
+            "schema version 0", replacing: #""schemaVersion" : 4"#, with: #""schemaVersion" : 0"#,
             path: "schemaVersion"),
         // Since version 2, every host has its tmux settings.
         Damage(
@@ -89,6 +89,16 @@ struct ImportValidationTests {
         Damage(
             "jump hosts that are not a list", replacing: #""jumpHostIDs" : ["#,
             with: #""jumpHostIDs" : "bastion", "x" : ["#, path: "hosts[0].jumpHostIDs"),
+        // Since version 4, every host has its port forwards.
+        Damage(
+            "port forwards that are not a list", replacing: #""portForwards" : ["#,
+            with: #""portForwards" : "socks", "x" : ["#, path: "hosts[0].portForwards"),
+        Damage(
+            "a port forward's port as text", replacing: #""localPort" : 15432"#, with: #""localPort" : "15432""#,
+            path: "hosts[2].portForwards[0].localPort"),
+        Damage(
+            "a port forward without its switch", replacing: #""isEnabled" : false,"#, with: "",
+            path: "hosts[2].portForwards[2].isEnabled"),
     ])
     func damagedFileIsRefusedAndTheDatabaseIsUnchanged(_ damage: Damage) async throws {
         try await ExportSample.store(in: test.repository)
@@ -107,6 +117,36 @@ struct ImportValidationTests {
         let data = try Corruption.sample { $0.hosts[0].jumpHostIDs = nil }
 
         #expect(throws: ImportError.damaged(path: "hosts[0].jumpHostIDs")) { try ExportFile(data: data) }
+    }
+
+    /// Since version 4, every host has its port forwards, an empty list for none: a host without the
+    /// key is damage.
+    @Test func hostWithoutItsPortForwardsIsDamage() throws {
+        let data = try Corruption.sample { $0.hosts[2].portForwards = nil }
+
+        #expect(throws: ImportError.damaged(path: "hosts[2].portForwards")) { try ExportFile(data: data) }
+    }
+
+    /// Version 3 had no port forwards: a version 3 file that has them anyway is read without them.
+    @Test func version3FileIsReadWithoutPortForwards() throws {
+        let data = try Corruption.sample { $0.schemaVersion = 3 }
+
+        let file = try ExportFile(data: data)
+
+        #expect(file.hosts.allSatisfy { $0.portForwards.isEmpty })
+        #expect(file.hosts.contains { !$0.jumpHostIDs.isEmpty })
+    }
+
+    /// A dynamic forward has no destination: one in the file is left out.
+    @Test func dynamicForwardIsReadWithoutADestination() throws {
+        let data = try Corruption.sample { format in
+            format.hosts[2].portForwards?[2].destinationAddress = "db.internal"
+            format.hosts[2].portForwards?[2].destinationPort = 5432
+        }
+
+        let file = try ExportFile(data: data)
+
+        #expect(file.hosts[2].portForwards[2].kind == .dynamic)
     }
 
     /// Version 2 had no jump hosts: a version 2 file that has them anyway is read without them.
@@ -151,8 +191,8 @@ struct ImportValidationTests {
     /// A newer Shello may have added records or changed their shape; this version would leave out
     /// what it does not know, so it refuses the file and says to update.
     @Test(arguments: [
-        #"{"format":"ch.shello.export","schemaVersion":4,"hosts":[],"groups":[],"tags":[]}"#,
-        #"{"format":"ch.shello.export","schemaVersion":4,"snippets":[{"name":"uptime"}],"hosts":"elsewhere"}"#,
+        #"{"format":"ch.shello.export","schemaVersion":5,"hosts":[],"groups":[],"tags":[]}"#,
+        #"{"format":"ch.shello.export","schemaVersion":5,"snippets":[{"name":"uptime"}],"hosts":"elsewhere"}"#,
         #"{"format":"ch.shello.export","schemaVersion":99}"#,
     ])
     func fileFromANewerSchemaVersionIsRefused(_ json: String) async throws {
@@ -345,6 +385,42 @@ struct Corruption: Sendable, CustomTestStringConvertible {
             testDescription: "more jump hosts than a route can have",
             change: { $0.hosts[0].jumpHostIDs = (0..<9).map { _ in UUID() } },
             problem: "The host “forge” has more than 8 jump hosts, the most a route can have."),
+        Corruption(
+            testDescription: "a port forward on port 0", change: { $0.hosts[2].portForwards?[0].localPort = 0 },
+            problem: "The host “prod-api-01” has a port forward on port 0, but a port is from 1 to 65535."),
+        Corruption(
+            testDescription: "a port forward on port 65536",
+            change: { $0.hosts[2].portForwards?[2].localPort = 65536 },
+            problem: "The host “prod-api-01” has a port forward on port 65536, but a port is from 1 to 65535."),
+        Corruption(
+            testDescription: "a remote port forward, which version 4 does not know",
+            change: { $0.hosts[2].portForwards?[0].kind = "remote" },
+            problem: "The host “prod-api-01” has a port forward of a kind Shello doesn’t know: “remote”."),
+        Corruption(
+            testDescription: "a local port forward without a destination",
+            change: { $0.hosts[2].portForwards?[0].destinationAddress = nil },
+            problem: "The host “prod-api-01” has a local port forward without a destination."),
+        Corruption(
+            testDescription: "a port forward to an address with a space",
+            change: { $0.hosts[2].portForwards?[0].destinationAddress = "db internal" },
+            problem:
+                "The host “prod-api-01” has a port forward to an address that isn’t a hostname, an IPv4 address or "
+                + "an IPv6 address."),
+        Corruption(
+            testDescription: "a port forward to port 0", change: { $0.hosts[2].portForwards?[1].destinationPort = 0 },
+            problem: "The host “prod-api-01” has a port forward to the port 0, but a port is from 1 to 65535."),
+        Corruption(
+            testDescription: "a null character in a port forward's name",
+            change: { $0.hosts[2].portForwards?[0].name = "D\u{0}b" },
+            problem: "The host “prod-api-01” has a null character in its text, which Shello can’t store."),
+        Corruption(
+            testDescription: "two port forwards with one identifier",
+            change: { $0.hosts[2].portForwards?[1].id = ExportSample.id("000000000301") },
+            problem: "The host “prod-api-01” has two port forwards with the same identifier."),
+        Corruption(
+            testDescription: "two port forwards that are on with one port",
+            change: { $0.hosts[2].portForwards?[1].localPort = 15432 },
+            problem: "The host “prod-api-01” has two port forwards that are on and listen on port 15432."),
         Corruption(
             testDescription: "two hosts with one identifier", change: { $0.hosts[1].id = $0.hosts[0].id },
             problem: "The host “Media PC 📺” has the same identifier as another host in the file."),

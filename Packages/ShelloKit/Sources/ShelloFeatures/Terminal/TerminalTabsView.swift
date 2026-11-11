@@ -157,7 +157,9 @@ private struct TabContent: View {
             }
             .sheet(isPresented: $model.isShowingConnection) {
                 if !tab.keyExchanges.isEmpty {
-                    ConnectionSheet(keyExchanges: tab.keyExchanges) { model.isShowingConnection = false }
+                    ConnectionSheet(keyExchanges: tab.keyExchanges, forwards: tab.forwards) {
+                        model.isShowingConnection = false
+                    }
                 }
             }
     }

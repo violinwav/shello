@@ -247,6 +247,28 @@ final class FakeConnection: TabConnection {
         pathContinuation.finish()
     }
 
+    private let forwardTunnels = Mutex<(destinations: [String], refuses: Bool)>(([], false))
+
+    /// Where the port forwards' tunnels went, as `address:port`, in order.
+    var forwardDestinations: [String] { forwardTunnels.withLock(\.destinations) }
+
+    /// The server refuses the forwards' tunnels from now on, as one whose destination refuses them.
+    func refuseForwardTunnels() {
+        forwardTunnels.withLock { $0.refuses = true }
+    }
+
+    /// A tunnel whose far end sends back what it is sent (`EchoTunnel`).
+    func openForwardTunnel(to address: String, port: UInt16) async throws -> any ForwardTunnel {
+        let refuses = forwardTunnels.withLock { state in
+            state.destinations.append("\(address):\(port)")
+            return state.refuses
+        }
+        if refuses {
+            throw SSHError.channelRefused("Channel opening failure: channel 1 error (2) Connection refused")
+        }
+        return EchoTunnel()
+    }
+
     /// The network drops the connection: the shell's output fails, as `SSHConnection`'s does.
     func lose() {
         shell.fail(SSHError.connectionLost("the network dropped the connection"))

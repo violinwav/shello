@@ -67,6 +67,9 @@ struct HostRecord: StoredRecord, Tombstoned, Identifiable {
     /// The jump hosts' identifiers, in order, 16 bytes each (`StoredIdentifiers`).
     var jumpHostIDs: Data
     var jumpHostIDsModifiedAt: Date
+    /// The port forwards, in order, as JSON (`StoredPortForwards`).
+    var portForwards: String
+    var portForwardsModifiedAt: Date
     var terminalType: String
     var terminalTypeModifiedAt: Date
     /// Milliseconds.
@@ -122,6 +125,8 @@ struct HostRecord: StoredRecord, Tombstoned, Identifiable {
         tmuxSessionNameModifiedAt = now
         jumpHostIDs = StoredIdentifiers.data(host.jumpHostIDs)
         jumpHostIDsModifiedAt = now
+        portForwards = StoredPortForwards.text(host.portForwards)
+        portForwardsModifiedAt = now
         terminalType = host.terminalType
         terminalTypeModifiedAt = now
         keepaliveInterval = host.keepaliveInterval.storedMilliseconds
@@ -196,6 +201,10 @@ struct HostRecord: StoredRecord, Tombstoned, Identifiable {
             jumpHostIDs = StoredIdentifiers.data(host.jumpHostIDs)
             jumpHostIDsModifiedAt = now
         }
+        if host.portForwards != current.portForwards {
+            portForwards = StoredPortForwards.text(host.portForwards)
+            portForwardsModifiedAt = now
+        }
         if host.terminalType != current.terminalType {
             terminalType = host.terminalType
             terminalTypeModifiedAt = now
@@ -238,6 +247,7 @@ struct HostRecord: StoredRecord, Tombstoned, Identifiable {
             tmuxAutoAttach: tmuxAutoAttach,
             tmuxSessionName: tmuxSessionName,
             jumpHostIDs: try StoredIdentifiers.identifiers(jumpHostIDs, column: "jumpHostIDs"),
+            portForwards: try StoredPortForwards.forwards(portForwards, column: "portForwards"),
             terminalType: terminalType,
             keepaliveInterval: .milliseconds(keepaliveInterval),
             connectTimeout: .milliseconds(connectTimeout),
@@ -431,6 +441,80 @@ enum StoredIdentifiers {
                 ))
         }
     }
+}
+
+/// A host's port forwards as one column holds them: a JSON array with an object for each forward, in
+/// the list's order, with sorted keys, so that the same forwards are always the same text. The format
+/// is part of the database: it never changes.
+/// - `id`: the forward's identifier, a UUID in its usual text form.
+/// - `name`: its name, empty for none.
+/// - `kind`: `local` or `dynamic`.
+/// - `localPort`: the port it listens on, from 1 to 65535.
+/// - `destinationAddress` and `destinationPort`: a local forward's destination; left out for a
+///   dynamic forward.
+/// - `isEnabled`: whether it is on.
+enum StoredPortForwards {
+    private struct Forward: Codable {
+        var id: UUID
+        var name: String
+        var kind: String
+        var localPort: UInt16
+        var destinationAddress: String?
+        var destinationPort: UInt16?
+        var isEnabled: Bool
+    }
+
+    static func text(_ forwards: [PortForward]) -> String {
+        let stored = forwards.map { forward in
+            Forward(
+                id: forward.id, name: forward.name, kind: forward.kind.storedValue, localPort: forward.localPort,
+                destinationAddress: forward.destination?.address, destinationPort: forward.destination?.port,
+                isEnabled: forward.isEnabled)
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        // Encoding these values cannot fail: they hold no floating-point number.
+        return (try? encoder.encode(stored)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
+    }
+
+    /// The forwards in `text`, read from `column`.
+    /// - Throws: `UnknownStoredValueError` for text that is not such a list, or a kind this version
+    ///   does not know.
+    static func forwards(_ text: String, column: String) throws -> [PortForward] {
+        guard let stored = try? JSONDecoder().decode([Forward].self, from: Data(text.utf8)) else {
+            throw UnknownStoredValueError(column: column, value: text)
+        }
+        return try stored.map { forward in
+            let kind: PortForward.Kind
+            switch forward.kind {
+            case PortForward.Kind.dynamicValue:
+                kind = .dynamic
+            case PortForward.Kind.localValue:
+                guard let address = forward.destinationAddress, let port = forward.destinationPort else {
+                    throw UnknownStoredValueError(column: column, value: text)
+                }
+                kind = .local(destination: ForwardDestination(address: address, port: port))
+            default:
+                throw UnknownStoredValueError(column: column, value: forward.kind)
+            }
+            return PortForward(
+                id: forward.id, name: forward.name, localPort: forward.localPort, kind: kind,
+                isEnabled: forward.isEnabled)
+        }
+    }
+}
+
+extension PortForward.Kind {
+    /// The kind as the database and the export store it. The values never change.
+    var storedValue: String {
+        switch self {
+        case .local: Self.localValue
+        case .dynamic: Self.dynamicValue
+        }
+    }
+
+    static let localValue = "local"
+    static let dynamicValue = "dynamic"
 }
 
 /// A stored value this version of Shello does not know, for example one written by a newer version.

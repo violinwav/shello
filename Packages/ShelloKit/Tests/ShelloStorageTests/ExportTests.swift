@@ -79,12 +79,19 @@ struct ExportTests {
         #expect(tags.allSatisfy { Set($0.keys) == ["id", "name", "color"] })
         let hostKeys: Set<String> = [
             "id", "name", "address", "port", "protocol", "username", "authMethod", "sshKeyID", "groupID", "tagIDs",
-            "notes", "startupCommand", "tmuxAutoAttach", "tmuxSessionName", "jumpHostIDs", "terminalType",
-            "keepaliveIntervalMilliseconds", "connectTimeoutMilliseconds", "isFavorite", "lastConnectedAt",
+            "notes", "startupCommand", "tmuxAutoAttach", "tmuxSessionName", "jumpHostIDs", "portForwards",
+            "terminalType", "keepaliveIntervalMilliseconds", "connectTimeoutMilliseconds", "isFavorite",
+            "lastConnectedAt",
         ]
         #expect(hosts.allSatisfy { hostKeys.isSuperset(of: $0.keys) })
         // The sample sets every optional field on one host, so each key on the list shows up.
         #expect(Set(hosts.flatMap(\.keys)) == hostKeys)
+        let forwards = hosts.flatMap { $0["portForwards"] as? [[String: Any]] ?? [] }
+        let forwardKeys: Set<String> = [
+            "id", "name", "kind", "localPort", "destinationAddress", "destinationPort", "isEnabled",
+        ]
+        #expect(forwards.allSatisfy { forwardKeys.isSuperset(of: $0.keys) })
+        #expect(Set(forwards.flatMap(\.keys)) == forwardKeys)
 
         let secretWords = ["password", "passphrase", "secret", "private", "credential", "token"]
         for key in Self.keys(in: json) {
@@ -96,16 +103,16 @@ struct ExportTests {
     }
 
     /// A file this version writes must import into every later version, so its format must not
-    /// change while the schema version stays 3. Fixtures/export-v3.json is the sample's export as
-    /// version 3 writes it, and export-v2.json and export-v1.json as versions 2 and 1 wrote it;
-    /// `ImportTests` imports all three.
-    @Test func exportOfTheSampleIsTheVersion3Fixture() async throws {
+    /// change while the schema version stays 4. Fixtures/export-v4.json is the sample's export as
+    /// version 4 writes it, and export-v3.json to export-v1.json as versions 3 to 1 wrote it;
+    /// `ImportTests` imports all four.
+    @Test func exportOfTheSampleIsTheVersion4Fixture() async throws {
         try await ExportSample.store(in: repository)
 
         let data = try await exports.export().encoded()
 
-        #expect(ExportFile.currentSchemaVersion == 3)
-        let fixture = try Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 3))
+        #expect(ExportFile.currentSchemaVersion == 4)
+        let fixture = try Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 4))
         #expect(try Self.object(data) == Self.object(fixture))
     }
 
@@ -122,6 +129,24 @@ struct ExportTests {
 
         #expect(file.hosts.map(\.name) == ["bastion", "web-01"])
         #expect(file.hosts.last?.jumpHostIDs == [inner.id, bastion.id])
+    }
+
+    /// A host's port forwards go into the file in their order, each local one with its destination,
+    /// the dynamic one without, and the one that is off too.
+    @Test func portForwardsAreExportedInTheirOrder() async throws {
+        let nas = Host(name: "nas", address: "nas.lan", username: "admin", portForwards: ExportSample.portForwards)
+        try await repository.create(nas)
+
+        let file = try await exports.export()
+
+        #expect(file.hosts.first?.portForwards == ExportSample.portForwards)
+        let json = try #require(try JSONSerialization.jsonObject(with: file.encoded()) as? [String: Any])
+        let host = try #require((json["hosts"] as? [[String: Any]])?.first)
+        let forwards = try #require(host["portForwards"] as? [[String: Any]])
+        #expect(forwards.map { $0["kind"] as? String } == ["local", "local", "dynamic"])
+        #expect(forwards[1]["destinationAddress"] as? String == "fd00::5")
+        #expect(forwards[2]["destinationAddress"] == nil)
+        #expect(forwards[2]["isEnabled"] as? Bool == false)
     }
 
     /// Every key of every object in `value`.
@@ -153,7 +178,8 @@ enum ExportSample {
             id: id("000000000101"), name: "prod-api-01", address: "10.0.4.21", port: 2222, protocol: .ssh,
             username: "deploy", authMethod: .sshKey, sshKeyID: id("000000000201"), groupID: work.id,
             tagIDs: [tags[0].id, tags[4].id], notes: "Primary API server in Zürich.\nAsk before rebooting.",
-            startupCommand: "tmux new -A -s main", terminalType: "xterm-256color", keepaliveInterval: .seconds(45),
+            startupCommand: "tmux new -A -s main", portForwards: portForwards, terminalType: "xterm-256color",
+            keepaliveInterval: .seconds(45),
             connectTimeout: .milliseconds(7_500), isFavorite: true,
             lastConnectedAt: Date(timeIntervalSinceReferenceDate: 812_345_678.123_456_7)),
         Host(
@@ -167,9 +193,32 @@ enum ExportSample {
             authMethod: .password, jumpHostIDs: [id("000000000101"), id("000000000199")]),
     ]
 
-    /// The sample's hosts as a version 2 file holds them: without jump hosts, which version 3 added.
-    static var version2Hosts: [Host] {
+    /// prod-api-01's port forwards: a local one to a name only the server resolves, one to an IPv6
+    /// address, and a dynamic one that is off.
+    static let portForwards = [
+        PortForward(
+            id: id("000000000301"), name: "Database", localPort: 15432,
+            kind: .local(destination: ForwardDestination(address: "db.internal", port: 5432))),
+        PortForward(
+            id: id("000000000302"), localPort: 8080,
+            kind: .local(destination: ForwardDestination(address: "fd00::5", port: 80))),
+        PortForward(id: id("000000000303"), name: "SOCKS ⚡︎", localPort: 1080, kind: .dynamic, isEnabled: false),
+    ]
+
+    /// The sample's hosts as a version 3 file holds them: without port forwards, which version 4
+    /// added.
+    static var version3Hosts: [Host] {
         hosts.map { host in
+            var host = host
+            host.portForwards = []
+            return host
+        }
+    }
+
+    /// The sample's hosts as a version 2 file holds them: without jump hosts either, which version 3
+    /// added.
+    static var version2Hosts: [Host] {
+        version3Hosts.map { host in
             var host = host
             host.jumpHostIDs = []
             return host

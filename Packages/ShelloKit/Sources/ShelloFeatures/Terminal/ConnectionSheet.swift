@@ -8,9 +8,14 @@ import UIKit
 /// (README section 3), each connection along the route is listed with its own, the jump hosts' first.
 /// VoiceOver reads each algorithm's name with its punctuation, and can copy it. A warning for
 /// classical key exchanges, and requiring a post-quantum one, come in v1.
+///
+/// Under them, the tab's port forwards (README section 4), each with how it stands as it changes:
+/// listening on 127.0.0.1 and its port, not listening and why, or off.
 struct ConnectionSheet: View {
     /// The connections along the tab's route, the tab's own host's last.
     let keyExchanges: [RouteKeyExchange]
+    /// The tab's port forwards.
+    let forwards: TabForwards
     let close: () -> Void
 
     var body: some View {
@@ -41,6 +46,18 @@ struct ConnectionSheet: View {
                         }
                         .listRowBackground(Palette.cell)
                     }
+                }
+                if !forwards.forwards.isEmpty {
+                    Section {
+                        ForEach(forwards.forwards) { forward in
+                            ForwardStateRow(forward: forward)
+                        }
+                    } header: {
+                        SectionHeader("Port Forwards")
+                    } footer: {
+                        FooterText(PortForwardDisplay.lifetimeNote)
+                    }
+                    .listRowBackground(Palette.cell)
                 }
             }
             .font(Typography.body)
@@ -100,6 +117,85 @@ private struct KeyExchangeRows: View {
             UIPasteboard.general.string = keyExchange.name
             announce("Copied")
         }
+    }
+}
+
+/// One of the tab's port forwards: its name, or else its destination, what it does, and how it
+/// stands, by a symbol and in words; and, while it listens, why its last connection did not reach
+/// the destination, until one does. VoiceOver reads it as one element, the state first.
+private struct ForwardStateRow: View {
+    let forward: TabForwards.Forward
+    @AccessibilityFocusState private var isFocused: Bool
+
+    var body: some View {
+        let title = PortForwardDisplay.title(forward.forward)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(Typography.rowTitle)
+            Text(PortForwardDisplay.summary(forward.forward))
+                .font(Typography.dataCaption)
+                .foregroundStyle(Palette.textSecondary)
+            Label {
+                Text(PortForwardDisplay.state(forward.state))
+                    .foregroundStyle(isFailed ? Palette.statusError : Palette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: symbol)
+                    .foregroundStyle(symbolColor)
+            }
+            .labelStyle(.row)
+            if case .listening(_, let problem?) = forward.state {
+                ProblemText(problem: "Last connection: \(problem)")
+                    .labelStyle(.row)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(PortForwardDisplay.spokenTitle(forward.forward))
+        .accessibilityValue(spokenValue)
+        .accessibilityInputLabels([title])
+        .accessibilityIdentifier("forward-state")
+        .accessibilityFocused($isFocused)
+        // VoiceOver does not read a value again as it changes: a forward that stops listening, or
+        // never starts, is said wherever VoiceOver is; the other changes on its row only.
+        .onChange(of: forward.state) { _, state in
+            let spokenTitle = PortForwardDisplay.spokenTitle(forward.forward)
+            if case .failed = state {
+                announce("\(spokenTitle): \(PortForwardDisplay.spokenState(state))", priority: .low)
+            } else if isFocused {
+                announce(PortForwardDisplay.spokenState(state), priority: .low)
+            }
+        }
+    }
+
+    private var isFailed: Bool {
+        if case .failed = forward.state { true } else { false }
+    }
+
+    private var symbol: String {
+        switch forward.state {
+        case .listening: "dot.radiowaves.left.and.right"
+        case .failed: "exclamationmark.triangle.fill"
+        case .off: "pause.circle"
+        case .waiting, .starting: "clock"
+        }
+    }
+
+    private var symbolColor: Color {
+        switch forward.state {
+        case .listening: Palette.accentInk
+        case .failed: Palette.statusError
+        case .off, .waiting, .starting: Palette.textSecondary
+        }
+    }
+
+    private var spokenValue: String {
+        var parts = [PortForwardDisplay.spokenState(forward.state), PortForwardDisplay.spokenSummary(forward.forward)]
+        if case .listening(_, let problem?) = forward.state {
+            parts.append("Last connection: \(problem)")
+        }
+        // Each part a sentence, of which some end with their own full stop.
+        return parts.map { $0.hasSuffix(".") ? $0 : $0 + "." }.joined(separator: " ")
     }
 }
 

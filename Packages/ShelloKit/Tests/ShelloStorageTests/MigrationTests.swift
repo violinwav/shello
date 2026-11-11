@@ -16,7 +16,7 @@ import Testing
 /// `v1FixtureKeepsEveryValue`.
 struct MigrationTests {
     /// Each fixture, with the last migration of its schema version.
-    static let fixtures = [("v1", "v1"), ("v2", "v2"), ("v3", "v3"), ("v4", "v4")]
+    static let fixtures = [("v1", "v1"), ("v2", "v2"), ("v3", "v3"), ("v4", "v4"), ("v5", "v5")]
 
     @Test(arguments: fixtures)
     func fixtureMigratesToTheCurrentSchema(_ fixture: String, _: String) async throws {
@@ -160,6 +160,64 @@ struct MigrationTests {
         #expect(times["jumpHostIDsModifiedAt"] == Date(timeIntervalSinceReferenceDate: 800_004_000))
         #expect(times["tmuxSessionNameModifiedAt"] == Date(timeIntervalSinceReferenceDate: 800_003_000))
     }
+
+    /// Version 5 adds the port forwards. The hosts of every earlier version get none, modified at the
+    /// reference date, older than any change sync could bring.
+    @Test(arguments: ["v1", "v2", "v3", "v4"])
+    func hostsFromBeforeVersion5HaveNoPortForwards(_ fixture: String) async throws {
+        let migrated = try TestDatabase(fixture: fixture)
+
+        let hosts = try await migrated.repository.hosts()
+        #expect(hosts.count == 2)
+        #expect(hosts.allSatisfy { $0.portForwards.isEmpty })
+        for id in [Self.id("000000000101"), Self.id("000000000102"), Self.id("000000000103")] {
+            let times = try await migrated.modificationTimes(table: "host", id: id)
+            #expect(times["portForwardsModifiedAt"] == Date(timeIntervalSinceReferenceDate: 0))
+        }
+    }
+
+    /// The v5 fixture is the v4 fixture migrated, with prod-api-01's port forwards: a local one, a
+    /// local one to an IPv6 address, and a dynamic one that is off. The stored text is part of the
+    /// database's format.
+    @Test func v5FixtureKeepsEveryValue() async throws {
+        let migrated = try TestDatabase(fixture: "v5")
+        let v4 = try TestDatabase(fixture: "v4")
+        var expected = try await v4.repository.hosts()
+        let index = try #require(expected.firstIndex { $0.id == Self.id("000000000101") })
+        expected[index].portForwards = Self.v5PortForwards
+
+        #expect(try await migrated.repository.hosts() == expected)
+        #expect(try await migrated.repository.groups() == v4.repository.groups())
+        #expect(try await migrated.repository.tags() == v4.repository.tags())
+        let times = try await migrated.modificationTimes(table: "host", id: Self.id("000000000101"))
+        #expect(times["portForwardsModifiedAt"] == Date(timeIntervalSinceReferenceDate: 800_005_000))
+        #expect(times["jumpHostIDsModifiedAt"] == Date(timeIntervalSinceReferenceDate: 800_004_000))
+        let stored = try await migrated.database.writer.read { db in
+            try String.fetchOne(
+                db, sql: "SELECT portForwards FROM host WHERE id = ?", arguments: [Self.id("000000000101")])
+        }
+        #expect(stored == Self.v5StoredPortForwards)
+    }
+
+    /// The port forwards of the v5 fixture's prod-api-01.
+    static let v5PortForwards = [
+        PortForward(
+            id: id("000000000301"), name: "Database", localPort: 15432,
+            kind: .local(destination: ForwardDestination(address: "db.internal", port: 5432))),
+        PortForward(
+            id: id("000000000302"), localPort: 8080,
+            kind: .local(destination: ForwardDestination(address: "fd00::5", port: 80))),
+        PortForward(id: id("000000000303"), name: "SOCKS", localPort: 1080, kind: .dynamic, isEnabled: false),
+    ]
+
+    /// `v5PortForwards` as the database stores them.
+    static let v5StoredPortForwards =
+        #"[{"destinationAddress":"db.internal","destinationPort":5432,"id":"00000000-0000-4000-8000-000000000301","#
+        + #""isEnabled":true,"kind":"local","localPort":15432,"name":"Database"},"#
+        + #"{"destinationAddress":"fd00::5","destinationPort":80,"id":"00000000-0000-4000-8000-000000000302","#
+        + #""isEnabled":true,"kind":"local","localPort":8080,"name":""},"#
+        + #"{"id":"00000000-0000-4000-8000-000000000303","isEnabled":false,"kind":"dynamic","localPort":1080,"#
+        + #""name":"SOCKS"}]"#
 
     /// Every table, index and trigger, with the SQL that creates it.
     private static func schema(of reader: some DatabaseReader) async throws -> [String] {

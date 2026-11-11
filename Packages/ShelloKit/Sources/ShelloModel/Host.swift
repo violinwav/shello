@@ -33,6 +33,9 @@ public struct Host: Identifiable, Hashable, Sendable {
     /// directly. A jump host that was deleted stays in the list as a missing one, so that the host
     /// is never reached directly instead: connecting then fails (`Route`).
     public var jumpHostIDs: [Host.ID]
+    /// The host's port forwards (README section 4), in the order the user added them: each listens
+    /// on this device's loopback while one of the host's tabs is connected, and only while it is on.
+    public var portForwards: [PortForward]
     /// The `TERM` value Shello sends to the server.
     public var terminalType: String
     /// How often Shello checks that the connection is alive. A tab shows the round trip as its
@@ -72,6 +75,7 @@ public struct Host: Identifiable, Hashable, Sendable {
         tmuxAutoAttach: Bool = false,
         tmuxSessionName: String = Host.defaultTmuxSessionName,
         jumpHostIDs: [Host.ID] = [],
+        portForwards: [PortForward] = [],
         terminalType: String = Host.defaultTerminalType,
         keepaliveInterval: Duration = Host.defaultKeepaliveInterval,
         connectTimeout: Duration = Host.defaultConnectTimeout,
@@ -93,6 +97,7 @@ public struct Host: Identifiable, Hashable, Sendable {
         self.tmuxAutoAttach = tmuxAutoAttach
         self.tmuxSessionName = tmuxSessionName
         self.jumpHostIDs = jumpHostIDs
+        self.portForwards = portForwards
         self.terminalType = terminalType
         self.keepaliveInterval = keepaliveInterval
         self.connectTimeout = connectTimeout

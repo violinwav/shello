@@ -22,6 +22,9 @@ import os
 /// (`RouteConnection`), connected hop by hop. Each hop's host key and sign-in is asked about with
 /// the hop named, and a hop that drops reconnects the whole route.
 ///
+/// The host's port forwards (README section 4) listen on this device's loopback while the tab is
+/// active and Shello is in the foreground (`TabForwards`), over the last connection of the route.
+///
 /// `TerminalTabs` makes and closes tabs; the screens show them and answer their questions.
 @MainActor
 @Observable
@@ -65,6 +68,9 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
     /// What the last connection did about the host's tmux session, when the host has auto-attach on
     /// (README section 8): attached it, or ran a plain shell, and why. Nil with auto-attach off.
     public private(set) var tmux: TmuxAttachment?
+    /// The host's port forwards, as the host had them when the tab last connected, and how each one
+    /// stands (README section 4).
+    public let forwards = TabForwards()
 
     /// Why the last connection runs a plain shell although the host attaches a tmux session: the
     /// note the terminal shows, for VoiceOver to hear with the connection. Nil otherwise.
@@ -270,6 +276,7 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         do {
             let host = await services.refreshedHost(host)
             self.host = host
+            forwards.set(host.portForwards)
             // Before anything goes over the network: a route Shello refuses, such as one with a
             // missing jump host, never connects directly instead.
             let route = try await services.route(to: host)
@@ -388,6 +395,7 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         isViable = true
         state = .active
         TabLog.logger.info("Tab active after \(self.connectionCount) connection(s)")
+        startForwards()
         watchers = [
             Task { [weak self] in await self?.keepAlive(connection, generation: generation) },
             Task { [weak self] in await self?.watchPath(of: connection, generation: generation) },
@@ -608,10 +616,12 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         tryToConnect()
     }
 
-    /// Ends the connection that the tab had: its keepalive and watch stop, the terminal lets go of
-    /// its stream and keeps what it shows, and the connection closes.
+    /// Ends the connection that the tab had: its keepalive and watch stop, its forwards stop
+    /// listening, the terminal lets go of its stream and keeps what it shows, and the connection
+    /// closes.
     private func endConnection() {
         generation += 1
+        forwards.stop()
         for watcher in watchers { watcher.cancel() }
         watchers = []
         viabilityTimeout?.cancel()
@@ -633,6 +643,27 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         isSigningIn = false
         endTrustQuestion(false)
         answerSignIn(nil)
+    }
+
+    // MARK: - Port forwards
+
+    /// Listens for the host's forwards over the tab's connection, while it is active and Shello is
+    /// in the foreground: other apps on the device can reach a loopback listener too (STACK section
+    /// 7.1).
+    private func startForwards() {
+        guard state == .active, conditions.isInForeground, let connection else { return }
+        forwards.start(opening: { address, port in try await connection.openForwardTunnel(to: address, port: port) })
+    }
+
+    /// Shello left the foreground, or came back to it: the forwards stop listening at once, and
+    /// listen again on the tab's connection if it is still open, as after the short background time
+    /// that keeps it.
+    func foregroundChanged() {
+        if conditions.isInForeground {
+            if !forwards.isActive { startForwards() }
+        } else {
+            forwards.stop()
+        }
     }
 
     // MARK: - Background

@@ -371,6 +371,14 @@ public actor SSHConnection {
         return reason.isEmpty ? message : reason
     }
 
+    /// The reason's code in libssh's message when the server refused to open a channel (RFC 4254
+    /// section 5.1): 1 when the server does not allow it, 2 when it could not connect, 3 for a
+    /// channel type it does not know, 4 when it ran short of resources; nil if the message has none.
+    static func openFailureCode(_ message: String) -> Int? {
+        guard let range = message.range(of: #"error \(\d+\)"#, options: .regularExpression) else { return nil }
+        return Int(message[range].dropFirst("error (".count).dropLast())
+    }
+
     // MARK: - Signing in
 
     // Each way of signing in throws `SSHError.partiallyAuthenticated` when the server accepts it but

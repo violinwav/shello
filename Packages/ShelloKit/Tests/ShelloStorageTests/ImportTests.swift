@@ -43,15 +43,42 @@ struct ImportTests {
 
     /// A file version 3 wrote, with a host whose jump hosts are, in order, a host in the file and
     /// one that is not, as a deleted one is not: both stay, so that the host never connects
-    /// directly.
+    /// directly. Its hosts have no port forwards, as hosts did not before version 4.
     @Test func version3FixtureImportsEveryValueWithTheJumpHostsInOrder() async throws {
         let file = try ExportFile(data: Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 3)))
 
         try await exports.importFile(file)
 
-        #expect(try await Set(repository.hosts()) == Set(ExportSample.hosts))
+        #expect(try await Set(repository.hosts()) == Set(ExportSample.version3Hosts))
         let mediaPC = try #require(try await repository.host(id: ExportSample.id("000000000103")))
         #expect(mediaPC.jumpHostIDs == [ExportSample.id("000000000101"), ExportSample.id("000000000199")])
+    }
+
+    /// A file version 4 wrote, with a host's local and dynamic port forwards in their order, one of
+    /// them off.
+    @Test func version4FixtureImportsEveryValueWithThePortForwardsInOrder() async throws {
+        let file = try ExportFile(data: Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 4)))
+
+        try await exports.importFile(file)
+
+        #expect(try await Set(repository.hosts()) == Set(ExportSample.hosts))
+        let api = try #require(try await repository.host(id: ExportSample.id("000000000101")))
+        #expect(api.portForwards == ExportSample.portForwards)
+    }
+
+    /// A version 3 file says nothing about port forwards, so a host it replaces has none, as hosts
+    /// had none when the file was written.
+    @Test func version3FileReplacesAHostWithoutPortForwards() async throws {
+        var forge = try #require(ExportSample.hosts.first { $0.name == "forge" })
+        forge.groupID = nil
+        forge.tagIDs = []
+        forge.portForwards = ExportSample.portForwards
+        try await repository.create(forge)
+        let file = try ExportFile(data: Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 3)))
+
+        try await exports.importFile(file)
+
+        #expect(try await repository.host(id: forge.id)?.portForwards == [])
     }
 
     /// A version 2 file says nothing about jump hosts, so a host it replaces has none, as hosts had

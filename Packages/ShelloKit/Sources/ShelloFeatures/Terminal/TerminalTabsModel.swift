@@ -356,6 +356,8 @@ final class TerminalTabsModel {
     /// The window became active, inactive or went to the background.
     func scenePhaseChanged(_ phase: ScenePhase) {
         isSceneActive = phase == .active
+        // The port forwards stop as Shello leaves the foreground, before the connections do.
+        tabs.isInForeground = phase != .background
         switch phase {
         case .active:
             closingInBackground?.cancel()

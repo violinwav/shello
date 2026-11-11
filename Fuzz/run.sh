@@ -93,4 +93,23 @@ docker run --rm --volume "$REPO:/shello:ro" --workdir /tmp --env "SECONDS_PER_TA
     mkdir -p key-text-corpus
     cp /shello/Packages/ShelloKit/Tests/KeyFixtures/Keys/* key-text-corpus/
     fuzz key-text
+
+    # SOCKS5 as dynamic forwards serve it (README section 4): the server side of the handshake, as it
+    # ships, with the target in one module.
+    swiftc -sanitize=fuzzer,address -parse-as-library -O -g \
+        /shello/Packages/ShelloKit/Sources/ShelloSSH/Forwards/SOCKS5.swift \
+        /shello/Fuzz/SOCKS5/FuzzTarget.swift \
+        -o socks5
+
+    # Seeds: CONNECT to an IPv4 address, to a domain name with bytes for the destination after it, and
+    # to an IPv6 address; a client that offers only a password; BIND; and a SOCKS4 request.
+    mkdir -p socks5-corpus
+    printf "\x05\x01\x00\x05\x01\x00\x01\x7f\x00\x00\x01\x00\x16" >socks5-corpus/ipv4
+    printf "\x05\x02\x02\x00\x05\x01\x00\x03\x09localhost\x08\xaeSSH-2.0-x\r\n" >socks5-corpus/domain-name
+    printf "\x05\x01\x00\x05\x01\x00\x04\x20\x01\x0d\xb8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x01\xbb" \
+        >socks5-corpus/ipv6
+    printf "\x05\x01\x02" >socks5-corpus/password-only
+    printf "\x05\x01\x00\x05\x02\x00\x01\x00\x00\x00\x00\x00\x00" >socks5-corpus/bind
+    printf "\x04\x01\x00\x50\x7f\x00\x00\x01\x00" >socks5-corpus/socks4
+    fuzz socks5
 '

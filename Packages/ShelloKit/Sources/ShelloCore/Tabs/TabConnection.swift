@@ -45,6 +45,11 @@ public protocol TabConnection: HiddenChannels {
     /// Checks that the server answers, and returns the round trip (README section 4).
     func keepalive() async throws -> Duration
 
+    /// Opens a tunnel to `address` and `port` as the tab's own host's server reaches them, for a
+    /// connection one of its port forwards accepted (README section 4): through jump hosts too, the
+    /// destination is reached from the host.
+    func openForwardTunnel(to address: String, port: UInt16) async throws -> any ForwardTunnel
+
     /// Closes the connection, cleanly, at once.
     func close() async
 }
@@ -66,6 +71,10 @@ extension SSHConnection: TabConnection {
 
     public func openShell(for host: Host, size: TerminalSize) async throws -> any TerminalByteStream {
         try await openShell(terminalType: host.terminalType, size: size)
+    }
+
+    public func openForwardTunnel(to address: String, port: UInt16) async throws -> any ForwardTunnel {
+        try await openTunnel(to: address, port: port)
     }
 }
 
