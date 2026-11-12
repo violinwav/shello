@@ -44,9 +44,10 @@ public final class TerminalTabs<Terminal: TabTerminal> {
     public var isNetworkAvailable: Bool { conditions.isNetworkAvailable }
 
     /// Whether Shello is in the foreground: on screen, active or not. Set by the screens. The tabs'
-    /// port forwards listen only meanwhile (README section 4): as Shello leaves the foreground they
-    /// stop at once, before the background time closes the connections, and they listen again on a
-    /// connection still open once it is back.
+    /// local and dynamic port forwards listen only meanwhile (README section 4): as Shello leaves the
+    /// foreground they stop at once, before the background time closes the connections, and they
+    /// listen again on a connection still open once it is back. Remote forwards go on with the
+    /// connection.
     public var isInForeground: Bool {
         get { conditions.isInForeground }
         set {
@@ -303,7 +304,7 @@ public struct TabServices: Sendable {
 }
 
 /// What a tab waits for before it reconnects: Shello unlocked in the foreground, and a network; and
-/// what its port forwards wait for: Shello in the foreground.
+/// what its local and dynamic port forwards wait for: Shello in the foreground.
 @MainActor
 final class TabConditions {
     var canConnect = true

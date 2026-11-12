@@ -9,7 +9,8 @@
 #   127.0.0.1:2223  OpenSSH 9.6, which has sntrup761x25519-sha512@openssh.com and no ML-KEM
 #   127.0.0.1:2224  OpenSSH 10.3 with post-quantum key exchange off
 #   127.0.0.1:2225  OpenSSH 8.8, the oldest OpenSSH Shello supports
-#   127.0.0.1:2226  OpenSSH 10.3 with the NIST curves and Diffie-Hellman groups only, as in FIPS mode
+#   127.0.0.1:2226  OpenSSH 10.3 with the NIST curves and Diffie-Hellman groups only, as in FIPS mode,
+#                   which allows local forwards only (AllowTcpForwarding local), as a hardened server may
 # --host-key b starts them with the other host key, so that a client that trusted key a sees a
 # changed host key. The servers listen on this Mac's loopback only: their password and keys are
 # public. They share a Docker network of their own, on which each reaches the others by container
@@ -20,13 +21,14 @@ DIR=$(cd "$(dirname "$0")" && pwd)
 # Docker's default bridge resolves no container names; a network of the servers' own does.
 NETWORK=shello-test
 
-# Each server: its container, its port, its image, and the key exchanges it offers (entrypoint.sh).
+# Each server: its container, its port, its image, the key exchanges it offers, and the TCP forwards
+# it allows (entrypoint.sh).
 SERVERS=(
-    "shello-test-openssh 2222 shello-test-openssh default"
-    "shello-test-openssh9 2223 shello-test-openssh9 default"
-    "shello-test-openssh-classical 2224 shello-test-openssh classical"
-    "shello-test-openssh8 2225 shello-test-openssh8 default"
-    "shello-test-openssh-nist 2226 shello-test-openssh nist"
+    "shello-test-openssh 2222 shello-test-openssh default yes"
+    "shello-test-openssh9 2223 shello-test-openssh9 default yes"
+    "shello-test-openssh-classical 2224 shello-test-openssh classical yes"
+    "shello-test-openssh8 2225 shello-test-openssh8 default yes"
+    "shello-test-openssh-nist 2226 shello-test-openssh nist local"
 )
 
 die() {
@@ -49,18 +51,21 @@ wait_for_banner() {
     die "the server did not answer on 127.0.0.1:$port"
 }
 
-# What a server is, after its address: its host key $1, and the key exchanges $2 when they are not
-# OpenSSH's defaults.
+# What a server is, after its address: its host key $1, the key exchanges $2 when they are not
+# OpenSSH's defaults, and the TCP forwards $3 it allows when not all.
 describe() {
     printf 'host key %s' "$1"
     case $2 in
     classical) printf ', post-quantum key exchange off' ;;
     nist) printf ', NIST curves and Diffie-Hellman groups only' ;;
     esac
+    case $3 in
+    local) printf ', local forwards only' ;;
+    esac
 }
 
 start() {
-    local host_key=a server name port image kex
+    local host_key=a server name port image kex forwarding
     while [[ $# -gt 0 ]]; do
         case $1 in
         --host-key)
@@ -78,23 +83,24 @@ start() {
     docker build --quiet --tag shello-test-openssh8 --file "$DIR/openssh8/Dockerfile" "$DIR" >/dev/null
     docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK" >/dev/null
     for server in "${SERVERS[@]}"; do
-        read -r name port image kex <<<"$server"
+        read -r name port image kex forwarding <<<"$server"
         docker rm --force "$name" >/dev/null 2>&1 || true
         docker run --detach --name "$name" --hostname shello-test --network "$NETWORK" \
-            --env "HOST_KEY=$host_key" --env "KEX=$kex" --publish "127.0.0.1:$port:22" "$image" >/dev/null
+            --env "HOST_KEY=$host_key" --env "KEX=$kex" --env "TCP_FORWARDING=$forwarding" \
+            --publish "127.0.0.1:$port:22" "$image" >/dev/null
     done
     for server in "${SERVERS[@]}"; do
-        read -r name port image kex <<<"$server"
-        printf 'Test server on 127.0.0.1:%s, %s: %s\n' "$port" "$(describe "$host_key" "$kex")" \
+        read -r name port image kex forwarding <<<"$server"
+        printf 'Test server on 127.0.0.1:%s, %s: %s\n' "$port" "$(describe "$host_key" "$kex" "$forwarding")" \
             "$(wait_for_banner "$port" "$name")"
     done
     printf 'Sign in as shello, password shello-test-password, or with TestServers/keys/client_ed25519.\n'
 }
 
 stop() {
-    local server name port image kex
+    local server name port image kex forwarding
     for server in "${SERVERS[@]}"; do
-        read -r name port image kex <<<"$server"
+        read -r name port image kex forwarding <<<"$server"
         docker rm --force "$name" >/dev/null 2>&1 || true
     done
     docker network rm "$NETWORK" >/dev/null 2>&1 || true
@@ -102,13 +108,13 @@ stop() {
 }
 
 status() {
-    local server name port image kex host_key stopped=0
+    local server name port image kex forwarding host_key stopped=0
     for server in "${SERVERS[@]}"; do
-        read -r name port image kex <<<"$server"
+        read -r name port image kex forwarding <<<"$server"
         if [[ $(docker inspect --format '{{.State.Running}}' "$name" 2>/dev/null) == true ]]; then
             host_key=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$name" |
                 sed -n 's/^HOST_KEY=//p')
-            printf 'Running on 127.0.0.1:%s, %s: %s\n' "$port" "$(describe "$host_key" "$kex")" \
+            printf 'Running on 127.0.0.1:%s, %s: %s\n' "$port" "$(describe "$host_key" "$kex" "$forwarding")" \
                 "$(wait_for_banner "$port" "$name")"
         else
             printf 'Not running on 127.0.0.1:%s.\n' "$port"

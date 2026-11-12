@@ -26,8 +26,9 @@ public protocol TabConnector: Sendable {
 /// A signed-in connection behind a tab (GLOSSARY: Connection): the connections along its route
 /// (`RouteConnection`), one `SSHConnection` for a host without jump hosts, or a test's stand-in. It
 /// works on the tab's own host. Its hidden channels check the server's tmux before the shell starts
-/// (README section 8).
-public protocol TabConnection: HiddenChannels {
+/// (README section 8). Its remote forwards (`RemoteForwarding`) have the tab's own host's server
+/// listen: through jump hosts too, the request goes to the last connection (README section 4).
+public protocol TabConnection: HiddenChannels, RemoteForwarding {
     /// The key exchange the connection to the tab's own host negotiated (README section 14).
     var keyExchange: KeyExchange? { get async }
 

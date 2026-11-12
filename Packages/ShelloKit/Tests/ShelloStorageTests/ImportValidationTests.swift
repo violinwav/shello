@@ -64,10 +64,10 @@ struct ImportValidationTests {
         Damage("a list that is not one", replacing: #""hosts" : ["#, with: #""hosts" : 1, "x" : ["#, path: "hosts"),
         Damage("an identifier that is not one", replacing: #"000000000001""#, with: #"1""#, path: "groups[0].id"),
         Damage(
-            "a schema version that is not a number", replacing: #""schemaVersion" : 4"#,
+            "a schema version that is not a number", replacing: #""schemaVersion" : 5"#,
             with: #""schemaVersion" : "4""#, path: "schemaVersion"),
         Damage(
-            "schema version 0", replacing: #""schemaVersion" : 4"#, with: #""schemaVersion" : 0"#,
+            "schema version 0", replacing: #""schemaVersion" : 5"#, with: #""schemaVersion" : 0"#,
             path: "schemaVersion"),
         // Since version 2, every host has its tmux settings.
         Damage(
@@ -137,6 +137,35 @@ struct ImportValidationTests {
         #expect(file.hosts.contains { !$0.jumpHostIDs.isEmpty })
     }
 
+    /// Since version 4, every local and dynamic forward has the port it listens on, and since
+    /// version 5 every remote forward the port the server listens on: one without it is damage.
+    @Test(arguments: [
+        (0, "localPort"), (2, "localPort"), (3, "serverPort"),
+    ])
+    func forwardWithoutItsPortIsDamage(index: Int, key: String) throws {
+        let data = try Corruption.sample { format in
+            if key == "localPort" {
+                format.hosts[2].portForwards?[index].localPort = nil
+            } else {
+                format.hosts[2].portForwards?[index].serverPort = nil
+            }
+        }
+
+        #expect(throws: ImportError.damaged(path: "hosts[2].portForwards[\(index)].\(key)")) {
+            try ExportFile(data: data)
+        }
+    }
+
+    /// A remote forward without a bind address listens on the server's loopback, as one with an
+    /// empty one does.
+    @Test func remoteForwardWithoutABindAddressListensOnTheLoopback() throws {
+        let data = try Corruption.sample { $0.hosts[2].portForwards?[3].bindAddress = nil }
+
+        let file = try ExportFile(data: data)
+
+        #expect(file.hosts[2].portForwards[3].bindAddress == "")
+    }
+
     /// A dynamic forward has no destination: one in the file is left out.
     @Test func dynamicForwardIsReadWithoutADestination() throws {
         let data = try Corruption.sample { format in
@@ -191,8 +220,8 @@ struct ImportValidationTests {
     /// A newer Shello may have added records or changed their shape; this version would leave out
     /// what it does not know, so it refuses the file and says to update.
     @Test(arguments: [
-        #"{"format":"ch.shello.export","schemaVersion":5,"hosts":[],"groups":[],"tags":[]}"#,
-        #"{"format":"ch.shello.export","schemaVersion":5,"snippets":[{"name":"uptime"}],"hosts":"elsewhere"}"#,
+        #"{"format":"ch.shello.export","schemaVersion":6,"hosts":[],"groups":[],"tags":[]}"#,
+        #"{"format":"ch.shello.export","schemaVersion":6,"snippets":[{"name":"uptime"}],"hosts":"elsewhere"}"#,
         #"{"format":"ch.shello.export","schemaVersion":99}"#,
     ])
     func fileFromANewerSchemaVersionIsRefused(_ json: String) async throws {
@@ -393,9 +422,40 @@ struct Corruption: Sendable, CustomTestStringConvertible {
             change: { $0.hosts[2].portForwards?[2].localPort = 65536 },
             problem: "The host “prod-api-01” has a port forward on port 65536, but a port is from 1 to 65535."),
         Corruption(
-            testDescription: "a remote port forward, which version 4 does not know",
-            change: { $0.hosts[2].portForwards?[0].kind = "remote" },
+            testDescription: "a remote port forward in a version 4 file, which version 4 did not know",
+            change: { $0.schemaVersion = 4 },
             problem: "The host “prod-api-01” has a port forward of a kind Shello doesn’t know: “remote”."),
+        Corruption(
+            testDescription: "a port forward of an unknown kind",
+            change: { $0.hosts[2].portForwards?[0].kind = "reverse" },
+            problem: "The host “prod-api-01” has a port forward of a kind Shello doesn’t know: “reverse”."),
+        Corruption(
+            testDescription: "a remote port forward on the server's port 0",
+            change: { $0.hosts[2].portForwards?[3].serverPort = 0 },
+            problem: "The host “prod-api-01” has a port forward on port 0, but a port is from 1 to 65535."),
+        Corruption(
+            testDescription: "a remote port forward with a bind address with a space",
+            change: { $0.hosts[2].portForwards?[3].bindAddress = "0.0.0.0 1" },
+            problem:
+                "The host “prod-api-01” has a remote port forward whose bind address isn’t empty, *, a hostname, an "
+                + "IPv4 address or an IPv6 address."),
+        Corruption(
+            testDescription: "a remote port forward without a destination",
+            change: { $0.hosts[2].portForwards?[3].destinationPort = nil },
+            problem: "The host “prod-api-01” has a remote port forward without a destination."),
+        Corruption(
+            testDescription: "a null character in a remote port forward's bind address",
+            change: { $0.hosts[2].portForwards?[3].bindAddress = "host\u{0}" },
+            problem: "The host “prod-api-01” has a null character in its text, which Shello can’t store."),
+        Corruption(
+            testDescription: "two remote port forwards that are on with one server port",
+            change: { format in
+                format.hosts[2].portForwards?[4].isEnabled = true
+                format.hosts[2].portForwards?[4].serverPort = 8080
+            },
+            problem:
+                "The host “prod-api-01” has two remote port forwards that are on and have the server listen on port "
+                + "8080."),
         Corruption(
             testDescription: "a local port forward without a destination",
             change: { $0.hosts[2].portForwards?[0].destinationAddress = nil },

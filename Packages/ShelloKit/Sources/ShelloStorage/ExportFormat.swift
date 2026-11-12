@@ -1,7 +1,7 @@
 import Foundation
 import ShelloModel
 
-/// The JSON of an export file, schema version 4, which reads versions 1 to 3 too. docs/spec/EXPORT.md
+/// The JSON of an export file, schema version 5, which reads versions 1 to 4 too. docs/spec/EXPORT.md
 /// describes the format; these types define it. The format is stable: a file that one version of
 /// Shello writes, every later version reads. A change to it is a new schema version
 /// (`ExportFile.currentSchemaVersion`), so that an older Shello refuses the file instead of leaving
@@ -74,15 +74,24 @@ struct ExportFormat: Codable {
     }
 
     /// One of a host's port forwards: a local forward, with its destination as the server reaches
-    /// it, or a dynamic one, a SOCKS5 server, without.
+    /// it; a dynamic one, a SOCKS5 server, without; or, since schema version 5, a remote one, with the
+    /// port and address the server listens on, and its destination as the device reaches it.
     struct PortForward: Codable {
         var id: UUID
         /// Empty for none.
         var name: String
-        /// `local` or `dynamic`.
+        /// `local`, `dynamic`, or since schema version 5 `remote`.
         var kind: String
-        var localPort: Int
-        /// A local forward's destination; left out for a dynamic one.
+        /// The port a local or dynamic forward listens on, on the device; left out for a remote one.
+        var localPort: Int?
+        /// The port a remote forward has the server listen on; left out for the others. Since
+        /// schema version 5.
+        var serverPort: Int?
+        /// The address a remote forward has the server listen on: empty for the server's loopback,
+        /// `*` for all of its addresses. Left out for the others, and read as empty when a remote
+        /// forward leaves it out. Since schema version 5.
+        var bindAddress: String?
+        /// A local or remote forward's destination; left out for a dynamic one.
         var destinationAddress: String?
         var destinationPort: Int?
         var isEnabled: Bool
@@ -153,7 +162,9 @@ extension ExportFormat.PortForward {
         id = forward.id
         name = forward.name
         kind = forward.kind.storedValue
-        localPort = Int(forward.localPort)
+        localPort = forward.isRemote ? nil : Int(forward.port)
+        serverPort = forward.isRemote ? Int(forward.port) : nil
+        bindAddress = forward.bindAddress
         destinationAddress = forward.destination?.address
         destinationPort = forward.destination.map { Int($0.port) }
         isEnabled = forward.isEnabled
@@ -181,10 +192,23 @@ extension ExportFormat {
                 throw .damaged(path: "hosts[\(index)].jumpHostIDs")
             }
         }
-        // From version 4 on every host has its port forwards, an empty list for none.
+        // From version 4 on every host has its port forwards, an empty list for none, and each
+        // local or dynamic forward its port; from version 5 on each remote forward its server's port.
         if schemaVersion >= 4 {
-            for (index, host) in hosts.enumerated() where host.portForwards == nil {
-                throw .damaged(path: "hosts[\(index)].portForwards")
+            for (index, host) in hosts.enumerated() {
+                guard let forwards = host.portForwards else { throw .damaged(path: "hosts[\(index)].portForwards") }
+                for (position, forward) in forwards.enumerated() {
+                    let path = "hosts[\(index)].portForwards[\(position)]"
+                    switch forward.kind {
+                    case ShelloModel.PortForward.Kind.localValue, ShelloModel.PortForward.Kind.dynamicValue:
+                        if forward.localPort == nil { throw .damaged(path: "\(path).localPort") }
+                    case ShelloModel.PortForward.Kind.remoteValue where schemaVersion >= 5:
+                        if forward.serverPort == nil { throw .damaged(path: "\(path).serverPort") }
+                    default:
+                        // A kind this version does not know is a problem of the host, said with the others.
+                        break
+                    }
+                }
             }
         }
         var problems: [String] = []
@@ -269,7 +293,7 @@ extension ExportFormat.Host {
         if name.isBlank { problems.append("\(label.atStart) has no name.") }
         // Versions 1 to 3 had no port forwards.
         let forwards = schemaVersion < 4 ? [] : portForwards ?? []
-        let forwardTexts = forwards.flatMap { [$0.name, $0.destinationAddress ?? ""] }
+        let forwardTexts = forwards.flatMap { [$0.name, $0.bindAddress ?? "", $0.destinationAddress ?? ""] }
         if ([name, address, username, notes, startupCommand, terminalType] + forwardTexts).contains(
             where: \.hasNullCharacter)
         {
@@ -332,7 +356,7 @@ extension ExportFormat.Host {
             problems.append(
                 "\(label.atStart) has more than \(Route.maximumJumpHosts) jump hosts, the most a route can have.")
         }
-        let checkedForwards = Self.checked(forwards, label: label, problems: &problems)
+        let checkedForwards = Self.checked(forwards, schemaVersion: schemaVersion, label: label, problems: &problems)
         guard problems.count == count, let validPort, let hostProtocol, let method else { return nil }
         return ShelloModel.Host(
             id: id,
@@ -361,40 +385,55 @@ extension ExportFormat.Host {
 }
 
 extension ExportFormat.Host {
-    /// A host's port forwards, checked by the host editor's rules: a kind Shello knows, ports from 1
-    /// to 65535, a local forward's destination a hostname, an IPv4 or an IPv6 address, no two with
-    /// the same identifier, and no two that are on with the same port, of which only one could
-    /// listen. Null characters are checked with the host's other text.
+    /// A host's port forwards, checked by the host editor's rules: a kind Shello knows, which for a
+    /// file before version 5 is not a remote forward, ports from 1 to 65535, a destination a hostname,
+    /// an IPv4 or an IPv6 address, a remote forward's bind address empty, `*` or one of those, no two
+    /// with the same identifier, and no two that are on with the same port on the same side, this
+    /// device or the server, of which only one could listen. Null characters are checked with the
+    /// host's other text. `file()` made sure each forward of a kind Shello knows has its port.
     fileprivate static func checked(
-        _ forwards: [ExportFormat.PortForward], label: RecordName, problems: inout [String]
+        _ forwards: [ExportFormat.PortForward], schemaVersion: Int, label: RecordName, problems: inout [String]
     ) -> [ShelloModel.PortForward] {
         var checked: [ShelloModel.PortForward] = []
         for forward in forwards {
-            let localPort = UInt16(exactly: forward.localPort).flatMap {
-                ShelloModel.PortForward.validPorts.contains($0) ? $0 : nil
-            }
-            if localPort == nil {
-                problems.append(
-                    "\(label.atStart) has a port forward on port \(forward.localPort), but a port is from 1 to 65535.")
-            }
             let kind: ShelloModel.PortForward.Kind?
+            let port: Int?
             switch forward.kind {
             case ShelloModel.PortForward.Kind.dynamicValue:
                 // A dynamic forward has no destination: one in the file is left out.
                 kind = .dynamic
+                port = forward.localPort
             case ShelloModel.PortForward.Kind.localValue:
-                kind = Self.destination(of: forward, label: label, problems: &problems).map {
+                kind = Self.destination(of: forward, kind: "local", label: label, problems: &problems).map {
                     .local(destination: $0)
                 }
+                port = forward.localPort
+            case ShelloModel.PortForward.Kind.remoteValue where schemaVersion >= 5:
+                let bindAddress = forward.bindAddress ?? ""
+                let isBindAddress = ShelloModel.PortForward.isBindAddress(bindAddress)
+                if !isBindAddress {
+                    problems.append(
+                        "\(label.atStart) has a remote port forward whose bind address isn’t empty, *, a hostname, an "
+                            + "IPv4 address or an IPv6 address.")
+                }
+                let destination = Self.destination(of: forward, kind: "remote", label: label, problems: &problems)
+                kind = isBindAddress ? destination.map { .remote(bindAddress: bindAddress, destination: $0) } : nil
+                port = forward.serverPort
             default:
                 problems.append("\(label.atStart) has a port forward of a kind Shello doesn’t know: “\(forward.kind)”.")
                 kind = nil
+                port = nil
             }
-            if let localPort, let kind {
+            let validPort = port.flatMap(UInt16.init(exactly:)).flatMap {
+                ShelloModel.PortForward.validPorts.contains($0) ? $0 : nil
+            }
+            if let port, validPort == nil {
+                problems.append("\(label.atStart) has a port forward on port \(port), but a port is from 1 to 65535.")
+            }
+            if let validPort, let kind {
                 checked.append(
                     ShelloModel.PortForward(
-                        id: forward.id, name: forward.name, localPort: localPort, kind: kind,
-                        isEnabled: forward.isEnabled))
+                        id: forward.id, name: forward.name, port: validPort, kind: kind, isEnabled: forward.isEnabled))
             }
         }
         if Set(forwards.map(\.id)).count < forwards.count {
@@ -403,15 +442,20 @@ extension ExportFormat.Host {
         for port in ShelloModel.PortForward.sharedPorts(checked).sorted() {
             problems.append("\(label.atStart) has two port forwards that are on and listen on port \(port).")
         }
+        for port in ShelloModel.PortForward.sharedPorts(checked, onServer: true).sorted() {
+            problems.append(
+                "\(label.atStart) has two remote port forwards that are on and have the server listen on port \(port).")
+        }
         return checked
     }
 
-    /// A local forward's destination, or nil after its problem.
+    /// A local or remote forward's destination, or nil after its problem; `kind` names the forward's
+    /// kind in it.
     private static func destination(
-        of forward: ExportFormat.PortForward, label: RecordName, problems: inout [String]
+        of forward: ExportFormat.PortForward, kind: String, label: RecordName, problems: inout [String]
     ) -> ForwardDestination? {
         guard let address = forward.destinationAddress, let port = forward.destinationPort else {
-            problems.append("\(label.atStart) has a local port forward without a destination.")
+            problems.append("\(label.atStart) has a \(kind) port forward without a destination.")
             return nil
         }
         let isAddress = !address.hasNullCharacter && AddressKind(of: address) != nil

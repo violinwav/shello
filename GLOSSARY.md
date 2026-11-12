@@ -91,7 +91,7 @@ The login shell of a tab that attaches no tmux session: what a host with auto-at
 _Avoid_: Bare shell, raw shell
 
 **Port forward**:
-A host's setting by which Shello listens on a port of this device's loopback, 127.0.0.1, while one of the host's tabs is connected and Shello is in the foreground, and carries each connection it accepts over the tab's connection to a destination the server reaches: a local forward or a dynamic forward. Behind jump hosts it runs over the connection to the host, so the destination is reached from the host. Other apps on the device can reach it meanwhile; one that is off is kept, and does nothing.
+A host's setting by which a port listens while one of the host's tabs is connected, and each connection to it is carried over the tab's connection: a local forward or a dynamic forward, which listen on this device's loopback, 127.0.0.1, only while Shello is in the foreground, and reach a destination the server reaches; or a remote forward, which has the server listen, and reaches a destination this device reaches. Behind jump hosts it runs over the connection to the host. Other apps on the device can reach a local or dynamic forward meanwhile; one that is off is kept, and does nothing.
 _Avoid_: Tunnel (what each forwarded connection runs through), port mapping, port redirect
 
 **Local forward**:
@@ -101,6 +101,10 @@ _Avoid_: Static forward, local tunnel
 **Dynamic forward**:
 A port forward that is a SOCKS5 proxy: each app that connects says where to go, and the server connects there, resolving names itself, as OpenSSH's `DynamicForward` and `ssh -D` do.
 _Avoid_: SOCKS tunnel, proxy (on its own)
+
+**Remote forward**:
+A port forward by which the server listens on a port of its own, on its loopback unless the forward names another address, its bind address, and each connection the server accepts comes back over the tab's connection to one destination, an address and port as this device reaches them, such as `localhost:3000` on the device, as OpenSSH's `RemoteForward` and `ssh -R` do. The server's `GatewayPorts` setting decides who can reach the port. It lasts as long as the tab's connection, Shello's background time included.
+_Avoid_: Reverse tunnel, reverse forward
 
 **Hidden channel**:
 An SSH channel Shello opens for its own commands, which never appears in a tab.

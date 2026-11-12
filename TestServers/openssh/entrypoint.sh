@@ -17,6 +17,9 @@
 # and later do to an address whose connections fail to sign in, or close before they try: refuse
 # all its connections for a while. Every test connects from the same address, and many of them fail
 # on purpose.
+#
+# TCP_FORWARDING=local (default yes) allows local forwards only (AllowTcpForwarding local): the server
+# opens tunnels, as a jump host does, and refuses remote forwards, as a hardened server may.
 set -eu
 
 CLASSICAL_KEX=curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256
@@ -57,6 +60,15 @@ on) ;;
 off) set -- "$@" -o PerSourcePenalties=no ;;
 *)
     echo "PER_SOURCE_PENALTIES must be on or off, not ${PER_SOURCE_PENALTIES}" >&2
+    exit 64
+    ;;
+esac
+
+case ${TCP_FORWARDING:-yes} in
+yes) ;;
+local) set -- "$@" -o AllowTcpForwarding=local ;;
+*)
+    echo "TCP_FORWARDING must be yes or local, not ${TCP_FORWARDING}" >&2
     exit 64
     ;;
 esac

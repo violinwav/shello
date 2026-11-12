@@ -10,7 +10,8 @@ import UIKit
 /// classical key exchanges, and requiring a post-quantum one, come in v1.
 ///
 /// Under them, the tab's port forwards (README section 4), each with how it stands as it changes:
-/// listening on 127.0.0.1 and its port, not listening and why, or off.
+/// listening on 127.0.0.1 and its port, or on the server's port for a remote forward; not listening
+/// and why, as what the server answered; or off.
 struct ConnectionSheet: View {
     /// The connections along the tab's route, the tab's own host's last.
     let keyExchanges: [RouteKeyExchange]
@@ -55,7 +56,7 @@ struct ConnectionSheet: View {
                     } header: {
                         SectionHeader("Port Forwards")
                     } footer: {
-                        FooterText(PortForwardDisplay.lifetimeNote)
+                        FooterText(PortForwardDisplay.lifetimeNote(forwards.forwards.map(\.forward)))
                     }
                     .listRowBackground(Palette.cell)
                 }
@@ -136,7 +137,7 @@ private struct ForwardStateRow: View {
                 .font(Typography.dataCaption)
                 .foregroundStyle(Palette.textSecondary)
             Label {
-                Text(PortForwardDisplay.state(forward.state))
+                Text(PortForwardDisplay.state(forward.state, of: forward.forward))
                     .foregroundStyle(isFailed ? Palette.statusError : Palette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             } icon: {
@@ -161,9 +162,10 @@ private struct ForwardStateRow: View {
         .onChange(of: forward.state) { _, state in
             let spokenTitle = PortForwardDisplay.spokenTitle(forward.forward)
             if case .failed = state {
-                announce("\(spokenTitle): \(PortForwardDisplay.spokenState(state))", priority: .low)
+                announce(
+                    "\(spokenTitle): \(PortForwardDisplay.spokenState(state, of: forward.forward))", priority: .low)
             } else if isFocused {
-                announce(PortForwardDisplay.spokenState(state), priority: .low)
+                announce(PortForwardDisplay.spokenState(state, of: forward.forward), priority: .low)
             }
         }
     }
@@ -190,7 +192,10 @@ private struct ForwardStateRow: View {
     }
 
     private var spokenValue: String {
-        var parts = [PortForwardDisplay.spokenState(forward.state), PortForwardDisplay.spokenSummary(forward.forward)]
+        var parts = [
+            PortForwardDisplay.spokenState(forward.state, of: forward.forward),
+            PortForwardDisplay.spokenSummary(forward.forward),
+        ]
         if case .listening(_, let problem?) = forward.state {
             parts.append("Last connection: \(problem)")
         }

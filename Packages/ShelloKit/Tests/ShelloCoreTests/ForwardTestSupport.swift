@@ -15,6 +15,9 @@ final class EchoTunnel: ForwardTunnel {
 
     private let state = Mutex(State())
 
+    /// Whether the tunnel was closed.
+    var isClosed: Bool { state.withLock(\.isClosed) }
+
     func send(_ bytes: [UInt8]) {
         change { $0.echoed.append(bytes) }
     }
@@ -174,4 +177,79 @@ func freeLoopbackPort() async throws -> UInt16 {
     listener.stop()
     await listener.stopped()
     return port
+}
+
+/// A TCP server of the test's own on this Mac's loopback, the destination a remote forward reaches
+/// from the device: each connection gets `greeting`, then what it sends comes back.
+final class EchoServer: Sendable {
+    /// The port it listens on, on 127.0.0.1.
+    let port: UInt16
+    private let listener: NWListener
+    private let accepted: Counter
+
+    /// How many connections it accepted, shared with the listener's handler, which a listener needs
+    /// before it starts.
+    private final class Counter: Sendable {
+        let count = Mutex(0)
+    }
+
+    init(greeting: String) async throws {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
+        let listener = try NWListener(using: parameters)
+        self.listener = listener
+        let queue = DispatchQueue(label: "ch.shello.tests.echo")
+        let accepted = Counter()
+        self.accepted = accepted
+        listener.newConnectionHandler = { connection in
+            accepted.count.withLock { $0 += 1 }
+            connection.start(queue: queue)
+            connection.send(content: Data(greeting.utf8), completion: .contentProcessed { _ in })
+            Self.echo(connection)
+        }
+        port = try await withCheckedThrowingContinuation { continuation in
+            let once = Once()
+            listener.stateUpdateHandler = { state in
+                switch state {
+                case .ready: if once.isFirst() { continuation.resume(returning: listener.port?.rawValue ?? 0) }
+                case .failed(let error): if once.isFirst() { continuation.resume(throwing: error) }
+                default: break
+                }
+            }
+            listener.start(queue: queue)
+        }
+    }
+
+    deinit {
+        listener.cancel()
+    }
+
+    /// How many connections it accepted.
+    var acceptedCount: Int { accepted.count.withLock { $0 } }
+
+    private static func echo(_ connection: NWConnection) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { content, _, isComplete, error in
+            if let content, !content.isEmpty {
+                connection.send(content: content, completion: .contentProcessed { _ in })
+            }
+            if isComplete || error != nil {
+                connection.send(
+                    content: nil, contentContext: .finalMessage, isComplete: true,
+                    completion: .contentProcessed { _ in })
+            } else {
+                echo(connection)
+            }
+        }
+    }
+}
+
+extension ForwardTunnel {
+    /// What arrives until it contains `text`, or the far end ends.
+    func read(until text: String) async throws -> String {
+        var received = ""
+        while !received.contains(text), let chunk = try await receive() {
+            received += String(decoding: chunk, as: UTF8.self)
+        }
+        return received
+    }
 }

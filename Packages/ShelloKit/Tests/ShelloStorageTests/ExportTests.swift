@@ -88,7 +88,8 @@ struct ExportTests {
         #expect(Set(hosts.flatMap(\.keys)) == hostKeys)
         let forwards = hosts.flatMap { $0["portForwards"] as? [[String: Any]] ?? [] }
         let forwardKeys: Set<String> = [
-            "id", "name", "kind", "localPort", "destinationAddress", "destinationPort", "isEnabled",
+            "id", "name", "kind", "localPort", "serverPort", "bindAddress", "destinationAddress", "destinationPort",
+            "isEnabled",
         ]
         #expect(forwards.allSatisfy { forwardKeys.isSuperset(of: $0.keys) })
         #expect(Set(forwards.flatMap(\.keys)) == forwardKeys)
@@ -103,17 +104,39 @@ struct ExportTests {
     }
 
     /// A file this version writes must import into every later version, so its format must not
-    /// change while the schema version stays 4. Fixtures/export-v4.json is the sample's export as
-    /// version 4 writes it, and export-v3.json to export-v1.json as versions 3 to 1 wrote it;
-    /// `ImportTests` imports all four.
-    @Test func exportOfTheSampleIsTheVersion4Fixture() async throws {
+    /// change while the schema version stays 5. Fixtures/export-v5.json is the sample's export as
+    /// version 5 writes it, and export-v4.json to export-v1.json as versions 4 to 1 wrote it;
+    /// `ImportTests` imports all five.
+    @Test func exportOfTheSampleIsTheVersion5Fixture() async throws {
         try await ExportSample.store(in: repository)
 
         let data = try await exports.export().encoded()
 
-        #expect(ExportFile.currentSchemaVersion == 4)
-        let fixture = try Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 4))
+        #expect(ExportFile.currentSchemaVersion == 5)
+        let fixture = try Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 5))
         #expect(try Self.object(data) == Self.object(fixture))
+    }
+
+    /// A remote forward goes into the file with the port and address the server listens on, and
+    /// without a local port; a local one keeps its local port, and no server port.
+    @Test func remoteForwardIsExportedWithTheServersPortAndAddress() async throws {
+        try await ExportSample.store(in: repository)
+
+        let data = try await exports.export().encoded()
+
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let hosts = try #require(json["hosts"] as? [[String: Any]])
+        let forwards = hosts.flatMap { $0["portForwards"] as? [[String: Any]] ?? [] }
+        let preview = try #require(forwards.first { $0["name"] as? String == "Preview" })
+        #expect(preview["kind"] as? String == "remote")
+        #expect(preview["serverPort"] as? Int == 8080)
+        #expect(preview["bindAddress"] as? String == "")
+        #expect(preview["localPort"] == nil)
+        #expect(preview["destinationAddress"] as? String == "localhost")
+        let database = try #require(forwards.first { $0["name"] as? String == "Database" })
+        #expect(database["localPort"] as? Int == 15432)
+        #expect(database["serverPort"] == nil)
+        #expect(database["bindAddress"] == nil)
     }
 
     /// A host's jump hosts go into the file in their order, a deleted one included: importing the
@@ -143,7 +166,7 @@ struct ExportTests {
         let json = try #require(try JSONSerialization.jsonObject(with: file.encoded()) as? [String: Any])
         let host = try #require((json["hosts"] as? [[String: Any]])?.first)
         let forwards = try #require(host["portForwards"] as? [[String: Any]])
-        #expect(forwards.map { $0["kind"] as? String } == ["local", "local", "dynamic"])
+        #expect(forwards.map { $0["kind"] as? String } == ["local", "local", "dynamic", "remote", "remote"])
         #expect(forwards[1]["destinationAddress"] as? String == "fd00::5")
         #expect(forwards[2]["destinationAddress"] == nil)
         #expect(forwards[2]["isEnabled"] as? Bool == false)
@@ -194,16 +217,41 @@ enum ExportSample {
     ]
 
     /// prod-api-01's port forwards: a local one to a name only the server resolves, one to an IPv6
-    /// address, and a dynamic one that is off.
-    static let portForwards = [
+    /// address, a dynamic one that is off; and a remote one from the server's port 8080, the same
+    /// number as a local one's on the device, to this device's port 3000, and one on all of the
+    /// server's addresses to a device on the local network, which is off.
+    static let portForwards =
+        version4PortForwards + [
+            PortForward(
+                id: id("000000000304"), name: "Preview", port: 8080,
+                kind: .remote(bindAddress: "", destination: ForwardDestination(address: "localhost", port: 3000))),
+            PortForward(
+                id: id("000000000305"), port: 9000,
+                kind: .remote(bindAddress: "*", destination: ForwardDestination(address: "192.168.1.20", port: 80)),
+                isEnabled: false),
+        ]
+
+    /// prod-api-01's port forwards as a version 4 file holds them: without the remote ones, which
+    /// version 5 added.
+    static let version4PortForwards = [
         PortForward(
-            id: id("000000000301"), name: "Database", localPort: 15432,
+            id: id("000000000301"), name: "Database", port: 15432,
             kind: .local(destination: ForwardDestination(address: "db.internal", port: 5432))),
         PortForward(
-            id: id("000000000302"), localPort: 8080,
+            id: id("000000000302"), port: 8080,
             kind: .local(destination: ForwardDestination(address: "fd00::5", port: 80))),
-        PortForward(id: id("000000000303"), name: "SOCKS ⚡︎", localPort: 1080, kind: .dynamic, isEnabled: false),
+        PortForward(id: id("000000000303"), name: "SOCKS ⚡︎", port: 1080, kind: .dynamic, isEnabled: false),
     ]
+
+    /// The sample's hosts as a version 4 file holds them: without remote forwards, which version 5
+    /// added.
+    static var version4Hosts: [Host] {
+        hosts.map { host in
+            var host = host
+            host.portForwards.removeAll(where: \.isRemote)
+            return host
+        }
+    }
 
     /// The sample's hosts as a version 3 file holds them: without port forwards, which version 4
     /// added.

@@ -22,8 +22,10 @@ import os
 /// (`RouteConnection`), connected hop by hop. Each hop's host key and sign-in is asked about with
 /// the hop named, and a hop that drops reconnects the whole route.
 ///
-/// The host's port forwards (README section 4) listen on this device's loopback while the tab is
-/// active and Shello is in the foreground (`TabForwards`), over the last connection of the route.
+/// The host's port forwards (README section 4) run over the last connection of the route
+/// (`TabForwards`): local and dynamic forwards listen on this device's loopback while the tab is
+/// active and Shello is in the foreground, and remote forwards have the server listen while the tab
+/// is active.
 ///
 /// `TerminalTabs` makes and closes tabs; the screens show them and answer their questions.
 @MainActor
@@ -618,7 +620,7 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
 
     /// Ends the connection that the tab had: its keepalive and watch stop, its forwards stop
     /// listening, the terminal lets go of its stream and keeps what it shows, and the connection
-    /// closes.
+    /// closes, once the server answered the remote forwards' cancels, or a moment passed.
     private func endConnection() {
         generation += 1
         forwards.stop()
@@ -630,7 +632,11 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         terminal.detach()
         if let connection {
             self.connection = nil
-            Task { await connection.close() }
+            let forwards = forwards
+            Task {
+                await forwards.remoteStopped()
+                await connection.close()
+            }
         }
     }
 
@@ -647,22 +653,33 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
 
     // MARK: - Port forwards
 
-    /// Listens for the host's forwards over the tab's connection, while it is active and Shello is
-    /// in the foreground: other apps on the device can reach a loopback listener too (STACK section
-    /// 7.1).
+    /// Starts the host's forwards over the tab's connection, once it is active: the remote forwards
+    /// at once, and the local and dynamic ones while Shello is in the foreground.
     private func startForwards() {
-        guard state == .active, conditions.isInForeground, let connection else { return }
-        forwards.start(opening: { address, port in try await connection.openForwardTunnel(to: address, port: port) })
+        guard state == .active, let connection else { return }
+        forwards.startRemote(over: connection)
+        startForwardsOnDevice()
     }
 
-    /// Shello left the foreground, or came back to it: the forwards stop listening at once, and
-    /// listen again on the tab's connection if it is still open, as after the short background time
-    /// that keeps it.
+    /// Listens for the host's local and dynamic forwards over the tab's connection, while it is
+    /// active and Shello is in the foreground: other apps on the device can reach a loopback listener
+    /// too (STACK section 7.1).
+    private func startForwardsOnDevice() {
+        guard state == .active, conditions.isInForeground, let connection else { return }
+        forwards.startOnDevice(opening: { address, port in
+            try await connection.openForwardTunnel(to: address, port: port)
+        })
+    }
+
+    /// Shello left the foreground, or came back to it: the local and dynamic forwards stop listening
+    /// at once, and listen again on the tab's connection if it is still open, as after the short
+    /// background time that keeps it. The remote forwards, which nothing on the device can reach, go
+    /// on as long as the connection.
     func foregroundChanged() {
         if conditions.isInForeground {
-            if !forwards.isActive { startForwards() }
+            if !forwards.isActiveOnDevice { startForwardsOnDevice() }
         } else {
-            forwards.stop()
+            forwards.stopOnDevice()
         }
     }
 
@@ -698,7 +715,10 @@ public final class TerminalTab<Terminal: TabTerminal>: Identifiable {
         state = .closed
         cancelAttempt()
         endConnection()
+        let forwards = forwards
         return Task {
+            // The server hears the remote forwards' cancels first.
+            await forwards.remoteStopped()
             await connection?.close()
             await pending?.value
         }

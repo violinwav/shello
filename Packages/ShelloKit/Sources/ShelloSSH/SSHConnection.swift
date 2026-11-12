@@ -21,8 +21,10 @@ import os
 /// caller to check before anything about the user is sent; then one or more of
 /// `authenticate(password:)`, `authenticate(keyboardInteractive:)`,
 /// `authenticate(privateKey:passphrase:)` and `authenticate(agentSocket:)`; then `run(_:)` on hidden
-/// channels, and `openShell` for a terminal. `keepalive()` checks that the server still answers, and
-/// `pathEvents` tells what happens to the network under the connection. `close()` ends it all.
+/// channels, and `openShell` for a terminal. `openTunnel(to:port:)` reaches what the server reaches,
+/// and `requestRemoteForward(bindAddress:port:)` has the server listen for Shello. `keepalive()`
+/// checks that the server still answers, and `pathEvents` tells what happens to the network under the
+/// connection. `close()` ends it all.
 ///
 /// Through a jump host (README section 3), the connection is the next hop of a route: its server
 /// is reached over a tunnel of the connection before it (`openTunnel(to:port:)`), which carries
@@ -77,6 +79,19 @@ public actor SSHConnection {
     private var shells: [Int: Shell] = [:]
     /// The tunnels among the channels.
     private var tunnels: [Int: Tunnel] = [:]
+    /// The remote forwards the server listens for, by the port it listens on: where the channels it
+    /// opens for each go.
+    private var remoteForwards: [UInt16: RemoteForward] = [:]
+    private var nextRemoteForwardID = 0
+    /// Whether the connection asked the server for a remote forward: from then on it takes the
+    /// channels the server opens for one, as libssh reads them, and closes those of a forward it no
+    /// longer has.
+    private var acceptsForwardedChannels = false
+    /// Whether taking those channels is scheduled on the queue.
+    private var isAcceptScheduled = false
+    /// Whether a global request waits for the server's answer. libssh keeps one at a time: a request
+    /// made meanwhile would not be sent, and would get the other's answer.
+    private var isGlobalRequestPending = false
 
     // MARK: Bridge
 
@@ -605,14 +620,81 @@ public actor SSHConnection {
     /// `keepalive@openssh.com` request, and returns its round trip once the server has answered,
     /// which a tab shows as its latency. A server answers a request it does not know with a failure,
     /// which is an answer all the same. libssh waits for one global request at a time, so a
-    /// keepalive while another waits shares its answer.
+    /// keepalive while a remote forward's request waits is sent once that one has its answer.
     /// - Throws: `SSHError`, or `CancellationError`.
     public func keepalive() async throws -> Duration {
         let clock = ContinuousClock()
         let start = clock.now
-        try await perform { session in
-            switch unsafe ssh_global_request(session.pointer, Self.keepaliveRequest, nil, 1) {
-            case SSH_OK: return ()
+        _ = try await globalRequest(.keepalive)
+        return clock.now - start
+    }
+
+    /// A global request (RFC 4254 section 4) the connection sends.
+    private enum GlobalRequest: Sendable {
+        /// OpenSSH's keepalive.
+        case keepalive
+        /// `tcpip-forward`: the server listens for a remote forward.
+        case listen(bindAddress: String, port: UInt16)
+        /// `cancel-tcpip-forward`: the server stops listening for one.
+        case cancel(bindAddress: String, port: UInt16)
+    }
+
+    /// Sends `request` once no other global request of the connection waits for its answer, and
+    /// returns whether the server took it: true for its success answer, false for its failure. libssh
+    /// keeps one global request at a time: one made while another waits is not sent, and gets the
+    /// other's answer. A caller cancelled while its request waits returns at once, as a keepalive's
+    /// timeout needs; the connection still takes the answer, unseen, before it sends the next request.
+    /// - Throws: `SSHError` if the connection ends first, or `CancellationError`.
+    private func globalRequest(_ request: GlobalRequest) async throws -> Bool {
+        try await perform { _ in isGlobalRequestPending ? nil : () }
+        isGlobalRequestPending = true
+        do {
+            let answer = try await answer(to: request)
+            globalRequestEnded()
+            return answer
+        } catch is CancellationError {
+            // libssh sent the request on the first call, and waits for its answer: an unstructured
+            // task, which the caller's cancel does not reach, takes it.
+            Task { await self.takeAbandonedGlobalAnswer() }
+            throw CancellationError()
+        } catch {
+            globalRequestEnded()
+            throw error
+        }
+    }
+
+    /// Waits for the answer to the global request whose caller was cancelled, then lets the next
+    /// one go. With a request waiting, libssh's call sends nothing, and returns once the answer came.
+    private func takeAbandonedGlobalAnswer() async {
+        _ = try? await perform { session -> Void? in
+            unsafe ssh_global_request(session.pointer, Self.keepaliveRequest, nil, 1) == SSH_AGAIN ? nil : ()
+        }
+        globalRequestEnded()
+    }
+
+    /// The global request has its answer, or the connection ended: the next one looks again.
+    private func globalRequestEnded() {
+        isGlobalRequestPending = false
+        progress += 1
+        wakeWaiters()
+    }
+
+    /// Sends `request`, and returns whether the server took it, once it answered.
+    private func answer(to request: GlobalRequest) async throws -> Bool {
+        try await perform { session -> Bool? in
+            let result: Int32 =
+                switch request {
+                case .keepalive:
+                    unsafe ssh_global_request(session.pointer, Self.keepaliveRequest, nil, 1)
+                case .listen(let bindAddress, let port):
+                    // A port 0 would have the server choose one, which libssh does not report
+                    // reliably; Shello always asks for one.
+                    unsafe ssh_channel_listen_forward(session.pointer, bindAddress, Int32(port), nil)
+                case .cancel(let bindAddress, let port):
+                    unsafe ssh_channel_cancel_forward(session.pointer, bindAddress, Int32(port))
+                }
+            switch result {
+            case SSH_OK: return true
             case SSH_AGAIN: return nil
             default:
                 if let failure { throw failure }
@@ -622,10 +704,123 @@ public actor SSHConnection {
                 guard code == Int32(SSH_REQUEST_DENIED.rawValue), unsafe ssh_is_connected(session.pointer) != 0 else {
                     throw libsshError(session)
                 }
-                return ()
+                return false
             }
         }
-        return clock.now - start
+    }
+
+    // MARK: - Remote forwards
+
+    /// Asks the server to listen on `port` of `bindAddress` for a remote forward (README section 4),
+    /// with the `tcpip-forward` request (RFC 4254 section 7.1), and returns the tunnels of the
+    /// connections it forwards, its `forwarded-tcpip` channels, as they come. They end once the
+    /// forward is cancelled or the connection ends; a tunnel the reader no longer takes is closed.
+    ///
+    /// `bindAddress` goes to the server as it is: OpenSSH's client sends `localhost` for the server's
+    /// loopback, and an empty address for all of its addresses. The server's `GatewayPorts` decides
+    /// what it honours: by default, its loopback only, whatever was asked.
+    /// - Throws: `SSHError.channelRefused` if the server refused, as one that does not allow remote
+    ///   forwards does, or one that cannot listen on the port, which another program has, or which
+    ///   only its administrator may take; `CancellationError` if the forward was cancelled before the
+    ///   server answered; another `SSHError` if the connection ends first.
+    public func requestRemoteForward(bindAddress: String, port: UInt16) async throws -> AsyncStream<any ForwardTunnel> {
+        guard session != nil, failure == nil else { throw failure ?? SSHError.closed }
+        guard port != 0 else { throw SSHError.channelRefused("port 0 is not a port") }
+        guard remoteForwards[port] == nil else {
+            throw SSHError.channelRefused("the connection already has a remote forward on port \(port)")
+        }
+        let (channels, continuation) = AsyncStream.makeStream(of: (any ForwardTunnel).self)
+        let id = nextRemoteForwardID
+        nextRemoteForwardID += 1
+        // In place before the request goes: the server may forward a connection before its answer
+        // has been read.
+        remoteForwards[port] = RemoteForward(id: id, continuation: continuation)
+        acceptsForwardedChannels = true
+        let isListening: Bool
+        do {
+            isListening = try await globalRequest(.listen(bindAddress: bindAddress, port: port))
+        } catch {
+            if remoteForwards[port]?.id == id { remoteForwards.removeValue(forKey: port)?.continuation.finish() }
+            throw error
+        }
+        // Cancelled while the server answered: the cancel follows this request.
+        guard remoteForwards[port]?.id == id else { throw CancellationError() }
+        guard isListening else {
+            remoteForwards.removeValue(forKey: port)?.continuation.finish()
+            throw SSHError.channelRefused("the server didn’t listen on port \(port)")
+        }
+        Self.logger.info("The server listens for a remote forward on port \(port, privacy: .public)")
+        return channels
+    }
+
+    /// Asks the server to stop listening for the remote forward on `port` of `bindAddress`, with the
+    /// `cancel-tcpip-forward` request, and ends its tunnels' sequence at once. A connection the server
+    /// forwards for it from then on is closed as it comes; tunnels already handed out stay open. A
+    /// request still waiting for its answer is cancelled once it has it. Cancelling a forward the
+    /// connection does not have does nothing; on a connection that ended, the server stopped
+    /// listening with it.
+    public func cancelRemoteForward(bindAddress: String, port: UInt16) async {
+        guard let forward = remoteForwards.removeValue(forKey: port) else { return }
+        forward.continuation.finish()
+        guard session != nil, failure == nil else { return }
+        do {
+            let isCancelled = try await globalRequest(.cancel(bindAddress: bindAddress, port: port))
+            if !isCancelled {
+                Self.logger.notice("The server refused to cancel the remote forward on port \(port, privacy: .public)")
+            }
+        } catch {
+            Self.logger.debug("A remote forward’s cancel ended with the connection: \(String(describing: error))")
+        }
+    }
+
+    /// One of the remote forwards the server listens for.
+    private struct RemoteForward {
+        /// Tells this request from a later one on the same port.
+        let id: Int
+        let continuation: AsyncStream<any ForwardTunnel>.Continuation
+    }
+
+    /// Schedules taking the channels the server opened for remote forwards, after the work queued
+    /// before it: libssh holds them, as it reads them, until they are taken.
+    private func scheduleForwardedChannelAccept() {
+        guard acceptsForwardedChannels, !isAcceptScheduled else { return }
+        isAcceptScheduled = true
+        queue.async { [weak self] in
+            self?.assumeIsolated { $0.acceptForwardedChannels() }
+        }
+    }
+
+    /// Takes each `forwarded-tcpip` channel the server opened, which libssh confirms as it is taken,
+    /// and hands it to its remote forward's sequence as a tunnel. One for a port the connection no
+    /// longer has a forward on, as one the server opened while it was cancelled, is closed at once.
+    private func acceptForwardedChannels() {
+        dispatchPrecondition(condition: .onQueue(queue))
+        isAcceptScheduled = false
+        guard let session, failure == nil else { return }
+        let unread = unreadByLibssh
+        while true {
+            var port: Int32 = 0
+            // Without waiting: libssh reads what came in, and takes the first such channel.
+            guard let pointer = unsafe ssh_channel_open_forward_port(session.pointer, 0, &port, nil, nil) else { break }
+            let id = nextChannelID
+            nextChannelID += 1
+            channels[id] = unsafe Handle(pointer)
+            guard let forward = UInt16(exactly: port).flatMap({ remoteForwards[$0] }) else {
+                Self.logger.notice("Closed a connection the server forwarded for port \(port, privacy: .public)")
+                freeChannel(id)
+                continue
+            }
+            let input = TunnelInput()
+            tunnels[id] = Tunnel(input: input)
+            if case .terminated = forward.continuation.yield(SSHTunnel(connection: self, channelID: id, input: input)) {
+                closeTunnel(id)
+            }
+        }
+        if unreadByLibssh < unread {
+            libsshDidRead()
+        }
+        // The confirmations go out.
+        pump()
     }
 
     // MARK: - Shells
@@ -937,6 +1132,11 @@ public actor SSHConnection {
         channels.removeAll()
         shells.removeAll()
         tunnels.removeAll()
+        // The server stops listening for the remote forwards as the session ends.
+        for forward in remoteForwards.values {
+            forward.continuation.finish()
+        }
+        remoteForwards.removeAll()
         var closesLibsshSocket = true
         var goodbye: [UInt8] = []
         if let session {
@@ -1047,6 +1247,10 @@ public actor SSHConnection {
         Self.logger.notice("Connection ended: \(error.description)")
         failure = error
         tunnelOpening?.cancel()
+        for forward in remoteForwards.values {
+            forward.continuation.finish()
+        }
+        remoteForwards.removeAll()
         switch transport {
         case .network(let network): network.cancel()
         case .tunnel(let tunnel): Task { await tunnel.close() }
@@ -1194,11 +1398,13 @@ public actor SSHConnection {
         receive()
     }
 
-    /// libssh read something new: the operations waiting look again, and the shells and tunnels
-    /// with input left write it, in case it was the server's window adjustment.
+    /// libssh read something new: the operations waiting look again, the shells and tunnels with
+    /// input left write it, in case it was the server's window adjustment, and the channels the
+    /// server opened for remote forwards are taken.
     private func libsshDidRead() {
         progress += 1
         wakeWaiters()
+        scheduleForwardedChannelAccept()
         for (id, shell) in shells where shell.hasPendingInput {
             scheduleShellFlush(id)
         }

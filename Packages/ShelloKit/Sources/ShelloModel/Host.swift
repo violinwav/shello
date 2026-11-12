@@ -34,7 +34,8 @@ public struct Host: Identifiable, Hashable, Sendable {
     /// is never reached directly instead: connecting then fails (`Route`).
     public var jumpHostIDs: [Host.ID]
     /// The host's port forwards (README section 4), in the order the user added them: each listens
-    /// on this device's loopback while one of the host's tabs is connected, and only while it is on.
+    /// while one of the host's tabs is connected, and only while it is on, on this device's loopback
+    /// or, for a remote forward, on the server.
     public var portForwards: [PortForward]
     /// The `TERM` value Shello sends to the server.
     public var terminalType: String

@@ -8,7 +8,7 @@ Disposable OpenSSH servers for Shello's integration and UI tests, so that nobody
 | 2223 | OpenSSH 9.6 (Ubuntu 24.04) | `sntrup761x25519-sha512@openssh.com` | 3.4 |
 | 2224 | OpenSSH 10.3 with post-quantum key exchange off | `curve25519-sha256` | 3.7c |
 | 2225 | OpenSSH 8.8 (Alpine 3.15), the oldest OpenSSH Shello supports (README section 4) | `curve25519-sha256` | none |
-| 2226 | OpenSSH 10.3 with the NIST curves and Diffie-Hellman groups only, as a server in FIPS mode | `ecdh-sha2-nistp256` | 3.7c |
+| 2226 | OpenSSH 10.3 with the NIST curves and Diffie-Hellman groups only, as a server in FIPS mode, which allows local forwards only (`AllowTcpForwarding local`), as a hardened server may | `ecdh-sha2-nistp256` | 3.7c |
 
 Everything here is a test fixture and public: the users, the password, the one-time code's secret and every key in `keys/`. Never use them anywhere else.
 
@@ -27,7 +27,7 @@ Test server on 127.0.0.1:2222, host key a: SSH-2.0-OpenSSH_10.3
 Test server on 127.0.0.1:2223, host key a: SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.20
 Test server on 127.0.0.1:2224, host key a, post-quantum key exchange off: SSH-2.0-OpenSSH_10.3
 Test server on 127.0.0.1:2225, host key a: SSH-2.0-OpenSSH_8.8
-Test server on 127.0.0.1:2226, host key a, NIST curves and Diffie-Hellman groups only: SSH-2.0-OpenSSH_10.3
+Test server on 127.0.0.1:2226, host key a, NIST curves and Diffie-Hellman groups only, local forwards only: SSH-2.0-OpenSSH_10.3
 ```
 
 | Command | What it does |
@@ -39,7 +39,7 @@ Test server on 127.0.0.1:2226, host key a, NIST curves and Diffie-Hellman groups
 
 Each image is pinned by the digest of its multi-platform image, and takes its packages from a branch that only takes fixes, or no longer changes:
 
-- OpenSSH 10: Alpine 3.24 with Alpine's `openssh-server` package (OpenSSH 10.3). Port 2224 runs the same image with `KexAlgorithms` limited to OpenSSH's classical defaults, port 2226 with those without curve25519 (`entrypoint.sh`, `KEX=classical` and `KEX=nist`).
+- OpenSSH 10: Alpine 3.24 with Alpine's `openssh-server` package (OpenSSH 10.3). Port 2224 runs the same image with `KexAlgorithms` limited to OpenSSH's classical defaults, port 2226 with those without curve25519 (`entrypoint.sh`, `KEX=classical` and `KEX=nist`), and with local forwards only (`TCP_FORWARDING=local`).
 - OpenSSH 9: Ubuntu 24.04 with Ubuntu's `openssh-server` package (OpenSSH 9.6).
 - OpenSSH 8.8: Alpine 3.15, past its end of support, with Alpine's `openssh-server` package (OpenSSH 8.8p1). OpenSSH 8.8 has `sntrup761x25519-sha512@openssh.com` but offers it only when configured to, which 9.0 changed, so Shello negotiates `curve25519-sha256` with it.
 
@@ -49,7 +49,7 @@ OpenSSH 9.8 and later refuse an address for a while once its connections fail to
 
 ## Jump hosts
 
-Each server is a jump host for the others, as OpenSSH's `ProxyJump` uses one (README section 3), and the far end of Shello's port forwards (README section 4): every sshd allows TCP forwarding (`AllowTcpForwarding yes`, written out because Alpine's own `sshd_config` turns it off). The Docker servers share a Docker network of their own, `shello-test`, which `ssh-server.sh` creates and `stop` removes, so that each reaches the others by container name, on port 22. Docker's default bridge resolves no names. This Mac's own sshd (below) reaches its other ports on the loopback.
+Each server is a jump host for the others, as OpenSSH's `ProxyJump` uses one (README section 3), and the far end of Shello's port forwards (README section 4): every sshd allows TCP forwarding (`AllowTcpForwarding yes`, written out because Alpine's own `sshd_config` turns it off), except that the one on port 2226 allows local forwards only (`AllowTcpForwarding local`): it opens tunnels, as a jump host does, and refuses remote forwards, which the tests of a refused remote forward ask it for. The Docker servers share a Docker network of their own, `shello-test`, which `ssh-server.sh` creates and `stop` removes, so that each reaches the others by container name, on port 22. Docker's default bridge resolves no names. This Mac's own sshd (below) reaches its other ports on the loopback.
 
 | Server, as a jump host reaches it | In Docker | This Mac's sshd |
 | --- | --- | --- |
@@ -94,7 +94,7 @@ In Shello: add a host with the address `localhost`, port 2222, user `shello` and
 
 ## Without Docker
 
-`TestServers/local-sshd.sh` runs this Mac's own `/usr/sbin/sshd` as you, unprivileged, with host key a: on port 2222 with OpenSSH's defaults, on port 2224 with post-quantum key exchange off, and on port 2226 with the NIST curves and Diffie-Hellman groups only. It lets only you in, with `keys/client_ed25519` and the imported keys of `keys/import_fixtures.pub`: an unprivileged sshd cannot check passwords, nor ask keyboard-interactive questions. There is no OpenSSH 9 or 8.8 without Docker. `TestServers/local-sshd.sh stop` stops all three. CI runs it, because GitHub's macOS runners have no Docker.
+`TestServers/local-sshd.sh` runs this Mac's own `/usr/sbin/sshd` as you, unprivileged, with host key a: on port 2222 with OpenSSH's defaults, on port 2224 with post-quantum key exchange off, and on port 2226 with the NIST curves and Diffie-Hellman groups only, and local forwards only, as in Docker. It lets only you in, with `keys/client_ed25519` and the imported keys of `keys/import_fixtures.pub`: an unprivileged sshd cannot check passwords, nor ask keyboard-interactive questions. There is no OpenSSH 9 or 8.8 without Docker. `TestServers/local-sshd.sh stop` stops all three. CI runs it, because GitHub's macOS runners have no Docker.
 
 Installing an SSH key on a host writes to `~/.ssh/authorized_keys`, which on port 2222 is your own. So the tests that install keys use port 2224 only, in Docker too: there `~` is the servers' own home directory (below), and ports 2224 and 2226 also let in the keys installed in its `~/.ssh/authorized_keys`, which `local-sshd.sh` empties each time it starts.
 
@@ -120,13 +120,14 @@ With `SHELLO_TEST_SERVER_USER` set, the tests that sign in with a password or ke
 - `ShelloCoreTests` (`HostConnectorTests`, `SignInTests`): the first connection's trust question, a trusted key, a changed one and its replacement; signing in with the SSH key through Shello's SSH agent, keyboard-interactive with the one-time codes, and two-factor sign-in, on ports 2222 and 2225.
 - `ShelloCoreTests` (`TmuxIntegrationTests`): tmux auto-attach, which attaches the same tmux session, with what ran in it, after a dropped connection, on port 2222; the plain shell of a server without tmux, on port 2225 in Docker or 2224 with this Mac's sshd; and the tmux parsers on what tmux 3.7c and 3.4 print, on ports 2222 and 2223. Each test leaves no tmux session behind.
 - `ShelloCoreTests` (`ImportedKeySignInTests`, `KeyInstallTests`): signing in with an imported key of each type, on port 2222, and with RSA on port 2225, OpenSSH 8.8; installing a key on a host, once, then signing in with it, on port 2224.
-- `ShelloCoreTests` (`ForwardIntegrationTests`): a tab's local forward to the host's own sshd, directly and through a jump host, port 2222 to 2223 in Docker, whose OpenSSH 9.6 banner shows that the destination is reached from the host, or to 2224 with this Mac's sshd; and a forward that stops while the tab reconnects through `FaultyProxy`, then listens again.
+- `ShelloSSHTests` (`RemoteForwardTests`): remote forwards over a connection to port 2222: the server listens on a port of its loopback, and a second connection of the test reaches that port from the server, over a tunnel, which comes back to a listener the test runs on this Mac; a remote forward asked for while a keepalive waits; a port another connection's forward has, a port below 1024, and the server on port 2226, which allows local forwards only, each refused; a destination nothing listens on, which closes that connection only; fifty mebibytes from the listener on the Mac through a remote forward, with the process's memory measured; and a connection that closes, which ends the server's listening.
+- `ShelloCoreTests` (`ForwardIntegrationTests`): a tab's local forward to the host's own sshd, directly and through a jump host, port 2222 to 2223 in Docker, whose OpenSSH 9.6 banner shows that the destination is reached from the host, or to 2224 with this Mac's sshd; and a forward that stops while the tab reconnects through `FaultyProxy`, then listens again. A tab's remote forward to a listener on this Mac, beside one on port 22, which the server refuses to the test user, and through a jump host, where the host behind it listens, port 2223 in Docker, and the jump host does not; and a remote forward that the tab requests again once it reconnected through `FaultyProxy`.
 - `ShelloCoreTests` (`JumpHostIntegrationTests`): tabs through one jump host, port 2222 to 2224, and two, to 2226 too, trusting each hop's host key; a changed host key on the jump host; a password, keyboard-interactive and an SSH key on one route, in Docker only; and a first hop through `FaultyProxy` to port 2224 that drops, after which the tab reconnects the route to port 2222, which has tmux, and reattaches its tmux session.
 - `ShelloFeaturesTests` (`SignInPromptTests`): the terminal's sign-in sheet, on port 2222.
 - `ShelloUITests/ConnectionTests`: the trust sheet, the changed host key sheet and its replacement, sign-in with a password, the SSH key and keyboard-interactive to the shell, and the Connection sheet, post-quantum on port 2222 and classical on port 2224.
 - `ShelloUITests/ImportedKeyTests`: installing a key on a host over a tab's connection, on port 2224.
 - `ShelloUITests/JumpHostTests`: a host behind a jump host set up in the host editor, port 2222 to 2224, connected to the shell.
-- `ShelloUITests/PortForwardTests`: a host with port forwards set up in the host editor, connected on port 2222, whose Connection sheet lists one forward that listens, through which the test reads the sshd's banner, one whose port the test already has, and one that is off.
+- `ShelloUITests/PortForwardTests`: a host with port forwards set up in the host editor, connected on port 2222, whose Connection sheet lists one forward that listens, through which the test reads the sshd's banner, one whose port the test already has, and one that is off. Another host has a remote forward to a listener the test runs on this Mac, one on port 22, which the server refuses, and a local forward to the remote forward's port on the server: a connection to the local forward goes to the server and back through the remote forward to the test's listener.
 
 They check that a server greets on its port, and skip with a message that points here when none does. Each needs a fresh connection, and the server's default `MaxStartups` would drop some of many at once, so the test servers raise it.
 
@@ -142,7 +143,7 @@ They check that a server greets on its port, and skip with a message that points
 | `openssh/sshd_config.two-factor` | The settings the Alpine images add for `shello-2fa`: its key, then keyboard-interactive |
 | `openssh/pam-sshd` | PAM on the Alpine images: the password, the one-time code, or both, as each user signs in |
 | `openssh/google_authenticator` | The one-time code's secret, for `pam_google_authenticator` |
-| `openssh/entrypoint.sh` | Starts sshd with host key a or b, as `HOST_KEY` says, the key exchanges `KEX` names, keyboard-interactive through PAM as `KEYBOARD_INTERACTIVE` says, and without per-source penalties as `PER_SOURCE_PENALTIES` says |
+| `openssh/entrypoint.sh` | Starts sshd with host key a or b, as `HOST_KEY` says, the key exchanges `KEX` names, keyboard-interactive through PAM as `KEYBOARD_INTERACTIVE` says, without per-source penalties as `PER_SOURCE_PENALTIES` says, and with local forwards only as `TCP_FORWARDING` says |
 | `local-sshd.sh` | This Mac's own sshd as the test servers on ports 2222, 2224 and 2226 |
 | `keys/` | The host keys a and b, and the client key, made with `ssh-keygen -t ed25519` for these tests only; `import_fixtures.pub`, the public keys of the keys the tests import |
 

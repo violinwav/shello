@@ -475,7 +475,10 @@ struct HostEditorView: View {
         } header: {
             SectionHeader("Port Forwards")
         } footer: {
-            FooterText(PortForwardDisplay.lifetimeNote)
+            FooterText(
+                PortForwardDisplay.lifetimeNote(
+                    hasRemote: model.draft.portForwards.contains { $0.kind == .remote },
+                    hasOnDevice: model.draft.portForwards.contains { $0.kind != .remote }))
         }
         .listRowBackground(Palette.cell)
         .onChange(of: model.visibleProblem(for: .portForwards)) { old, new in
@@ -500,7 +503,7 @@ struct HostEditorView: View {
 
     private func deletePortForward(_ forward: PortForwardDraft, title: String) {
         model.removePortForward(forward.id)
-        announce("Deleted the port forward \(title)")
+        announce("Deleted the \(forward.kind == .remote ? "remote forward" : "port forward") \(title)")
     }
 
     private var notesSection: some View {

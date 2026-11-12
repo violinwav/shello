@@ -133,14 +133,21 @@ struct HostDraft: Equatable {
     }
 
     /// What is wrong with the port forwards: one that is not complete, which its screen shows, or
-    /// two that are on and would listen on the same port, of which only one could.
+    /// two that are on and would listen on the same port, on this device or on the server, of which
+    /// only one could.
     private var portForwardsProblem: String? {
         if portForwards.contains(where: { !$0.problems.isEmpty }) {
             return "A port forward isn’t complete. Open it to finish it, or delete it."
         }
-        let shared = PortForward.sharedPorts(portForwards.compactMap(\.forward))
-        guard let port = shared.min() else { return nil }
-        return "Two port forwards that are on listen on port \(port). Turn one off, or change its port."
+        let forwards = portForwards.compactMap(\.forward)
+        if let port = PortForward.sharedPorts(forwards).min() {
+            return "Two port forwards that are on listen on port \(port). Turn one off, or change its port."
+        }
+        if let port = PortForward.sharedPorts(forwards, onServer: true).min() {
+            return "Two remote forwards that are on have the server listen on port \(port). Turn one off, or change "
+                + "its port."
+        }
+        return nil
     }
 
     /// `base` with every field the user changed since `original` set to the draft's value. Text is

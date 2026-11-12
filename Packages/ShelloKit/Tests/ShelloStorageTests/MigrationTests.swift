@@ -202,12 +202,12 @@ struct MigrationTests {
     /// The port forwards of the v5 fixture's prod-api-01.
     static let v5PortForwards = [
         PortForward(
-            id: id("000000000301"), name: "Database", localPort: 15432,
+            id: id("000000000301"), name: "Database", port: 15432,
             kind: .local(destination: ForwardDestination(address: "db.internal", port: 5432))),
         PortForward(
-            id: id("000000000302"), localPort: 8080,
+            id: id("000000000302"), port: 8080,
             kind: .local(destination: ForwardDestination(address: "fd00::5", port: 80))),
-        PortForward(id: id("000000000303"), name: "SOCKS", localPort: 1080, kind: .dynamic, isEnabled: false),
+        PortForward(id: id("000000000303"), name: "SOCKS", port: 1080, kind: .dynamic, isEnabled: false),
     ]
 
     /// `v5PortForwards` as the database stores them.

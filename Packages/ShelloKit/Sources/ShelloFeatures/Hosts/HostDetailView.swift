@@ -13,7 +13,8 @@ struct HostDetailView: View {
 
     @State private var editsHost: Host?
     @State private var confirmsDelete = false
-    /// The first connection to the local network that the Local Network sheet explains.
+    /// The first connection to the local network that the Local Network sheet explains: to a server,
+    /// or to a remote forward's destination.
     @State private var explainsLocalNetwork: LocalNetworkExplanation?
     /// The host to connect to once the Local Network sheet has gone.
     @State private var connectsAfterExplanation: Host?
@@ -80,10 +81,7 @@ struct HostDetailView: View {
                 connectsAfterExplanation = nil
             }
         ) { explanation in
-            LocalNetworkSheet(
-                host: explanation.firstHop,
-                destination: explanation.firstHop.id == explanation.host.id ? nil : explanation.host.name
-            ) {
+            LocalNetworkSheet(reason: explanation.reason, host: explanation.host) {
                 localNetworkNotice?.markExplained()
                 connectsAfterExplanation = explanation.host
                 explainsLocalNetwork = nil
@@ -220,10 +218,13 @@ struct HostDetailView: View {
 
     /// Opens a tab for `host`. iOS asks for Local Network access on the first connection to a server
     /// on the local network, which Shello explains first (README section 3). Only the first host of
-    /// the route is reached from the device, so only it counts.
+    /// the route is reached from the device, so only it counts, and the destinations of the host's
+    /// remote forwards, which Shello reaches from the device too (README section 4).
     private func connect(_ host: Host) {
-        if case .success(let route)? = model.route, localNetworkNotice?.explainsBeforeConnecting(along: route) == true {
-            explainsLocalNetwork = LocalNetworkExplanation(firstHop: route.firstHop, host: host)
+        if case .success(let route)? = model.route,
+            let reason = localNetworkNotice?.reason(connectingAlong: route)
+        {
+            explainsLocalNetwork = LocalNetworkExplanation(reason: reason, host: host)
         } else {
             tabs?.connect(to: host)
         }
@@ -248,10 +249,10 @@ struct HostDetailView: View {
     }
 }
 
-/// The first connection to the local network that the Local Network sheet explains: to the first
-/// host of a route, `firstHop`, on the way to `host`, which the tab opens for.
+/// The first connection to the local network that the Local Network sheet explains, for `reason`,
+/// for a tab of `host`.
 private struct LocalNetworkExplanation: Identifiable {
-    let firstHop: Host
+    let reason: LocalNetworkReason
     let host: Host
 
     var id: Host.ID { host.id }

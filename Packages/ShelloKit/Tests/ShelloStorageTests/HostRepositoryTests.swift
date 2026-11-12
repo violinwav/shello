@@ -160,6 +160,50 @@ struct HostRepositoryTests {
         }
     }
 
+    /// A remote forward is stored in the host's forwards column with the port and address the server
+    /// listens on, and no local port, beside a local forward, whose text stays as version 5 wrote it;
+    /// both read back as they were.
+    @Test func remoteForwardIsStoredWithTheServersPortAndAddress() async throws {
+        let local = PortForward(
+            id: UUID(uuidString: "00000000-0000-4000-8000-000000000301")!, port: 8080,
+            kind: .local(destination: ForwardDestination(address: "localhost", port: 80)))
+        let remote = PortForward(
+            id: UUID(uuidString: "00000000-0000-4000-8000-000000000304")!, name: "Preview", port: 8080,
+            kind: .remote(bindAddress: "*", destination: ForwardDestination(address: "192.168.1.20", port: 3000)),
+            isEnabled: false)
+        let host = Host(name: "dev", address: "dev.example.com", username: "me", portForwards: [local, remote])
+
+        try await repository.create(host)
+
+        #expect(try await repository.host(id: host.id)?.portForwards == [local, remote])
+        let stored = try await test.database.writer.read { db in
+            try String.fetchOne(db, sql: "SELECT portForwards FROM host WHERE id = ?", arguments: [host.id])
+        }
+        #expect(
+            stored
+                == #"[{"destinationAddress":"localhost","destinationPort":80,"id":"00000000-0000-4000-8000-000000000301","#
+                + #""isEnabled":true,"kind":"local","localPort":8080,"name":""},"#
+                + #"{"bindAddress":"*","destinationAddress":"192.168.1.20","destinationPort":3000,"#
+                + #""id":"00000000-0000-4000-8000-000000000304","isEnabled":false,"kind":"remote","name":"Preview","#
+                + #""serverPort":8080}]"#)
+    }
+
+    /// A version of Shello from before remote forwards cannot read a host that has one: to it, the
+    /// forward is of a kind it does not know, as a kind a newer version adds is to this one.
+    @Test func forwardOfAKindThisVersionDoesNotKnowFailsToRead() async throws {
+        let host = Host(name: "nas", address: "nas.lan", username: "admin")
+        try await repository.create(host)
+        try await test.database.writer.write { db in
+            try db.execute(
+                sql: #"UPDATE host SET portForwards = '[{"id":"00000000-0000-4000-8000-000000000301","#
+                    + #""isEnabled":true,"kind":"unix","localPort":8080,"name":""}]'"#)
+        }
+
+        await #expect(throws: UnknownStoredValueError.self) {
+            try await repository.hosts()
+        }
+    }
+
     // MARK: - Updating
 
     @Test func updatedHostReadsBackWithItsNewValues() async throws {

@@ -395,11 +395,14 @@ final class HostEditorModel {
     }
 
     /// Whether `forward`, if it is on, would listen on a port that another of the draft's forwards
-    /// that is on listens on: only one of them could listen.
+    /// that is on listens on, on the same side: this device for local and dynamic forwards, the server
+    /// for remote ones. Only one of them could listen.
     func sharesPort(_ forward: PortForwardDraft) -> Bool {
-        guard forward.isEnabled, let port = forward.forward?.localPort else { return false }
+        guard forward.isEnabled, let port = forward.forward?.port else { return false }
+        let isRemote = forward.kind == .remote
         return draft.portForwards.contains { other in
-            other.id != forward.id && other.isEnabled && other.forward?.localPort == port
+            other.id != forward.id && other.isEnabled && (other.kind == .remote) == isRemote
+                && other.forward?.port == port
         }
     }
 

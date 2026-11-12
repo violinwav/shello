@@ -96,7 +96,7 @@ struct HostFieldChange: Sendable, CustomTestStringConvertible {
         HostFieldChange(field: "jumpHostIDs") { host, _, _ in host.jumpHostIDs = [UUID(), UUID()] },
         // So are the port forwards: a change to one of them is a change to the list.
         HostFieldChange(field: "portForwards") { host, _, _ in
-            host.portForwards = [PortForward(localPort: 8080, kind: .dynamic)]
+            host.portForwards = [PortForward(port: 8080, kind: .dynamic)]
         },
         HostFieldChange(field: "terminalType") { host, _, _ in host.terminalType = "xterm" },
         HostFieldChange(field: "keepaliveInterval") { host, _, _ in host.keepaliveInterval = .seconds(60) },

@@ -55,15 +55,40 @@ struct ImportTests {
     }
 
     /// A file version 4 wrote, with a host's local and dynamic port forwards in their order, one of
-    /// them off.
+    /// them off. Its hosts have no remote forwards, as hosts did not before version 5.
     @Test func version4FixtureImportsEveryValueWithThePortForwardsInOrder() async throws {
         let file = try ExportFile(data: Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 4)))
+
+        try await exports.importFile(file)
+
+        #expect(try await Set(repository.hosts()) == Set(ExportSample.version4Hosts))
+        let api = try #require(try await repository.host(id: ExportSample.id("000000000101")))
+        #expect(api.portForwards == ExportSample.version4PortForwards)
+    }
+
+    /// A file version 5 wrote, with a host's remote forwards after its local and dynamic ones, in
+    /// their order: one on the server's loopback, and one on all of its addresses, which is off.
+    @Test func version5FixtureImportsEveryValueWithTheRemoteForwards() async throws {
+        let file = try ExportFile(data: Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 5)))
 
         try await exports.importFile(file)
 
         #expect(try await Set(repository.hosts()) == Set(ExportSample.hosts))
         let api = try #require(try await repository.host(id: ExportSample.id("000000000101")))
         #expect(api.portForwards == ExportSample.portForwards)
+        #expect(api.portForwards.filter(\.isRemote).map(\.bindAddress) == ["", "*"])
+    }
+
+    /// A version 4 file replaces a host as version 4 knew it: the remote forwards set since go, as
+    /// the host's forwards are one field.
+    @Test func version4FileReplacesAHostWithoutRemoteForwards() async throws {
+        try await ExportSample.store(in: repository)
+
+        let file = try ExportFile(data: Data(contentsOf: ExportSample.fixtureURL(schemaVersion: 4)))
+        try await exports.importFile(file)
+
+        let api = try #require(try await repository.host(id: ExportSample.id("000000000101")))
+        #expect(api.portForwards == ExportSample.version4PortForwards)
     }
 
     /// A version 3 file says nothing about port forwards, so a host it replaces has none, as hosts

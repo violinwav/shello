@@ -56,9 +56,16 @@ final class FakeServer: TabConnector {
         var routes: [Route] = []
         /// Each step each try reported.
         var progress: [RouteProgress] = []
+        /// Called with each connection as it is made, before the tab gets it.
+        var onConnect: (@Sendable (FakeConnection) -> Void)?
     }
 
     private let state = Mutex(State())
+
+    /// Has `configure` set up each connection made from now on, before the tab gets it.
+    func onConnect(_ configure: @escaping @Sendable (FakeConnection) -> Void) {
+        state.withLock { $0.onConnect = configure }
+    }
 
     /// How the next tries end, in order; once these are used up, tries connect.
     func queue(_ outcomes: Outcome...) {
@@ -121,12 +128,13 @@ final class FakeServer: TabConnector {
                 guard await answer(hop, challenge) != nil else { throw ConnectError.signInCancelled }
             }
         }
-        let connection = state.withLock { state in
+        let (connection, onConnect) = state.withLock { state in
             let connection = FakeConnection(
                 answersKeepalives: state.keepaliveAnswers, tmux: state.tmux, hops: route.hops.count)
             state.connections.append(connection)
-            return connection
+            return (connection, state.onConnect)
         }
+        onConnect?(connection)
         return connection
     }
 
@@ -245,6 +253,80 @@ final class FakeConnection: TabConnection {
         state.withLock { $0.isClosed = true }
         shell.end()
         pathContinuation.finish()
+        endRemoteForwards()
+    }
+
+    // MARK: Remote forwards
+
+    private struct RemoteForwards {
+        var requests: [String] = []
+        var cancels: [String] = []
+        /// The cancels made while the connection was still open.
+        var cancelsBeforeClose: [String] = []
+        var refusedPorts: Set<UInt16> = []
+        var listening: [UInt16: AsyncStream<any ForwardTunnel>.Continuation] = [:]
+    }
+
+    private let remoteForwards = Mutex(RemoteForwards())
+
+    /// The remote forwards the server was asked to listen for, as `address:port` with the address
+    /// as it went to the server, in order.
+    var remoteForwardRequests: [String] { remoteForwards.withLock(\.requests) }
+    /// The remote forwards the server was asked to stop listening for, the same way.
+    var remoteForwardCancels: [String] { remoteForwards.withLock(\.cancels) }
+    /// Those of `remoteForwardCancels` that came before the connection was closed.
+    var cancelsBeforeClose: [String] { remoteForwards.withLock(\.cancelsBeforeClose) }
+    /// The ports the server listens on for remote forwards.
+    var remoteForwardPorts: Set<UInt16> { remoteForwards.withLock { Set($0.listening.keys) } }
+
+    /// The server refuses to listen on `port` from now on, as one that does not allow remote
+    /// forwards, or whose port another program has.
+    func refuseRemoteForward(on port: UInt16) {
+        remoteForwards.withLock { _ = $0.refusedPorts.insert(port) }
+    }
+
+    func requestRemoteForward(bindAddress: String, port: UInt16) async throws -> AsyncStream<any ForwardTunnel> {
+        let (channels, continuation) = AsyncStream.makeStream(of: (any ForwardTunnel).self)
+        let refuses = remoteForwards.withLock { state in
+            state.requests.append("\(bindAddress):\(port)")
+            guard !state.refusedPorts.contains(port) else { return true }
+            state.listening[port] = continuation
+            return false
+        }
+        if refuses {
+            throw SSHError.channelRefused("the server didn’t listen on port \(port)")
+        }
+        return channels
+    }
+
+    func cancelRemoteForward(bindAddress: String, port: UInt16) async {
+        let isClosed = isClosed
+        let continuation = remoteForwards.withLock { state in
+            state.cancels.append("\(bindAddress):\(port)")
+            if !isClosed { state.cancelsBeforeClose.append("\(bindAddress):\(port)") }
+            return state.listening.removeValue(forKey: port)
+        }
+        continuation?.finish()
+    }
+
+    /// The server forwards a connection that reached its `port` through `tunnel`, as an SSH server
+    /// opens a `forwarded-tcpip` channel. Returns false if it listens on no such port.
+    @discardableResult
+    func forwardConnection(to port: UInt16, through tunnel: any ForwardTunnel) -> Bool {
+        guard let continuation = remoteForwards.withLock({ $0.listening[port] }) else { return false }
+        continuation.yield(tunnel)
+        return true
+    }
+
+    /// The connection ended: the server stops listening for its remote forwards.
+    private func endRemoteForwards() {
+        let continuations = remoteForwards.withLock { state in
+            defer { state.listening = [:] }
+            return Array(state.listening.values)
+        }
+        for continuation in continuations {
+            continuation.finish()
+        }
     }
 
     private let forwardTunnels = Mutex<(destinations: [String], refuses: Bool)>(([], false))
@@ -269,9 +351,11 @@ final class FakeConnection: TabConnection {
         return EchoTunnel()
     }
 
-    /// The network drops the connection: the shell's output fails, as `SSHConnection`'s does.
+    /// The network drops the connection: the shell's output fails, and the remote forwards end, as
+    /// `SSHConnection`'s do.
     func lose() {
         shell.fail(SSHError.connectionLost("the network dropped the connection"))
+        endRemoteForwards()
     }
 
     /// The network under the connection changes.

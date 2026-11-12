@@ -445,20 +445,29 @@ enum StoredIdentifiers {
 
 /// A host's port forwards as one column holds them: a JSON array with an object for each forward, in
 /// the list's order, with sorted keys, so that the same forwards are always the same text. The format
-/// is part of the database: it never changes.
+/// is part of the database: keys are only ever added, so that what an earlier version wrote reads the
+/// same.
 /// - `id`: the forward's identifier, a UUID in its usual text form.
 /// - `name`: its name, empty for none.
-/// - `kind`: `local` or `dynamic`.
-/// - `localPort`: the port it listens on, from 1 to 65535.
-/// - `destinationAddress` and `destinationPort`: a local forward's destination; left out for a
-///   dynamic forward.
+/// - `kind`: `local`, `dynamic` or `remote`.
+/// - `localPort`: the port a local or dynamic forward listens on, from 1 to 65535; left out for a
+///   remote forward.
+/// - `serverPort` and `bindAddress`: the port and address a remote forward has the server listen on,
+///   the address empty for the server's loopback; left out for the others.
+/// - `destinationAddress` and `destinationPort`: a local or remote forward's destination; left out for
+///   a dynamic forward.
 /// - `isEnabled`: whether it is on.
+///
+/// A version of Shello from before remote forwards reads a host that has one as a value it does not
+/// know.
 enum StoredPortForwards {
     private struct Forward: Codable {
         var id: UUID
         var name: String
         var kind: String
-        var localPort: UInt16
+        var localPort: UInt16?
+        var serverPort: UInt16?
+        var bindAddress: String?
         var destinationAddress: String?
         var destinationPort: UInt16?
         var isEnabled: Bool
@@ -467,9 +476,10 @@ enum StoredPortForwards {
     static func text(_ forwards: [PortForward]) -> String {
         let stored = forwards.map { forward in
             Forward(
-                id: forward.id, name: forward.name, kind: forward.kind.storedValue, localPort: forward.localPort,
-                destinationAddress: forward.destination?.address, destinationPort: forward.destination?.port,
-                isEnabled: forward.isEnabled)
+                id: forward.id, name: forward.name, kind: forward.kind.storedValue,
+                localPort: forward.isRemote ? nil : forward.port, serverPort: forward.isRemote ? forward.port : nil,
+                bindAddress: forward.bindAddress, destinationAddress: forward.destination?.address,
+                destinationPort: forward.destination?.port, isEnabled: forward.isEnabled)
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -486,20 +496,30 @@ enum StoredPortForwards {
         }
         return try stored.map { forward in
             let kind: PortForward.Kind
+            let port: UInt16?
             switch forward.kind {
             case PortForward.Kind.dynamicValue:
                 kind = .dynamic
+                port = forward.localPort
             case PortForward.Kind.localValue:
-                guard let address = forward.destinationAddress, let port = forward.destinationPort else {
+                guard let address = forward.destinationAddress, let destinationPort = forward.destinationPort else {
                     throw UnknownStoredValueError(column: column, value: text)
                 }
-                kind = .local(destination: ForwardDestination(address: address, port: port))
+                kind = .local(destination: ForwardDestination(address: address, port: destinationPort))
+                port = forward.localPort
+            case PortForward.Kind.remoteValue:
+                guard let address = forward.destinationAddress, let destinationPort = forward.destinationPort else {
+                    throw UnknownStoredValueError(column: column, value: text)
+                }
+                kind = .remote(
+                    bindAddress: forward.bindAddress ?? "",
+                    destination: ForwardDestination(address: address, port: destinationPort))
+                port = forward.serverPort
             default:
                 throw UnknownStoredValueError(column: column, value: forward.kind)
             }
-            return PortForward(
-                id: forward.id, name: forward.name, localPort: forward.localPort, kind: kind,
-                isEnabled: forward.isEnabled)
+            guard let port else { throw UnknownStoredValueError(column: column, value: text) }
+            return PortForward(id: forward.id, name: forward.name, port: port, kind: kind, isEnabled: forward.isEnabled)
         }
     }
 }
@@ -510,11 +530,13 @@ extension PortForward.Kind {
         switch self {
         case .local: Self.localValue
         case .dynamic: Self.dynamicValue
+        case .remote: Self.remoteValue
         }
     }
 
     static let localValue = "local"
     static let dynamicValue = "dynamic"
+    static let remoteValue = "remote"
 }
 
 /// A stored value this version of Shello does not know, for example one written by a newer version.

@@ -7,7 +7,8 @@
 # It runs three sshd as the current user, unprivileged, with host key a, on the ports of the Docker
 # servers they stand in for: 127.0.0.1:2222 with OpenSSH's default key exchanges, 127.0.0.1:2224
 # with post-quantum key exchange off, and 127.0.0.1:2226 with the NIST curves and Diffie-Hellman
-# groups only. All let that user in with the fixture key TestServers/keys/client_ed25519, and with the
+# groups only, which allows local forwards only (AllowTcpForwarding local), as the Docker server on
+# that port does. All let that user in with the fixture key TestServers/keys/client_ed25519, and with the
 # keys the tests import (keys/import_fixtures.pub), only: an unprivileged sshd cannot check passwords,
 # nor ask keyboard-interactive questions. Their files live in a directory of their own under $TMPDIR.
 #
@@ -58,10 +59,12 @@ wait_for_banner() {
 }
 
 # sshd's settings for port $1, with its files named after $2, letting in the keys in the files $3,
-# then the further lines given.
+# then the further lines given, which come first: sshd takes the first value it reads for each
+# keyword.
 write_config() {
     local port=$1 name=$2 authorized_keys=$3
     shift 3
+    [[ $# -eq 0 ]] || printf '%s\n' "$@"
     cat <<EOF
 ListenAddress 127.0.0.1
 Port $port
@@ -80,7 +83,6 @@ AllowTcpForwarding yes
 # that would refuse every connection for a while.
 PerSourcePenalties no
 EOF
-    [[ $# -eq 0 ]] || printf '%s\n' "$@"
 }
 
 start() {
@@ -103,15 +105,15 @@ start() {
         >"$STATE/sshd_config"
     write_config "$CLASSICAL_PORT" sshd-classical "$installed" "KexAlgorithms $CLASSICAL_KEX" "$without_tmux" \
         >"$STATE/sshd-classical_config"
-    write_config "$NIST_PORT" sshd-nist "$installed" "KexAlgorithms $NIST_KEX" "$without_tmux" \
-        >"$STATE/sshd-nist_config"
+    write_config "$NIST_PORT" sshd-nist "$installed" "KexAlgorithms $NIST_KEX" "AllowTcpForwarding local" \
+        "$without_tmux" >"$STATE/sshd-nist_config"
     /usr/sbin/sshd -f "$STATE/sshd_config" -E "$STATE/sshd.log"
     /usr/sbin/sshd -f "$STATE/sshd-classical_config" -E "$STATE/sshd-classical.log"
     /usr/sbin/sshd -f "$STATE/sshd-nist_config" -E "$STATE/sshd-nist.log"
     printf 'Test server on 127.0.0.1:%s, host key a: %s\n' "$PORT" "$(wait_for_banner "$PORT" sshd)"
     printf 'Test server on 127.0.0.1:%s, host key a, post-quantum key exchange off: %s\n' "$CLASSICAL_PORT" \
         "$(wait_for_banner "$CLASSICAL_PORT" sshd-classical)"
-    printf 'Test server on 127.0.0.1:%s, host key a, NIST curves and Diffie-Hellman groups only: %s\n' \
+    printf 'Test server on 127.0.0.1:%s, host key a, NIST curves and Diffie-Hellman groups only, local forwards only: %s\n' \
         "$NIST_PORT" "$(wait_for_banner "$NIST_PORT" sshd-nist)"
     if [[ -n $TMUX_COMMAND ]]; then
         printf 'tmux on 127.0.0.1:%s only: %s, %s\n' "$PORT" "$("$TMUX_COMMAND" -V)" "$TMUX_COMMAND"
