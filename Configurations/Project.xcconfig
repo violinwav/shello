@@ -1,7 +1,6 @@
 // Build settings shared by every target in Shello.xcodeproj.
 // Why each one is set: docs/spec/STACK.md section 5. Targets in Packages/ShelloKit
 // take their Swift settings from Package.swift instead.
-// CI adds SWIFT_TREAT_WARNINGS_AS_ERRORS=YES and GCC_TREAT_WARNINGS_AS_ERRORS=YES on the command line.
 
 SDKROOT = iphoneos
 IPHONEOS_DEPLOYMENT_TARGET = 26.0
@@ -11,6 +10,12 @@ TARGETED_DEVICE_FAMILY = 1,2
 SWIFT_VERSION = 6.0
 SWIFT_APPROACHABLE_CONCURRENCY = YES
 SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES
+
+// Warnings are errors in Shello's own targets; Package.swift does the same for ShelloKit. Not set on
+// the xcodebuild command line: that would also reach package dependencies such as GRDB, which Xcode
+// builds with warnings suppressed, and the compiler rejects both flags together.
+SWIFT_TREAT_WARNINGS_AS_ERRORS = YES
+GCC_TREAT_WARNINGS_AS_ERRORS = YES
 
 // Enhanced Security umbrella. It turns on pointer authentication (an arm64e slice), typed allocators,
 // a zero-initialised stack and the security compiler warnings. The matching hardened-process

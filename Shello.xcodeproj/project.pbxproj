@@ -18,6 +18,13 @@
 			remoteGlobalIDString = 5E1100000000000000000020;
 			remoteInfo = Shello;
 		};
+		5E110000000000000000005D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5E1100000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5E1100000000000000000020;
+			remoteInfo = Shello;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +34,8 @@
 		5E1100000000000000000009 /* ShelloUITests.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShelloUITests.xcconfig; sourceTree = "<group>"; };
 		5E1100000000000000000010 /* Shello.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Shello.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5E1100000000000000000011 /* ShelloUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShelloUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E1100000000000000000050 /* ShelloAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShelloAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E1100000000000000000051 /* ShelloAppTests.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShelloAppTests.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -38,6 +47,11 @@
 		5E1100000000000000000005 /* UITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = UITests;
+			sourceTree = "<group>";
+		};
+		5E1100000000000000000052 /* AppTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = AppTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -58,6 +72,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5E1100000000000000000055 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -66,6 +87,7 @@
 			children = (
 				5E1100000000000000000012 /* ShelloKit */,
 				5E1100000000000000000004 /* App */,
+				5E1100000000000000000052 /* AppTests */,
 				5E1100000000000000000005 /* UITests */,
 				5E1100000000000000000006 /* Configurations */,
 				5E1100000000000000000003 /* Products */,
@@ -77,6 +99,7 @@
 			children = (
 				5E1100000000000000000010 /* Shello.app */,
 				5E1100000000000000000011 /* ShelloUITests.xctest */,
+				5E1100000000000000000050 /* ShelloAppTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -86,6 +109,7 @@
 			children = (
 				5E1100000000000000000007 /* Project.xcconfig */,
 				5E1100000000000000000008 /* Shello.xcconfig */,
+				5E1100000000000000000051 /* ShelloAppTests.xcconfig */,
 				5E1100000000000000000009 /* ShelloUITests.xcconfig */,
 			);
 			path = Configurations;
@@ -140,6 +164,29 @@
 			productReference = 5E1100000000000000000011 /* ShelloUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		5E1100000000000000000058 /* ShelloAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E1100000000000000000059 /* Build configuration list for PBXNativeTarget "ShelloAppTests" */;
+			buildPhases = (
+				5E1100000000000000000056 /* Sources */,
+				5E1100000000000000000055 /* Frameworks */,
+				5E1100000000000000000057 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5E110000000000000000005C /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				5E1100000000000000000052 /* AppTests */,
+			);
+			name = ShelloAppTests;
+			packageProductDependencies = (
+			);
+			productName = ShelloAppTests;
+			productReference = 5E1100000000000000000050 /* ShelloAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -154,6 +201,10 @@
 						CreatedOnToolsVersion = 26.6;
 					};
 					5E1100000000000000000030 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = 5E1100000000000000000020;
+					};
+					5E1100000000000000000058 = {
 						CreatedOnToolsVersion = 26.6;
 						TestTargetID = 5E1100000000000000000020;
 					};
@@ -177,6 +228,7 @@
 			projectRoot = "";
 			targets = (
 				5E1100000000000000000020 /* Shello */,
+				5E1100000000000000000058 /* ShelloAppTests */,
 				5E1100000000000000000030 /* ShelloUITests */,
 			);
 		};
@@ -191,6 +243,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		5E1100000000000000000033 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E1100000000000000000057 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -214,6 +273,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5E1100000000000000000056 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -221,6 +287,11 @@
 			isa = PBXTargetDependency;
 			target = 5E1100000000000000000020 /* Shello */;
 			targetProxy = 5E1100000000000000000038 /* PBXContainerItemProxy */;
+		};
+		5E110000000000000000005C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5E1100000000000000000020 /* Shello */;
+			targetProxy = 5E110000000000000000005D /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -249,6 +320,20 @@
 		5E1100000000000000000036 /* Release */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 5E1100000000000000000009 /* ShelloUITests.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+		5E110000000000000000005A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5E1100000000000000000051 /* ShelloAppTests.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		5E110000000000000000005B /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5E1100000000000000000051 /* ShelloAppTests.xcconfig */;
 			buildSettings = {
 			};
 			name = Release;
@@ -284,6 +369,15 @@
 			buildConfigurations = (
 				5E1100000000000000000035 /* Debug */,
 				5E1100000000000000000036 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5E1100000000000000000059 /* Build configuration list for PBXNativeTarget "ShelloAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E110000000000000000005A /* Debug */,
+				5E110000000000000000005B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

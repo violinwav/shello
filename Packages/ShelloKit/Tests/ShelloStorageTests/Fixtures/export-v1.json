@@ -1,0 +1,113 @@
+{
+  "format" : "ch.shello.export",
+  "groups" : [
+    {
+      "id" : "00000000-0000-4000-8000-000000000001",
+      "name" : "Homelab"
+    },
+    {
+      "id" : "00000000-0000-4000-8000-000000000002",
+      "name" : "Work"
+    }
+  ],
+  "hosts" : [
+    {
+      "address" : "2001:db8::21",
+      "authMethod" : "keyboardInteractive",
+      "connectTimeoutMilliseconds" : 15000,
+      "groupID" : "00000000-0000-4000-8000-000000000001",
+      "id" : "00000000-0000-4000-8000-000000000102",
+      "isFavorite" : false,
+      "keepaliveIntervalMilliseconds" : 30000,
+      "lastConnectedAt" : 800000000.0000001,
+      "name" : "forge",
+      "notes" : "",
+      "port" : 22,
+      "protocol" : "mosh",
+      "startupCommand" : "",
+      "tagIDs" : [
+        "00000000-0000-4000-8000-000000000017"
+      ],
+      "terminalType" : "xterm",
+      "username" : "dev"
+    },
+    {
+      "address" : "media-pc.local",
+      "authMethod" : "password",
+      "connectTimeoutMilliseconds" : 15000,
+      "id" : "00000000-0000-4000-8000-000000000103",
+      "isFavorite" : false,
+      "keepaliveIntervalMilliseconds" : 30000,
+      "name" : "Media PC 📺",
+      "notes" : "",
+      "port" : 5900,
+      "protocol" : "vnc",
+      "startupCommand" : "",
+      "tagIDs" : [
+
+      ],
+      "terminalType" : "xterm-256color",
+      "username" : ""
+    },
+    {
+      "address" : "10.0.4.21",
+      "authMethod" : "sshKey",
+      "connectTimeoutMilliseconds" : 7500,
+      "groupID" : "00000000-0000-4000-8000-000000000002",
+      "id" : "00000000-0000-4000-8000-000000000101",
+      "isFavorite" : true,
+      "keepaliveIntervalMilliseconds" : 45000,
+      "lastConnectedAt" : 812345678.1234567,
+      "name" : "prod-api-01",
+      "notes" : "Primary API server in Zürich.\nAsk before rebooting.",
+      "port" : 2222,
+      "protocol" : "ssh",
+      "sshKeyID" : "00000000-0000-4000-8000-000000000201",
+      "startupCommand" : "tmux new -A -s main",
+      "tagIDs" : [
+        "00000000-0000-4000-8000-000000000011",
+        "00000000-0000-4000-8000-000000000015"
+      ],
+      "terminalType" : "xterm-256color",
+      "username" : "deploy"
+    }
+  ],
+  "schemaVersion" : 1,
+  "tags" : [
+    {
+      "color" : "blue",
+      "id" : "00000000-0000-4000-8000-000000000015",
+      "name" : "Tag blue"
+    },
+    {
+      "color" : "gray",
+      "id" : "00000000-0000-4000-8000-000000000017",
+      "name" : "Tag gray"
+    },
+    {
+      "color" : "green",
+      "id" : "00000000-0000-4000-8000-000000000014",
+      "name" : "Tag green"
+    },
+    {
+      "color" : "orange",
+      "id" : "00000000-0000-4000-8000-000000000012",
+      "name" : "Tag orange"
+    },
+    {
+      "color" : "purple",
+      "id" : "00000000-0000-4000-8000-000000000016",
+      "name" : "Tag purple"
+    },
+    {
+      "color" : "red",
+      "id" : "00000000-0000-4000-8000-000000000011",
+      "name" : "Tag red"
+    },
+    {
+      "color" : "yellow",
+      "id" : "00000000-0000-4000-8000-000000000013",
+      "name" : "Tag yellow"
+    }
+  ]
+}

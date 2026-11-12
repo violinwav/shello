@@ -1,0 +1,6 @@
+
+# Appended to sshd_config on the Alpine test servers, which have PAM (TestServers/README.md):
+# shello-2fa signs in with its key and then a one-time code, as a server with two-factor sign-in
+# asks. A Match block runs to the end of the file, so it goes last.
+Match User shello-2fa
+    AuthenticationMethods publickey,keyboard-interactive

@@ -1,0 +1,8 @@
+// Swift's view of libssh. ShelloSSH is the only target that imports it (docs/spec/STACK.md section 4).
+// Vendor/build.sh copies this file into libssh.xcframework next to libssh's headers.
+module CLibSSH [system] {
+    header "libssh/libssh.h"
+    header "libssh/callbacks.h"
+    header "libssh/sftp.h"
+    export *
+}
