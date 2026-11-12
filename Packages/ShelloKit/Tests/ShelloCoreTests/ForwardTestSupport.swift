@@ -111,6 +111,19 @@ final class LoopbackClient: Sendable {
         return true
     }
 
+    /// Whether `port` of 127.0.0.1 refuses connections within two seconds. A listener stops at once,
+    /// but the system lets go of its port a moment later (`NWListener.cancel()` is asynchronous): a
+    /// connection in that moment still completes, and Shello resets it at once. On a CI runner the
+    /// moment was long enough for a check right after closing the tab to connect.
+    static func isRefused(port: UInt16) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(2)
+        repeat {
+            if !(await canConnect(port: port)) { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        } while ContinuousClock.now < deadline
+        return false
+    }
+
     func send(_ bytes: [UInt8]) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             connection.send(

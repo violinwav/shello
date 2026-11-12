@@ -39,7 +39,7 @@ struct ForwardIntegrationTests {
         #expect(try await client.read(until: "\r\n").hasPrefix("SSH-2.0-OpenSSH_"))
         client.close()
         await tabs.close(tab).value
-        #expect(!(await LoopbackClient.canConnect(port: port)))
+        #expect(await LoopbackClient.isRefused(port: port))
     }
 
     /// Through a jump host, the forward runs on the last connection: its destination, `localhost`
@@ -104,7 +104,7 @@ struct ForwardIntegrationTests {
 
         #expect(tab.reconnecting != nil)
         #expect(tab.forwards.forwards.first?.state == .waiting)
-        #expect(!(await LoopbackClient.canConnect(port: port)))
+        #expect(await LoopbackClient.isRefused(port: port))
         proxy.restore()
         await waitUntil(timeout: .seconds(30)) {
             tab.state == .active && tab.forwards.forwards.first?.state == .listening(port: port, problem: nil)

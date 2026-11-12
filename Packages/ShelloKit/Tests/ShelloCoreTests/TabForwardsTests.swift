@@ -53,7 +53,7 @@ struct TabForwardsTests {
         await waitUntil { tab.state != .active }
 
         #expect(tab.forwards.forwards.first?.state == .waiting)
-        #expect(!(await LoopbackClient.canConnect(port: port)))
+        #expect(await LoopbackClient.isRefused(port: port))
         test.network.set(available: true)
         await waitUntil { tab.state == .active }
         await waitUntil { tab.forwards.forwards.first?.state == .listening(port: port, problem: nil) }
@@ -72,7 +72,7 @@ struct TabForwardsTests {
         await test.tabs.close(tab).value
 
         #expect(tab.forwards.forwards.first?.state == .waiting)
-        #expect(!(await LoopbackClient.canConnect(port: port)))
+        #expect(await LoopbackClient.isRefused(port: port))
     }
 
     /// As Shello leaves the foreground, the forwards stop at once, while the connection stays for
@@ -86,7 +86,7 @@ struct TabForwardsTests {
 
         #expect(tab.state == .active)
         #expect(tab.forwards.forwards.first?.state == .waiting)
-        #expect(!(await LoopbackClient.canConnect(port: port)))
+        #expect(await LoopbackClient.isRefused(port: port))
         test.tabs.isInForeground = true
         await waitUntil { tab.forwards.forwards.first?.state == .listening(port: port, problem: nil) }
         #expect(await LoopbackClient.canConnect(port: port))

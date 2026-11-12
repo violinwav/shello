@@ -177,7 +177,9 @@ public final class PortForwardListener: Sendable {
     /// The port the listener listens on, while it does.
     public var port: UInt16? { state.withLock(\.port) }
 
-    /// Stops listening, and ends every connection it accepted, at once. Stopping again does nothing.
+    /// Stops listening, and ends every connection it accepted, at once. The system lets go of the port
+    /// a moment later (`stopped()`): a connection that reaches it meanwhile is reset as it is accepted,
+    /// and never reaches a tunnel. Stopping again does nothing.
     public func stop() {
         let (listener, connections) = state.withLock { state in
             state.isStopped = true
