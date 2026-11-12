@@ -74,6 +74,7 @@ struct ShelloApp: App {
                         RootView()
                             .environment(\.hostRepository, services.hostRepository)
                             .environment(\.exportRepository, services.exportRepository)
+                            .environment(\.hostImportRepository, services.hostImportRepository)
                             .environment(\.secretStore, secrets)
                             .environment(\.sshKeyStore, sshKeys)
                             .environment(\.appLock, appLock)
@@ -129,12 +130,14 @@ struct ShelloApp: App {
 private struct Services {
     let hostRepository: HostRepository
     let exportRepository: ExportRepository
+    let hostImportRepository: HostImportRepository
     let hostKeyRepository: HostKeyRepository
     let hostConnector: HostConnector
 
     init(database: AppDatabase, secrets: SecretStore, keys: SSHKeyStore) {
         hostRepository = HostRepository(database)
         exportRepository = ExportRepository(database)
+        hostImportRepository = HostImportRepository(database)
         hostKeyRepository = HostKeyRepository(database)
         hostConnector = HostConnector(hostKeys: hostKeyRepository, secrets: secrets, keys: keys)
     }

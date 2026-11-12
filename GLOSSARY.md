@@ -22,7 +22,7 @@ _Avoid_: Server key, fingerprint (the fingerprint is how a host key is shown)
 
 **Trusted host key**:
 The host key the user accepted for a server on the first connection to it, kept in Shello's own trust store. Every later connection to the server must present it: a different host key is a changed host key, which blocks the connection.
-_Avoid_: Known host (OpenSSH's `known_hosts` file, which Shello does not use), saved fingerprint
+_Avoid_: Known host (OpenSSH's `known_hosts` file, which Shello only imports keys from, never reads when it connects), saved fingerprint
 
 **Jump host**:
 A saved SSH host that Shello connects through to reach another host's server, as OpenSSH's `ProxyJump` does. A host's jump hosts are an ordered list; each checks its own host key and signs in its own way. A jump host that was deleted stays in the list as a missing one, and the host does not connect until the list changes.
@@ -312,6 +312,10 @@ Sending the user's keystrokes to several open tabs at once.
 _Avoid_: Sync typing, synchronized panes
 
 ## Data
+
+**OpenSSH import**:
+Adding hosts from an OpenSSH config file, and trusted host keys from a known_hosts file, both picked in the Files app. Shello first shows what it adds, the hosts with their jump hosts and forwards and the host keys it trusts, and every line it does not use, with its number and why; the user then imports or cancels. It never replaces a trusted host key, and never follows an `Include`. It is not the import of an export.
+_Avoid_: SSH config sync, config import (an export is imported too)
 
 **Export**:
 The JSON file with all of Shello's non-secret data: its hosts, groups and tags, and later its snippets, presets and settings. Importing an export adds its records and replaces those already in Shello with the same identifier.

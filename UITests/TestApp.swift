@@ -131,9 +131,11 @@ extension XCUIApplication {
     /// Each ignored issue is attached to the test's results.
     /// - Parameter scrolled: Whether a list is scrolled down, so that its content goes under the
     ///   navigation bar in front, as a list longer than the screen always has text there: its rows
-    ///   lie closer together than the bar is tall. Element detection and the Dynamic Type check then
-    ///   also report the faded text, as text that no element represents and text whose size does not
-    ///   follow, without an element to say where. Those issues, and only those, are let through.
+    ///   lie closer together than the bar is tall. Element detection, the Dynamic Type check and the
+    ///   clipped-text check then also report the faded text, as text that no element represents, text
+    ///   whose size does not follow, and text that may be clipped, without an element to say where.
+    ///   Those issues, and only those, are let through. The import from OpenSSH's preview showed the
+    ///   last: a host's row under the bar, whose lines the contrast check reported one by one.
     @MainActor
     func auditAccessibility(scrolled: Bool = false) throws {
         var ignored: [String] = []
@@ -141,7 +143,7 @@ extension XCUIApplication {
         // Without a snapshot, nothing counts as under the bar.
         let bar = try? FrontNavigationBar(self)
         let shownChecks: XCUIAccessibilityAuditType = [.contrast, .dynamicType, .textClipped, .hitRegion]
-        let fadedTextChecks: XCUIAccessibilityAuditType = [.elementDetection, .dynamicType]
+        let fadedTextChecks: XCUIAccessibilityAuditType = [.elementDetection, .dynamicType, .textClipped]
         try audit(XCUIAccessibilityAuditType.all) { issue in
             let isPartiallyUnsupported =
                 issue.auditType == .dynamicType
@@ -598,7 +600,13 @@ extension XCUIApplication {
     /// Taps Import Data in the open Settings sheet and picks the file `name` in On My iPhone.
     @MainActor
     func importData(named name: String) {
-        showImporterOnMyIPhone()
+        pickFile(named: name, opening: buttons["Import Data…"])
+    }
+
+    /// Taps `button`, which opens the file importer, and picks the file `name` in On My iPhone.
+    @MainActor
+    func pickFile(named name: String, opening button: XCUIElement) {
+        showImporterOnMyIPhone(opening: button)
         // A picked file closes the importer at once, once Files knows it (see
         // `prepareFilesForPicking()`). A file the importer still shows is tapped again every ten
         // seconds, for up to three minutes.
@@ -642,10 +650,11 @@ extension XCUIApplication {
         XCTFail("The file importer never picks \(name)")
     }
 
-    /// Opens the file importer on On My iPhone from the open Settings sheet.
+    /// Opens the file importer on On My iPhone with `button`, by default the open Settings sheet's
+    /// Import Data.
     @MainActor
-    private func showImporterOnMyIPhone() {
-        buttons["Import Data…"].tap()
+    private func showImporterOnMyIPhone(opening button: XCUIElement? = nil) {
+        (button ?? buttons["Import Data…"]).tap()
         // The importer opens on the recent files; the exporter's files are under Browse.
         let browse = tabBars["DOC.browsingModeTabBar"].buttons["Browse"]
         XCTAssertTrue(browse.waitForExistence(timeout: 30))

@@ -4,7 +4,8 @@ import ShelloModel
 
 /// Shello's own trust store: the host key the user trusted for each server (README section 3, STACK
 /// section 7.2). Trust belongs to the server, its address and port, so it covers every host that
-/// points at the server. Shello never reads or writes OpenSSH's `known_hosts`.
+/// points at the server. Shello never reads or writes OpenSSH's `known_hosts` when it connects; it
+/// only imports keys from one the user picks, through `HostImportRepository`.
 ///
 /// Trusting adds a key for a server that has none. It never replaces a trusted key: a changed host
 /// key blocks the connection, and replacing the key takes an explicit action of its own,

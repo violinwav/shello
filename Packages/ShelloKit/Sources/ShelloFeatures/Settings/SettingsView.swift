@@ -9,25 +9,34 @@ import SwiftUI
 /// the terminal demo.
 struct SettingsView: View {
     @Environment(\.exportRepository) private var exportRepository
+    @Environment(\.hostImportRepository) private var hostImportRepository
     @Environment(\.appLock) private var appLock
     @Environment(\.sshKeyStore) private var sshKeys
 
     var body: some View {
-        SettingsList(exportRepository: exportRepository, appLock: appLock, sshKeys: sshKeys)
+        SettingsList(
+            exportRepository: exportRepository, hostImportRepository: hostImportRepository, appLock: appLock,
+            sshKeys: sshKeys)
     }
 }
 
-/// The settings, with export and import when the environment has the export repository, app lock
-/// when it has app lock, the SSH keys when it has their store, and the terminal when it has its
-/// settings.
+/// The settings, with export and import when the environment has the export repository, and the
+/// import from OpenSSH when it has the host import repository, app lock when it has app lock, the SSH
+/// keys when it has their store, and the terminal when it has its settings.
 private struct SettingsList: View {
+    let hostImportRepository: HostImportRepository?
     let appLock: AppLock?
     let sshKeys: SSHKeyStore?
     @Environment(\.terminalSettings) private var terminalSettings
     @Environment(\.dismiss) private var dismiss
     @State private var exportImport: ExportImportModel?
+    @State private var isImportingFromOpenSSH = false
 
-    init(exportRepository: ExportRepository?, appLock: AppLock?, sshKeys: SSHKeyStore?) {
+    init(
+        exportRepository: ExportRepository?, hostImportRepository: HostImportRepository?, appLock: AppLock?,
+        sshKeys: SSHKeyStore?
+    ) {
+        self.hostImportRepository = hostImportRepository
         self.appLock = appLock
         self.sshKeys = sshKeys
         _exportImport = State(initialValue: exportRepository.map { ExportImportModel(repository: $0) })
@@ -37,7 +46,9 @@ private struct SettingsList: View {
         NavigationStack {
             List {
                 if let exportImport {
-                    ExportImportSection(model: exportImport)
+                    ExportImportSection(
+                        model: exportImport,
+                        importFromOpenSSH: hostImportRepository.map { _ in { isImportingFromOpenSSH = true } })
                 }
                 if let appLock {
                     AppLockSection(appLock: appLock)
@@ -78,6 +89,11 @@ private struct SettingsList: View {
                 }
             }
             .exportAndImport(exportImport)
+            .sheet(isPresented: $isImportingFromOpenSSH) {
+                if let hostImportRepository {
+                    OpenSSHImportView(repository: hostImportRepository, sshKeys: sshKeys)
+                }
+            }
         }
     }
 
@@ -90,10 +106,13 @@ private struct SettingsList: View {
     }
 }
 
-/// Export and Import. Under them, first what is under way or what the last one did, where it stays
-/// in view at large text sizes, then what an export holds.
+/// Export and Import, and the import from OpenSSH's files when there is `importFromOpenSSH`. Under
+/// them, first what is under way or what the last one did, where it stays in view at large text
+/// sizes, then what an export holds and what the import from OpenSSH reads.
 private struct ExportImportSection: View {
     let model: ExportImportModel
+    /// Opens the import from an OpenSSH config file and a known_hosts file.
+    let importFromOpenSSH: (() -> Void)?
 
     var body: some View {
         Section {
@@ -105,6 +124,14 @@ private struct ExportImportSection: View {
                 model.isImporting = true
             }
             .labelStyle(.row)
+            if let importFromOpenSSH {
+                Button("Import from OpenSSH…", systemImage: "terminal") {
+                    importFromOpenSSH()
+                }
+                .labelStyle(.row)
+                // For Voice Control, which may hear "Open SSH" as two words.
+                .accessibilityInputLabels(["Import from OpenSSH", "Import from Open SSH", "OpenSSH"])
+            }
         } header: {
             SectionHeader("Export and Import")
         } footer: {
@@ -126,6 +153,11 @@ private struct ExportImportSection: View {
                     "One JSON file with your hosts, groups and tags. Passwords and SSH keys are never in it. "
                         + "Importing a file adds its hosts, groups and tags, and replaces any already in Shello "
                         + "with the file’s version. Nothing else changes.")
+                if importFromOpenSSH != nil {
+                    FooterText(
+                        "Import from OpenSSH adds the hosts of an OpenSSH config file, and the host keys of a "
+                            + "known_hosts file, after showing what it adds and what it leaves out.")
+                }
             }
         }
         .disabled(model.isWorking)

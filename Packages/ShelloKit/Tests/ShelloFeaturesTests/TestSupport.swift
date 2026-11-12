@@ -131,6 +131,7 @@ nonisolated final class TestDatabase: Sendable {
     let repository: HostRepository
     let exports: ExportRepository
     let hostKeys: HostKeyRepository
+    let hostImports: HostImportRepository
 
     init() throws {
         root = URL.temporaryDirectory.appending(
@@ -139,6 +140,7 @@ nonisolated final class TestDatabase: Sendable {
         repository = HostRepository(database)
         exports = ExportRepository(database)
         hostKeys = HostKeyRepository(database)
+        hostImports = HostImportRepository(database)
     }
 
     deinit {

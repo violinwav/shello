@@ -112,4 +112,44 @@ docker run --rm --volume "$REPO:/shello:ro" --workdir /tmp --env "SECONDS_PER_TA
     printf "\x05\x01\x00\x05\x02\x00\x01\x00\x00\x00\x00\x00\x00" >socks5-corpus/bind
     printf "\x04\x01\x00\x50\x7f\x00\x00\x01\x00" >socks5-corpus/socks4
     fuzz socks5
+
+    # The OpenSSH config file that hosts are imported from (README section 3): the parser, as it
+    # ships, with the target in one module.
+    swiftc -sanitize=fuzzer,address -parse-as-library -O -g \
+        /shello/Packages/ShelloKit/Sources/ShelloSSH/OpenSSHFiles/OpenSSHConfig.swift \
+        /shello/Fuzz/OpenSSHConfig/FuzzTarget.swift \
+        -o openssh-config
+
+    # Seeds: a config with an Include, a jump host, patterns with a negation, quotes, forwards of
+    # each kind and a Match block; and one with = signs, a token, an escape and comments.
+    mkdir -p openssh-config-corpus
+    printf "%s\n" "Include ~/.ssh/config.d/*" "Host bastion b.example.com" "  HostName b.example.com" \
+        "  User jump" "  Port 2222" "  IdentityFile \"~/.ssh/My Key\"" "Host web-* !web-old" \
+        "  ProxyJump bastion,ssh://me@[fd00::1]:22" "  LocalForward [::1]:8080 [fd00::5]:80" \
+        "  RemoteForward *:9000 localhost:3000" "  DynamicForward 1080" "Match host *.corp" "  User corp" \
+        "Host *" "  User me" >openssh-config-corpus/config
+    printf "%s\n" "hostname=%h.example.com # comment" "HOST a \"b c\"" "port = 22" "User a\\ b" \
+        >openssh-config-corpus/equals
+    fuzz openssh-config
+
+    # The known_hosts file that trusted host keys are imported from (README section 3): the parser,
+    # as it ships, with the target in one module.
+    swiftc -sanitize=fuzzer,address -parse-as-library -O -g \
+        /shello/Packages/ShelloKit/Sources/ShelloSSH/OpenSSHFiles/KnownHosts.swift \
+        /shello/Fuzz/KnownHosts/FuzzTarget.swift \
+        -o known-hosts
+
+    # Seeds: plain names, a port, a hashed name, a marker, a wildcard and a negation, and keys of the
+    # types Shello trusts: host key a of TestServers and the test keys of KnownHostsTests in ShelloSSHTests.
+    mkdir -p known-hosts-corpus
+    ed25519=AAAAC3NzaC1lZDI1NTE5AAAAIJFtpzQWVpf+aJ97q0dxz0/UukN2CIziag3hJj7pN6xi
+    p256=AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBJcVD/qqXVD8k/bD6p3DsW9/gEYXmgGiRVYo8Wny0WptZE5hFW0VAH4tDUmab+IEPduH+gOLeo1UYdM2RRGvJzw=
+    printf "%s\n" \
+        "a.example.com,10.0.0.1 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHgTJMsflS9c2SZNLqrNUxilEPdrI1trFCrvwBsv0BQ9" \
+        "[nas.lan]:2222 ecdsa-sha2-nistp256 $p256 the NAS" \
+        "|1|3UxmGYwopYVkXqT5fEFyxnSsMJI=|xQfSeaC8J+UDDeMPpuZ58ZzyVPs= ssh-ed25519 $ed25519" \
+        "@cert-authority *.example.com ssh-ed25519 $ed25519" \
+        "*.internal,!x.internal,db ssh-ed25519 $ed25519" \
+        "# comment" >known-hosts-corpus/known_hosts
+    fuzz known-hosts
 '

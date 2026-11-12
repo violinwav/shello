@@ -13,6 +13,10 @@ extension EnvironmentValues {
     /// Without it, Settings leaves export and import out.
     @Entry public var exportRepository: ExportRepository? = nil
 
+    /// The import of hosts from an OpenSSH config file and of trusted host keys from a known_hosts
+    /// file, on the same database as `hostRepository`. Without it, Settings leaves that import out.
+    @Entry public var hostImportRepository: HostImportRepository? = nil
+
     /// The passwords and passphrases in the Keychain, read inside the unlock window. Without it, the
     /// host editor has no password field, and deleting a host leaves the Keychain alone.
     @Entry public var secretStore: SecretStore? = nil

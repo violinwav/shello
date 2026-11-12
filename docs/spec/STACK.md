@@ -227,6 +227,11 @@ Consequences:
 **Host keys.**
 
 - Shello keeps its own trust store in the database, keyed by server (address and port), not libssh's `known_hosts` file.
+- **Import from OpenSSH's files (README section 3, v1).** The user picks an OpenSSH config file and, optionally, a `known_hosts` file in Files; Shello reads only those, so an `Include` is listed, not followed.
+  - **Parsers** written in-house, with the standard library only, and fuzzed (section 11, `Fuzz/OpenSSHConfig` and `Fuzz/KnownHosts`): `OpenSSHConfig` reads the config as ssh_config(5) does (keywords in any case, `=`, quotes and `\` escapes, comments, `Host` patterns with `*`, `?` and `!`, the first value winning, identity files and forwards adding up) and `KnownHosts` reads `known_hosts` as sshd(8) describes it, checking each key's wire format. Both are in `ShelloSSH/OpenSSHFiles`.
+  - **No cryptography in the parsers.** A `known_hosts` key becomes a `HostKey` through libssh (`ssh_pki_import_pubkey_base64`, then the same reading as a server's key), so that an imported key is exactly the key a connection finds. Hashed names (`|1|salt|hash`) are HMAC-SHA1 of the name keyed with the salt; the parser's matcher takes the HMAC as a function, and `KnownHostKeys.hmacSHA1` computes it with libssh's own HMAC over OpenSSL (`hmac_init`, `hmac_update`, `hmac_final`, declared in `CLibSSHInternal`). SHA-1 here is the file format's, never a connection's.
+  - **Planning and storing.** `OpenSSHImport` in ShelloCore plans the import against the saved hosts, the trusted keys and the SSH keys' names; the preview shows the plan. `HostImportRepository` stores the hosts and keys in one transaction, and trusts a key only for a server without one: it never replaces a trusted key, whatever the plan said.
+  - **Storage.** No migration and no new export version: the import adds hosts, with their jump hosts and forwards in the existing fields, and rows of the trust store.
 - The fingerprint shown is SHA-256, computed with `ssh_get_publickey_hash(SSH_PUBLICKEY_HASH_SHA256)`.
 - Replacing a stored host key requires a LocalAuthentication check: a fresh `LAContext` and `deviceOwnerAuthentication` each time, whether or not the unlock window is open, after the user confirmed the replacement. On a device without a passcode, which cannot ask anyone, the confirmation is enough, as with app lock.
 

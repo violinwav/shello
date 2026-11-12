@@ -50,7 +50,7 @@ A host is a saved entry that holds everything needed to reach one server as one 
 - v1: Auto sudo mode per host (section 9).
 - v1: Environment variables per host. OpenSSH only accepts variables the server lists in AcceptEnv, which accepts none by default, and the UI says so. The startup command (export NAME=value) works on every server.
 - v1: Jump hosts: a chain of one or more saved hosts (ProxyJump), each with its own credentials.
-- v1: Import from an OpenSSH config file and a known\_hosts file. Supported: Host, HostName, User, Port, IdentityFile, ProxyJump, LocalForward, RemoteForward. Unsupported directives are listed after import, never silently dropped.
+- v1: Import from an OpenSSH config file and a known\_hosts file. Supported: Host, HostName, User, Port, IdentityFile, ProxyJump, LocalForward, RemoteForward, DynamicForward. Unsupported directives are listed after import, never silently dropped.
 - v1: Reachability and latency. While the host list is visible, each directly reachable host is probed with a TCP connect to its port, at most once per minute. Hosts behind a jump host show status only while connected. Probing can be turned off globally and per host. Probing never triggers the Local Network prompt: hosts on the local network are probed only after the user has granted access.
 - v1: Duplicate a host, and per-group defaults (user, SSH key, jump host) that new hosts inherit.
 
